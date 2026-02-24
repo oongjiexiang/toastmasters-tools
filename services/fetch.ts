@@ -16,15 +16,15 @@
  */
 
 import { mkdirSync, writeFileSync } from "fs";
-import { fetchAllProgress, fetchDetail } from "./api";
-import { buildCsv, buildDetailCsv } from "./csv";
+import { fetchAllProgress, fetchDetail } from "../helpers/api";
+import { buildCsv, buildDetailCsv } from "../helpers/csv";
 import {
   DETAIL_OUTPUT_FILE,
   OUTPUT_FILE,
   RESULTS_DIR,
   SESSION_ID,
-} from "./config";
-import { DetailResponse, MemberProgress } from "./types";
+} from "../config";
+import { DetailResponse, MemberProgress } from "../types";
 
 async function main(): Promise<void> {
   if (!SESSION_ID) {

@@ -11,7 +11,7 @@
  */
 
 import { mkdirSync, writeFileSync } from "fs";
-import { RESULTS_DIR, TI_COOKIE } from "./config";
+import { RESULTS_DIR, TI_COOKIE } from "../config";
 
 const MEMBERSHIP_URL =
   "https://www.toastmasters.org/api/sitecore/ClubMembershipLanding/ExportClubMembershipToCSVDownload";

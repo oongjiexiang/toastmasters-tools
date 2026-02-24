@@ -1,4 +1,75 @@
-import { DetailResponse, DetailRow, MemberProgress } from "./types";
+import { DetailResponse, DetailRow, MemberProgress } from "../types";
+
+export function parseCSV(content: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+  let i = 0;
+
+  while (i < content.length) {
+    const ch = content[i];
+
+    if (inQuotes) {
+      if (ch === '"' && content[i + 1] === '"') {
+        field += '"';
+        i += 2;
+        continue;
+      } else if (ch === '"') {
+        inQuotes = false;
+      } else {
+        field += ch;
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ",") {
+        row.push(field);
+        field = "";
+      } else if (ch === "\r" && content[i + 1] === "\n") {
+        row.push(field);
+        field = "";
+        rows.push(row);
+        row = [];
+        i += 2;
+        continue;
+      } else if (ch === "\n") {
+        row.push(field);
+        field = "";
+        rows.push(row);
+        row = [];
+        i++;
+        continue;
+      } else {
+        field += ch;
+      }
+    }
+    i++;
+  }
+
+  // Flush last field/row
+  if (field !== "" || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+
+  return rows;
+}
+
+export function csvToObjects(rows: string[][]): Record<string, string>[] {
+  if (rows.length === 0) return [];
+  const headers = rows[0].map((h) => h.trim());
+  return rows
+    .slice(1)
+    .filter((r) => r.some((f) => f.trim() !== ""))
+    .map((row) => {
+      const obj: Record<string, string> = {};
+      headers.forEach((h, i) => {
+        obj[h] = (row[i] ?? "").trim();
+      });
+      return obj;
+    });
+}
 
 export function escapeCsvField(
   value: string | number | boolean | undefined
