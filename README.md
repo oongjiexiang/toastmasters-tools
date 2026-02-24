@@ -4,7 +4,7 @@ Fetches member progress from the Toastmasters Basecamp learning platform and the
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) v18 or later
+- [Node.js](https://nodejs.org/) v18 or later **— OR —** [Docker](https://www.docker.com/)
 - An active Toastmasters officer account with access to both Basecamp and toastmasters.org
 
 ## Installation
@@ -46,7 +46,7 @@ Both cookies expire with your browser session, so you will need to refresh them 
 npm start
 ```
 
-Presents a numbered menu to choose which script to run.
+Presents a numbered menu to choose which script(s) to run.
 
 ### Run scripts directly
 
@@ -57,6 +57,33 @@ Presents a numbered menu to choose which script to run.
 | `npm run analyze` | Generate member summary → `results/summary.csv` |
 
 Run **fetch** and **membership** first (in either order), then **analyze**.
+
+## Docker
+
+### Build the image
+
+```bash
+docker build -t user-retriever .
+```
+
+### Run
+
+```bash
+# macOS / Linux
+docker run -it --env-file .env -v "$(pwd)/results:/app/results" user-retriever
+
+# Windows PowerShell
+docker run -it --env-file .env -v "${PWD}/results:/app/results" user-retriever
+
+# Windows Command Prompt
+docker run -it --env-file .env -v "%cd%/results:/app/results" user-retriever
+```
+
+- `-it` — required for the interactive menu (keyboard input + coloured output)
+- `--env-file .env` — passes your credentials in; the `.env` file is never copied into the image
+- `-v .../results:/app/results` — mounts the local `results/` folder so output CSVs are written to your machine
+
+The `results/` folder will be created automatically if it does not exist.
 
 ## Output files
 
@@ -82,6 +109,8 @@ All files are written to the `results/` folder.
 ├── index.ts              # Interactive launcher (npm start)
 ├── config.ts             # Environment variables and shared constants
 ├── types.ts              # TypeScript type definitions
+├── Dockerfile            # Container image definition
+├── .dockerignore         # Files excluded from the Docker image
 ├── .env                  # Your local credentials (not committed)
 ├── .env.example          # Template for .env
 │
