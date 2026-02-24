@@ -1,0 +1,14 @@
+{
+  "name": "user-retriever",
+  "version": "1.0.0",
+  "description": "Fetch Toastmasters Basecamp member progress and export to CSV",
+  "type": "module",
+  "scripts": {
+    "fetch": "tsx fetch.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}
