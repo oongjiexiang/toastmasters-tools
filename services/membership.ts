@@ -10,6 +10,7 @@
  *   3. npm run membership
  */
 
+import { fileURLToPath } from "url";
 import { mkdirSync, writeFileSync } from "fs";
 import { RESULTS_DIR, TI_COOKIE } from "../config";
 
@@ -20,17 +21,16 @@ function todayDateString(): string {
   return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 }
 
-async function downloadMembership(): Promise<void> {
+export async function main(): Promise<void> {
   if (!TI_COOKIE) {
-    console.error(
-      "Error: TI_COOKIE is not set.\n" +
+    throw new Error(
+      "TI_COOKIE is not set.\n" +
         "  Add it to your .env file as TI_COOKIE=<value>\n" +
         "  How to get it:\n" +
         "    1. Log in to https://www.toastmasters.org\n" +
         "    2. Open DevTools (F12) → Application → Cookies → www.toastmasters.org\n" +
-        "    3. Copy all cookies as a single semicolon-separated string\n"
+        "    3. Copy all cookies as a single semicolon-separated string"
     );
-    process.exit(1);
   }
 
   console.log("Downloading membership CSV...");
@@ -55,7 +55,9 @@ async function downloadMembership(): Promise<void> {
   console.log(`Saved to: ${outputFile}`);
 }
 
-downloadMembership().catch((err) => {
-  console.error("Failed:", err instanceof Error ? err.message : err);
-  process.exit(1);
-});
+// if (process.argv[1] === fileURLToPath(import.meta.url)) {
+//   main().catch((err) => {
+//     console.error("Failed:", err instanceof Error ? err.message : err);
+//     process.exit(1);
+//   });
+// }

@@ -12,9 +12,11 @@
  *   npm run analyze
  */
 
+import { fileURLToPath } from "url";
 import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join, resolve } from "path";
-import { escapeCsvField, parseCSV, csvToObjects } from "../helpers/csv";
+import { parse } from "csv-parse/sync";
+import { stringify } from "csv-stringify/sync";
 import { findLatestMembershipFile } from "../helpers/files";
 import {
   isOverviewLesson,
@@ -25,6 +27,13 @@ import { RESULTS_DIR } from "../config";
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
+const PARSE_OPTS = {
+  columns: true,
+  skip_empty_lines: true,
+  trim: true,
+  relax_column_count: true,
+} as const;
+
 interface OutputRow {
   name: string;
   title: string;
@@ -34,21 +43,26 @@ interface OutputRow {
   remaining: string;
 }
 
-function main(): void {
+function readCsv(filePath: string): Record<string, string>[] {
+  const content = readFileSync(filePath, "utf-8");
+  if (content.trimStart().startsWith("<")) {
+    const hint = filePath.includes("membership")
+      ? 'Your TI_COOKIE has likely expired. Run "npm run membership" to refresh it.'
+      : 'Run "npm run fetch" to regenerate this file.';
+    throw new Error(`${filePath} contains HTML instead of CSV data.\n  ${hint}`);
+  }
+  return parse(content, PARSE_OPTS) as Record<string, string>[];
+}
+
+export function main(): void {
   const resultsDir = resolve(process.cwd(), RESULTS_DIR);
   const membershipPath = findLatestMembershipFile(resultsDir);
   console.log(`Using membership file: ${membershipPath}`);
 
   // ── Load CSVs ──────────────────────────────────────────────────────────────
-  const membershipRows = csvToObjects(
-    parseCSV(readFileSync(membershipPath, "utf-8"))
-  );
-  const progressRows = csvToObjects(
-    parseCSV(readFileSync(join(resultsDir, "progress.csv"), "utf-8"))
-  );
-  const detailRows = csvToObjects(
-    parseCSV(readFileSync(join(resultsDir, "details.csv"), "utf-8"))
-  );
+  const membershipRows = readCsv(membershipPath);
+  const progressRows = readCsv(join(resultsDir, "progress.csv"));
+  const detailRows = readCsv(join(resultsDir, "details.csv"));
 
   // ── Build lookup: email → membership row ──────────────────────────────────
   const membershipByEmail = new Map<string, Record<string, string>>();
@@ -183,36 +197,33 @@ function main(): void {
 
   // ── Write summary CSV ─────────────────────────────────────────────────────
   outputRows.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
-  const header = [
-    "Name",
-    "Title",
-    "Pathways",
-    "Next Level to Complete",
-    "Next Project",
-    "Remaining Projects",
-  ].join(",");
 
-  const lines = [
-    header,
-    ...outputRows.map((r) =>
-      [
-        escapeCsvField(r.name),
-        escapeCsvField(r.title),
-        escapeCsvField(r.pathways),
-        escapeCsvField(r.nextLevel),
-        escapeCsvField(r.nextProject),
-        escapeCsvField(r.remaining),
-      ].join(",")
-    ),
-  ];
+  const output = stringify(
+    outputRows.map((r) => ({
+      "Name": r.name,
+      "Title": r.title,
+      "Pathways": r.pathways,
+      "Next Level to Complete": r.nextLevel,
+      "Next Project": r.nextProject,
+      "Remaining Projects": r.remaining,
+    })),
+    { header: true }
+  );
 
   const outputPath = join(resultsDir, "summary.csv");
   mkdirSync(resultsDir, { recursive: true });
-  writeFileSync(outputPath, lines.join("\n"), "utf-8");
+  writeFileSync(outputPath, output, "utf-8");
 
   console.log(
     `\nSummary CSV saved to: ${outputPath} (${outputRows.length} rows)`
   );
 }
 
-main();
+// if (process.argv[1] === fileURLToPath(import.meta.url)) {
+//   try {
+//     main();
+//   } catch (err) {
+//     console.error("Failed:", err instanceof Error ? err.message : err);
+//     process.exit(1);
+//   }
+// }
