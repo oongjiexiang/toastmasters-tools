@@ -15,15 +15,16 @@
  *   4. Set it as BASECAMP_SESSIONID in your .env file
  */
 
-import { writeFileSync } from "fs";
-import { fetchAllProgress, fetchDetail } from "./api.js";
-import { buildCsv, buildDetailCsv } from "./csv.js";
+import { mkdirSync, writeFileSync } from "fs";
+import { fetchAllProgress, fetchDetail } from "./api";
+import { buildCsv, buildDetailCsv } from "./csv";
 import {
   DETAIL_OUTPUT_FILE,
   OUTPUT_FILE,
+  RESULTS_DIR,
   SESSION_ID,
-} from "./config.js";
-import { DetailResponse, MemberProgress } from "./types.js";
+} from "./config";
+import { DetailResponse, MemberProgress } from "./types";
 
 async function main(): Promise<void> {
   if (!SESSION_ID) {
@@ -41,6 +42,7 @@ async function main(): Promise<void> {
     // Step 1: Fetch all overview data
     const members = await fetchAllProgress();
     const overviewCsv = buildCsv(members);
+    mkdirSync(RESULTS_DIR, { recursive: true });
     writeFileSync(OUTPUT_FILE, overviewCsv, "utf-8");
     console.log(`Overview CSV saved to: ${OUTPUT_FILE} (${members.length} rows)\n`);
 

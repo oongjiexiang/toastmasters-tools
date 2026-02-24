@@ -1,5 +1,5 @@
 import { BASE_URL, CLUB_ID, SESSION_ID } from "./config";
-import { ApiResponse, DetailResponse, MemberProgress } from "./types.js";
+import { ApiResponse, DetailResponse, MemberProgress } from "./types";
 
 function buildHeaders(): Record<string, string> {
   const headers: Record<string, string> = {

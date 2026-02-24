@@ -26,6 +26,8 @@ loadEnv();
 
 export const CLUB_ID = process.env.CLUB_ID ?? "7232e89a-8cd7-ec11-a2fd-005056875f20";
 export const SESSION_ID = process.env.BASECAMP_SESSIONID ?? "";
-export const OUTPUT_FILE = process.env.OUTPUT_FILE ?? "progress.csv";
-export const DETAIL_OUTPUT_FILE = process.env.DETAIL_OUTPUT_FILE ?? "details.csv";
+export const TI_COOKIE = process.env.TI_COOKIE ?? "";
+export const RESULTS_DIR = "results";
+export const OUTPUT_FILE = process.env.OUTPUT_FILE ?? `${RESULTS_DIR}/progress.csv`;
+export const DETAIL_OUTPUT_FILE = process.env.DETAIL_OUTPUT_FILE ?? `${RESULTS_DIR}/details.csv`;
 export const BASE_URL = "https://basecamp.toastmasters.org/api/bcm/progress/";

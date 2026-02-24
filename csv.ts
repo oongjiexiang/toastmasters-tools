@@ -1,4 +1,4 @@
-import { DetailResponse, DetailRow, MemberProgress } from "./types.js";
+import { DetailResponse, DetailRow, MemberProgress } from "./types";
 
 export function escapeCsvField(
   value: string | number | boolean | undefined

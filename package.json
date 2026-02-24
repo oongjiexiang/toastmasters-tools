@@ -4,7 +4,8 @@
   "description": "Fetch Toastmasters Basecamp member progress and export to CSV",
   "type": "module",
   "scripts": {
-    "fetch": "tsx fetch.ts"
+    "fetch": "tsx fetch.ts",
+    "membership": "tsx membership.ts"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
