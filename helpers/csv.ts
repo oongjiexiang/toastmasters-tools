@@ -64,7 +64,7 @@ export function buildCsv(data: MemberProgress[]): string {
       row[`${level} Completed`] = prog?.completed ?? "";
       row[`${level} Total`] = prog?.total ?? "";
       if (level !== "Path Completion") {
-        row[`${level} Approved`] = prog?.approved ?? "";
+        row[`${level} Approved`] = prog?.approved ? "true" : "";
       }
     }
     return row;

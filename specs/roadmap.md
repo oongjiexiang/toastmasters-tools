@@ -16,27 +16,27 @@ Phases are ordered so each one delivers usable value on its own. A phase should 
 
 ---
 
-## Phase 1 — SQLite persistence
+## Phase 1 — Done (SQLite persistence)
 
 _Enables history and removes redundant API calls._
 
-- [ ] Add `better-sqlite3` dependency
-- [ ] On each `fetch` run, write a timestamped snapshot of progress rows into SQLite alongside the CSV
-- [ ] On each `membership` run, write a timestamped snapshot of membership rows into SQLite
-- [ ] Expose a `npm run diff` command that compares the two most recent snapshots and prints who advanced, who joined, and who went unpaid
+- [x] Add `better-sqlite3` dependency
+- [x] On each `fetch` run, write a timestamped snapshot of progress rows into SQLite alongside the CSV
+- [x] On each `membership` run, write a timestamped snapshot of membership rows into SQLite
+- [x] Expose a `npm run diff` command that compares the two most recent snapshots and prints who advanced, who joined, and who went unpaid
 
 **Validation:** Run `fetch` and `membership` twice (simulating two monthly runs). `npm run diff` prints a non-empty change list reflecting at least one known difference between the two snapshots (e.g. a member whose level was manually advanced in Basecamp between runs).
 
 ---
 
-## Phase 2 — Local web UI
+## Phase 2 — Done (Local web UI)
 
 _Answer the one core question quickly: has a member achieved a given level, and what projects remain?_
 
-- [ ] Add a local HTTP server (`npm run ui`) that serves a dashboard on `localhost:3000`
-- [ ] Table view: all members with their pathway, current title (highest approved level), and projects remaining in the next level
-- [ ] Detail view: click a member to see every project in the current level — which are done and which are outstanding
-- [ ] Reads from SQLite (Phase 1 prerequisite); falls back to latest CSVs if no DB exists
+- [x] Add a local HTTP server (`npm run ui`) that serves a dashboard on `localhost:3000`
+- [x] Table view: all members with their pathway, current title (highest approved level), and projects remaining in the next level
+- [x] Detail view: click a member to see every project in the current level — which are done and which are outstanding
+- [x] Reads from SQLite (Phase 1 prerequisite); falls back to latest CSVs if no DB exists
 
 **Validation:** Open `localhost:3000`, find a known member, click their row, and confirm the project list matches what `details.csv` shows for their current level — including which projects are complete and which are not.
 

@@ -9,6 +9,7 @@
     "membership": "tsx services/membership.ts",
     "analyze": "tsx services/analyze.ts",
     "diff": "tsx services/diff.ts",
+    "ui": "tsx services/ui.ts",
     "validate": "tsx scripts/validate-phase1.ts"
   },
   "devDependencies": {

@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { parse } from "csv-parse/sync";
-import { mkdirSync } from "fs";
+import { existsSync, mkdirSync } from "fs";
 import { resolve } from "path";
 import { RESULTS_DIR } from "../config";
 import { MemberProgress } from "../types";
@@ -257,6 +257,83 @@ export function getMembershipDiff(dbPath = DEFAULT_DB_PATH): MembershipDiff | nu
       email: r.email, name: r.name, oldStatus: r.old_status, newStatus: r.new_status,
     })),
   };
+}
+
+// ── Latest-snapshot queries (used by services/ui.ts) ─────────────────────────
+
+export interface ProgressSnapshot {
+  email: string;
+  firstName: string;
+  lastName: string;
+  pathName: string;
+  level1: boolean;
+  level2: boolean;
+  level3: boolean;
+  level4: boolean;
+  level5: boolean;
+  pathDone: boolean;
+}
+
+export interface MembershipSnapshotRow {
+  email: string;
+  name: string;
+  status: string;
+  credentials: string;
+}
+
+export function getLatestProgress(dbPath = DEFAULT_DB_PATH): ProgressSnapshot[] | null {
+  if (!existsSync(dbPath)) return null;
+  const db = openDb(dbPath);
+
+  const latest = db.prepare(
+    "SELECT captured_at FROM progress_snapshots ORDER BY captured_at DESC LIMIT 1"
+  ).get() as { captured_at: string } | undefined;
+
+  if (!latest) { db.close(); return null; }
+
+  type RawRow = {
+    email: string; first_name: string; last_name: string; path_name: string;
+    level_1: number; level_2: number; level_3: number; level_4: number; level_5: number; path_done: number;
+  };
+
+  const rows = db.prepare(`
+    SELECT email, first_name, last_name, path_name,
+           level_1, level_2, level_3, level_4, level_5, path_done
+    FROM progress_snapshots WHERE captured_at = ?
+  `).all(latest.captured_at) as RawRow[];
+
+  db.close();
+
+  return rows.map(r => ({
+    email: r.email,
+    firstName: r.first_name,
+    lastName: r.last_name,
+    pathName: r.path_name,
+    level1: r.level_1 === 1,
+    level2: r.level_2 === 1,
+    level3: r.level_3 === 1,
+    level4: r.level_4 === 1,
+    level5: r.level_5 === 1,
+    pathDone: r.path_done === 1,
+  }));
+}
+
+export function getLatestMembership(dbPath = DEFAULT_DB_PATH): MembershipSnapshotRow[] | null {
+  if (!existsSync(dbPath)) return null;
+  const db = openDb(dbPath);
+
+  const latest = db.prepare(
+    "SELECT captured_at FROM membership_snapshots ORDER BY captured_at DESC LIMIT 1"
+  ).get() as { captured_at: string } | undefined;
+
+  if (!latest) { db.close(); return null; }
+
+  const rows = db.prepare(
+    "SELECT email, name, status, credentials FROM membership_snapshots WHERE captured_at = ?"
+  ).all(latest.captured_at) as MembershipSnapshotRow[];
+
+  db.close();
+  return rows;
 }
 
 // ── Print helpers (thin wrappers used by services/diff.ts) ───────────────────

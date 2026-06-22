@@ -19,6 +19,7 @@ import { parse } from "csv-parse/sync";
 import { stringify } from "csv-stringify/sync";
 import { findLatestMembershipFile } from "../helpers/files";
 import {
+  isLevelDone,
   isOverviewLesson,
   nextLevelToComplete,
   pathwayInitials,
@@ -123,7 +124,7 @@ export function main(): void {
     } else {
       // Find highest approved level in this pathway row
       for (let n = 5; n >= 1; n--) {
-        if (prog[`Level ${n} Approved`] === "true") {
+        if (isLevelDone(prog, `Level ${n}`)) {
           title = pathwayInitials(pathName) + n;
           break;
         }

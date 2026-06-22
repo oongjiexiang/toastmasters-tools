@@ -34,7 +34,8 @@ export function isLevelDone(
     const total = parseInt(prog["Path Completion Total"] ?? "0", 10);
     return total > 0 && completed >= total;
   }
-  return prog[`${level} Approved`] === "true";
+  const val = prog[`${level} Approved`];
+  return val === "true" || val === "1";
 }
 
 /** Returns the first level the member still needs to complete, or "Completed". */
