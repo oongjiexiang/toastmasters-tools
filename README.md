@@ -1,6 +1,6 @@
 # Toastmasters User Retriever
 
-Fetches member progress from the Toastmasters Basecamp learning platform and the club membership roster, then produces a summary CSV for VPE reporting.
+Fetches member progress from the Toastmasters Basecamp learning platform and the club membership roster, then produces a summary CSV and local web dashboard for VPE reporting.
 
 ## Prerequisites
 
@@ -52,11 +52,28 @@ Presents a numbered menu to choose which script(s) to run.
 
 | Command | Description |
 |---|---|
-| `npm run fetch` | Download Basecamp progress data → `results/progress.csv` + `results/details.csv` |
-| `npm run membership` | Download club membership roster → `results/membership-YYYY-MM-DD.csv` |
+| `npm run fetch` | Download Basecamp progress data → `results/progress.csv` + `results/details.csv`, snapshot to SQLite |
+| `npm run membership` | Download club membership roster → `results/membership-YYYY-MM-DD.csv`, snapshot to SQLite |
 | `npm run analyze` | Generate member summary → `results/summary.csv` |
+| `npm run diff` | Show what changed since the previous run (who advanced, joined, or went unpaid) |
+| `npm run ui` | Start the local web dashboard at `http://localhost:3000` |
 
-Run **fetch** and **membership** first (in either order), then **analyze**.
+Run **fetch** and **membership** first (in either order), then **analyze** or **ui**.
+
+### Web dashboard
+
+```bash
+npm run ui
+```
+
+Opens a dashboard at `http://localhost:3000`:
+
+- **Table view** — all paid members with their pathway, current title, next level to complete, and remaining project count. Click a member to drill in.
+- **Detail view** — every project in a member's current level, marked Done or Pending.
+
+The dashboard reads from the SQLite snapshot (written by `fetch` and `membership`) and falls back to the CSV files if no snapshot exists yet.
+
+Press `Ctrl+C` to stop the server.
 
 ## Docker
 
@@ -81,7 +98,7 @@ docker run -it --env-file .env -v "%cd%/results:/app/results" user-retriever
 
 - `-it` — required for the interactive menu (keyboard input + coloured output)
 - `--env-file .env` — passes your credentials in; the `.env` file is never copied into the image
-- `-v .../results:/app/results` — mounts the local `results/` folder so output CSVs are written to your machine
+- `-v .../results:/app/results` — mounts the local `results/` folder so output files are written to your machine
 
 The `results/` folder will be created automatically if it does not exist.
 
@@ -95,8 +112,9 @@ All files are written to the `results/` folder.
 | `details.csv` | One row per lesson per member per pathway. Captures completion status, type (Core/Elective), and speech details. |
 | `membership-YYYY-MM-DD.csv` | Raw export from toastmasters.org. Used to determine paid membership status and earned credentials. |
 | `summary.csv` | One row per member per pathway. Columns: Name, Title, Pathways, Next Level to Complete, Next Project, Remaining Projects. |
+| `db.sqlite` | SQLite database holding timestamped snapshots from each `fetch` and `membership` run. Used by `diff` and `ui`. |
 
-### Title logic in `summary.csv`
+### Title logic
 
 - **DTM** — member holds a DTM credential in the membership roster
 - **XX5**, **XX4**, … — pathway initials + highest approved level (e.g. `PM3` = Presentation Mastery Level 3 approved)
@@ -117,11 +135,14 @@ All files are written to the `results/` folder.
 ├── services/
 │   ├── fetch.ts          # Downloads Basecamp progress data
 │   ├── membership.ts     # Downloads TI membership CSV
-│   └── analyze.ts        # Generates summary.csv
+│   ├── analyze.ts        # Generates summary.csv
+│   ├── diff.ts           # Prints change report between the two latest snapshots
+│   └── ui.ts             # Local web dashboard (port 3000)
 │
 ├── helpers/
 │   ├── api.ts            # Basecamp API calls (fetchAllProgress, fetchDetail)
 │   ├── csv.ts            # CSV building utilities (buildCsv, buildDetailCsv)
+│   ├── db.ts             # SQLite snapshot read/write (snapshotProgress, snapshotMembership, …)
 │   ├── files.ts          # File utilities (findLatestMembershipFile)
 │   └── pathway.ts        # Pathway/level logic (pathwayInitials, isLevelDone, …)
 │
