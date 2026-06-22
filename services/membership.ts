@@ -12,6 +12,7 @@
 
 import { fileURLToPath } from "url";
 import { mkdirSync, writeFileSync } from "fs";
+import { snapshotMembership } from "../helpers/db";
 import { RESULTS_DIR, TI_COOKIE } from "../config";
 
 const MEMBERSHIP_URL =
@@ -51,8 +52,8 @@ export async function main(): Promise<void> {
   const outputFile = `${RESULTS_DIR}/membership-${todayDateString()}.csv`;
   mkdirSync(RESULTS_DIR, { recursive: true });
   writeFileSync(outputFile, csv, "utf-8");
-
   console.log(`Saved to: ${outputFile}`);
+  snapshotMembership(csv);
 }
 
 // if (process.argv[1] === fileURLToPath(import.meta.url)) {

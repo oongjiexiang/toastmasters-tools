@@ -19,6 +19,7 @@ import { fileURLToPath } from "url";
 import { mkdirSync, writeFileSync } from "fs";
 import { fetchAllProgress, fetchDetail } from "../helpers/api";
 import { buildCsv, buildDetailCsv } from "../helpers/csv";
+import { snapshotProgress } from "../helpers/db";
 import {
   DETAIL_OUTPUT_FILE,
   OUTPUT_FILE,
@@ -44,6 +45,7 @@ export async function main(): Promise<void> {
   mkdirSync(RESULTS_DIR, { recursive: true });
   writeFileSync(OUTPUT_FILE, overviewCsv, "utf-8");
   console.log(`Overview CSV saved to: ${OUTPUT_FILE} (${members.length} rows)\n`);
+  snapshotProgress(members);
 
   // Step 2: Fetch detail for each member
   console.log(`Fetching lesson details for ${members.length} members...`);

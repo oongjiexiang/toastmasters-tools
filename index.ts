@@ -11,6 +11,7 @@ import { createInterface } from "readline";
 import { main as fetch } from "./services/fetch";
 import { main as membership } from "./services/membership";
 import { main as analyze } from "./services/analyze";
+import { main as diff } from "./services/diff";
 
 const choices = [
   {
@@ -24,6 +25,10 @@ const choices = [
   {
     label: "Analyze    — Generate summary report (summary.csv)",
     main: analyze,
+  },
+  {
+    label: "Diff       — Show what changed since the previous run",
+    main: diff,
   },
 ];
 

@@ -1,9 +1,9 @@
-FROM node:22-alpine3.21
+FROM node:22-slim
 
 WORKDIR /app
 
 # Update base packages to pull latest security fixes
-RUN apk update && apk upgrade --no-cache
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies first (separate layer for caching)
 COPY package*.json ./

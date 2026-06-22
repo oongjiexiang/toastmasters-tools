@@ -7,14 +7,18 @@
     "start": "tsx index.ts",
     "fetch": "tsx services/fetch.ts",
     "membership": "tsx services/membership.ts",
-    "analyze": "tsx services/analyze.ts"
+    "analyze": "tsx services/analyze.ts",
+    "diff": "tsx services/diff.ts",
+    "validate": "tsx scripts/validate-phase1.ts"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20.0.0",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0"
   },
   "dependencies": {
+    "better-sqlite3": "^12.11.1",
     "csv-parse": "^6.1.0",
     "csv-stringify": "^6.6.0"
   }
