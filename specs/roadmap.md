@@ -1,6 +1,12 @@
 # Roadmap
 
-Phases are ordered so each one delivers usable value on its own. A phase should be completable in a single sitting.
+Phases are ordered so each one delivers usable value on its own. A phase should be
+completable in a single sitting. Each phase lists a concrete validation criterion.
+
+> **Sequencing note (load-bearing):** per-project lesson detail currently lives **only**
+> in `details.csv`. SQLite stores level approval flags, not individual projects. So the
+> "all levels" detail view (Phase 3) first migrates per-project data into SQLite. Only
+> after that is the CSV layer safe to remove (Phase 6). Do not reorder these.
 
 ---
 
@@ -8,46 +14,110 @@ Phases are ordered so each one delivers usable value on its own. A phase should 
 
 - [x] Fetch Basecamp progress for all members (`progress.csv`, `details.csv`)
 - [x] Download TI membership roster (`membership-YYYY-MM-DD.csv`)
-- [x] Generate unified summary (`summary.csv`) with title, next level, next project, remaining count
+- [x] Generate unified summary (`summary.csv`)
 - [x] Interactive CLI launcher (`npm start`)
 - [x] Docker support
 
-**Validation:** `npm run analyze` produces a `summary.csv` where row counts match the number of paid members in the membership CSV, and spot-checking 2–3 known members confirms their title and next project are correct.
+**Validation:** `npm run analyze` produces a `summary.csv` whose row count matches paid
+members in the membership CSV; spot-checking 2–3 known members confirms title and next project.
 
 ---
 
 ## Phase 1 — Done (SQLite persistence)
 
-_Enables history and removes redundant API calls._
+- [x] Add `better-sqlite3`; snapshot progress + membership rows on each run
+- [x] `npm run diff` compares the two most recent snapshots
 
-- [x] Add `better-sqlite3` dependency
-- [x] On each `fetch` run, write a timestamped snapshot of progress rows into SQLite alongside the CSV
-- [x] On each `membership` run, write a timestamped snapshot of membership rows into SQLite
-- [x] Expose a `npm run diff` command that compares the two most recent snapshots and prints who advanced, who joined, and who went unpaid
-
-**Validation:** Run `fetch` and `membership` twice (simulating two monthly runs). `npm run diff` prints a non-empty change list reflecting at least one known difference between the two snapshots (e.g. a member whose level was manually advanced in Basecamp between runs).
+**Validation:** Run `fetch` + `membership` twice; `npm run diff` prints a non-empty change
+list reflecting a known difference between snapshots.
 
 ---
 
 ## Phase 2 — Done (Local web UI)
 
-_Answer the one core question quickly: has a member achieved a given level, and what projects remain?_
+- [x] Local HTTP server (`npm run ui`) serving a dashboard on `localhost:3000`
+- [x] Table view: members with pathway, title, projects remaining in next level
+- [x] Detail view: every project in the member's **next** level (done vs. outstanding)
+- [x] Reads from SQLite; falls back to latest CSVs
 
-- [x] Add a local HTTP server (`npm run ui`) that serves a dashboard on `localhost:3000`
-- [x] Table view: all members with their pathway, current title (highest approved level), and projects remaining in the next level
-- [x] Detail view: click a member to see every project in the current level — which are done and which are outstanding
-- [x] Reads from SQLite (Phase 1 prerequisite); falls back to latest CSVs if no DB exists
-
-**Validation:** Open `localhost:3000`, find a known member, click their row, and confirm the project list matches what `details.csv` shows for their current level — including which projects are complete and which are not.
+**Validation:** Open `localhost:3000`, click a known member, confirm the next-level project
+list matches `details.csv`.
 
 ---
 
-## Phase 3 — Hardened pipeline (low priority)
+## Phase 3 — Member detail across ALL levels
+
+_Today the detail page only shows the next level. The VPE needs the full picture._
+
+- [ ] **Persist per-project detail in SQLite** (`project_snapshots` table) on each `fetch`
+      run — this is the prerequisite that unblocks Phase 6
+- [ ] Detail view lists **every** project across Levels 1–5 + Path Completion, grouped by
+      level in expand/collapse accordions (default: expanded)
+- [ ] Expand all / Collapse all controls
+- [ ] Per-level completion badge (e.g. "3 / 4" or "Complete")
+
+**Validation:** Open a member who has completed Level 1 but not Level 3. The detail page
+shows all six level groups; Level 1 is badged complete, Level 3 lists its outstanding
+projects, and the figures match `details.csv` for that member.
+
+---
+
+## Phase 4 — Next.js + shadcn/ui migration
+
+_See `architecture-react.md` (ADR) for the full decision, API contract, and migration steps._
+
+- [ ] Install Next.js 15 + React 19 + Tailwind + shadcn/ui into the existing root package
+      (no separate `web/` subfolder — unified codebase)
+- [ ] Add Next.js API routes (`app/api/…`) — replaces the hand-rolled Node HTTP server
+- [ ] Rebuild dashboard + all-levels detail view (Phase 3) as React components using shadcn/ui
+- [ ] `npm run dev` (`next dev`) serves both the UI and API on `localhost:3000`
+- [ ] Old HTML string server (`services/ui.ts`) removed once React UI reaches parity
+
+**Validation:** `npm run dev` serves the React dashboard on `localhost:3000`; every Phase 2/3
+view works; API routes read directly from SQLite; no CSV reads in the request path.
+
+---
+
+## Phase 5 — Testing infrastructure
+
+_There are currently zero unit tests. Establish the framework and baseline coverage._
+
+- [ ] Add **vitest** + `@vitest/coverage-v8`; `npm test` and `npm run test:cov`
+- [ ] First tests authored by the tester agent
+- [ ] Baseline coverage for `helpers/` (pure logic: `pathway.ts`, `db.ts` queries) and the
+      API mappers in `services/`
+- [ ] Coverage target: 70% lines on `helpers/`, smoke coverage on each API endpoint mapper
+
+**Validation:** `npm test` passes; `npm run test:cov` reports ≥70% line coverage on
+`helpers/` and at least one test per API endpoint.
+
+---
+
+## Phase 6 — CSV cleanup
+
+_The dashboard is now authoritative. The CSV workarounds predate it. Requires Phase 3's
+`project_snapshots` table (per-project detail must already live in SQLite)._
+
+- [ ] Delete `results/details.csv`, `results/progress.csv`, `results/summary.csv` and stop
+      writing them from `fetch`
+- [ ] **Keep** `membership-YYYY-MM-DD.csv` (downloadable from the UI)
+- [ ] Remove `services/analyze.ts` and `scripts/validate-phase1.ts`
+- [ ] Prune npm scripts: remove `analyze`, `diff`, `validate`, `ui`. Keep `fetch`,
+      `membership`, `cli` (was `start`), `dev`, `build`, `start` (Next.js), `test`
+
+**Validation:** Fresh clone → `npm run fetch && npm run ui` produces a fully working
+dashboard (including all-levels detail and diff) with no `details.csv`/`progress.csv`/
+`summary.csv` on disk and no code referencing them.
+
+---
+
+## Deferred — Hardened pipeline (was Phase 3, low priority)
 
 _Pain point: cookie expiry silently breaks runs; manual step order is error-prone._
 
-- [ ] Add a `npm run all` (or menu option) that runs fetch → membership → analyze in sequence, stopping cleanly on first failure
-- [ ] Detect expired/invalid cookies at startup and print a precise remediation message before making any API calls
-- [ ] Validate that `results/` input files exist and are recent before running `analyze`; warn if they are older than N days
+- [ ] `npm run all` runs fetch → membership in sequence, stopping cleanly on first failure
+- [ ] Detect expired/invalid cookies at startup with a precise remediation message
+- [ ] Warn when `results/` inputs are older than N days
 
-**Validation:** Set an invalid `BASECAMP_SESSIONID` in `.env` and run `npm run all` — the process should exit immediately with a clear message naming the cookie and the steps to refresh it, without making any API calls or writing any files.
+**Validation:** Set an invalid `BASECAMP_SESSIONID` and run `npm run all` — it exits
+immediately naming the cookie and refresh steps, with no API calls or file writes.

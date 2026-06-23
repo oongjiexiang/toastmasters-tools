@@ -29,16 +29,40 @@ Add a SQLite file (`results/db.sqlite`) to persist snapshots after each run:
 
 Likely driver: `better-sqlite3` (synchronous, zero native deps on Node 18+).
 
-### Layer 3 — Local web UI
+### Layer 3 — Local web UI (Phase 2, done)
 
-Add a lightweight local HTTP server (e.g. `express` or Node's built-in `http`) that reads from SQLite and serves a simple HTML dashboard:
+A local HTTP server (Node's built-in `http`) reads from SQLite and serves the dashboard on
+`localhost` only. In Phase 4 this is replaced by Next.js API routes + React pages.
 
-- Filter/sort members by level, pathway, title, or membership status.
-- Highlight members close to a level completion or at risk of expiry.
-- No external hosting — runs on `localhost` only.
+### Layer 4 — Next.js frontend (Phase 4)
+
+| Concern | Choice | Why |
+|---|---|---|
+| Framework | **Next.js 15** (App Router) | Full-stack: API routes replace the custom Node HTTP server; one `next dev` command; no separate `web/` subfolder or proxy |
+| UI library | React 19 (bundled with Next.js) | Component model for accordion/detail views |
+| Styling | Tailwind CSS | Required by shadcn; utility-first keeps CSS local to components |
+| Components | shadcn/ui (Radix + Tailwind) | Accessible primitives (Accordion, Table, Badge) copied into `components/ui/` — no runtime lock-in. See ADR `architecture-react.md` |
+| Data fetching | Next.js API routes + `fetch` in React | Server-side: `better-sqlite3` in API routes; client-side: typed `fetch` wrappers |
+
+shadcn/ui is **not an npm package** — its CLI copies component source into `components/ui/`,
+so we own and can edit every component. The Next.js App Router is the primary shadcn target.
+
+**Why Next.js over Vite + Node HTTP (prior decision):** eliminates the `web/` subfolder and
+separate `package.json`; API routes replace the hand-rolled Node server; one `npm run dev`
+command instead of two processes. See ADR for full comparison.
+
+### Layer 5 — Testing (Phase 5)
+
+| Concern | Choice | Why |
+|---|---|---|
+| Test runner | **vitest** | Native ESM + TS (matches our `tsx` setup), Vite-aligned, Jest-compatible API |
+| Coverage | `@vitest/coverage-v8` | Built-in, no extra config |
+| Scope | `helpers/` pure logic + API endpoint mappers | Highest value, lowest mocking cost |
 
 ## Constraints
 
 - **No cloud dependencies** for runtime. Credentials are local; data never leaves the machine.
-- **No build step required** for development. `tsx` watches files; the CLI stays runnable with `npm start`.
+- **CLI stays build-free.** `tsx` runs the Node code directly. The build step is scoped to the
+  React app (`web/`) only — `npm start` and the CLI never require a bundler.
+- **shadcn components are vendored source**, committed to the repo and edited in place.
 - **Docker remains optional** but must continue to work after each layer is added.

@@ -1,0 +1,9 @@
+{
+  // Project markdown conventions for specs/ and docs.
+  // These reflect the style already in use: wide tables and prose lines are
+  // allowed (the docs are read rendered, not in an 80-col terminal).
+  "config": {
+    "MD013": false, // line length: prose and tables wrap naturally when rendered
+    "MD060": false  // table pipe spacing: allow both compact and padded styles
+  }
+}

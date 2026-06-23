@@ -10,13 +10,18 @@
     "analyze": "tsx services/analyze.ts",
     "diff": "tsx services/diff.ts",
     "ui": "tsx services/ui.ts",
-    "validate": "tsx scripts/validate-phase1.ts"
+    "validate": "tsx scripts/validate-phase1.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20.0.0",
+    "@vitest/coverage-v8": "^2.1.9",
     "tsx": "^4.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "vitest": "^2.1.9"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",
