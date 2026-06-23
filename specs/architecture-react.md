@@ -108,8 +108,8 @@ All routes are server-only (no auth needed — localhost only).
 
 | Method | Path | Response `data` |
 |---|---|---|
-| GET | `/api/members` | `MemberSummary[]` |
-| GET | `/api/members/:email` | `MemberDetail` |
+| GET | `/api/members` | `MemberSummary[]` — one object per person |
+| GET | `/api/members/:email?pathway=<name>` | `MemberDetail` for that member × pathway |
 | GET | `/api/diff` | `{ progress: ProgressDiff, membership: MembershipDiff }` |
 | GET | `/api/membership-file` | latest `membership-*.csv` as `Content-Disposition: attachment` |
 
@@ -118,11 +118,20 @@ Error envelope: `{ "error": { "code": "NOT_FOUND" | "SNAPSHOT_MISSING" | "SERVER
 ### Response shapes
 
 ```ts
-interface MemberSummary {
-  email: string; name: string;
-  pathway: string; title: string;       // "PM2" | "DTM" | ""
-  nextLevel: string;                    // "Level 3" | "Path Completion" | "Completed"
+// GET /api/members — one entry per person (not per pathway)
+interface PathwaySummary {
+  pathway: string;
+  title: string;    // title for this specific pathway, e.g. "PM2"
+  nextLevel: string;
   remaining: number;
+  status: "completed" | "ready" | "close" | "in-progress" | "not-started";
+}
+
+interface MemberSummary {
+  email: string;
+  name: string;
+  title: string;               // highest title across all pathways (DTM takes precedence)
+  pathways: PathwaySummary[];  // one entry per enrolled pathway; always at least 1
 }
 
 interface LevelGroup {

@@ -1,98 +1,90 @@
-# Feature Spec: React Migration + Shadcn UI
+# Feature Spec: Next.js + shadcn/ui Migration
 
 ## Problem
 
-`services/ui.ts` builds every page by concatenating HTML strings. There is no
-component model and no client-side interactivity — any state change needs a
-full server round-trip. The All-Levels accordion
-(`feature-member-detail-all-levels.md`) needs client-side expand/collapse
-state, which this approach can't deliver cleanly. The UI also still carries a
-CSV fallback path (`loadFromCsvs`) that duplicates the SQLite logic.
+`services/ui.ts` builds every page by concatenating HTML strings. There is no component model
+and no client-side interactivity — any state change needs a full server round-trip. The
+All-Levels accordion (`feature-member-detail-all-levels.md`) needs client-side expand/collapse
+state, which this approach cannot deliver cleanly. The UI also carries a CSV fallback path
+(`loadFromCsvs`) that duplicates the SQLite logic and will become dead code once SQLite is
+the sole source of truth.
 
 ## Goal
 
-Migrate the web UI to a **React single-page app** styled with **shadcn/ui**,
-backed by a small **JSON REST API** on the existing Node HTTP server. The
-React build output is served as static assets from that same server, so
-`npm run ui` still launches one process on `localhost:3000`.
+Migrate the web UI to **Next.js 15** (App Router, React 19) styled with **shadcn/ui**, backed
+by Next.js API routes that read directly from SQLite. One `npm run dev` command replaces the
+current `npm run ui`. No separate frontend package or build proxy is needed.
 
 ## User Stories
 
-- As VPE, I open `localhost:3000` and get a clean, modern dashboard backed by
-  React components instead of raw HTML.
-- As VPE, I click a member and the detail page (all levels, accordion) renders
-  client-side with no full-page reload.
+- As VPE, I open `localhost:3000` and get a clean, modern dashboard.
+- As VPE, I click a member and the detail page (all levels, accordion) renders client-side
+  with no full-page reload.
 - As VPE, I can download the latest membership CSV from a button in the UI.
-- As the developer, I have a JSON API I can build new views against without
-  touching HTML-string rendering.
+- As the developer, I have a JSON REST API I can build new views against without touching
+  HTML-string rendering.
 
 ## Acceptance Criteria
 
-### Backend API
+### Backend — Next.js API routes
 
-- `GET /api/members` → JSON array of summary rows
-  (`name, title, pathway, nextLevel, remaining`, plus an `id` to link to
-  detail). One row per member per pathway, matching today's dashboard.
-- `GET /api/members/:id/detail` → JSON for one member+pathway: member meta
-  plus an ordered list of all levels (1–5 + Path Completion), each with its
-  approved flag, `done`/`total` counts, and its projects
-  (`name, status, type`). This is the shape the All-Levels view consumes.
-- `GET /api/membership.csv` → the latest membership CSV as a file download
-  (correct `Content-Disposition` / `Content-Type`).
-- SQLite is the **single source of truth**. The CSV-based fallback
-  (`loadFromCsvs`) is **dropped**; if the DB has no data, the API returns an
-  empty result with a clear message for the UI to render.
-- `id` is a stable identifier for a member+pathway pair (e.g. an
-  encoded `email|pathName`), so detail links survive between runs.
+| Method | Path | Response |
+|---|---|---|
+| GET | `/api/members` | `MemberSummary[]` — one object per person, with `pathways[]` sub-array |
+| GET | `/api/members/:email?pathway=<name>` | `MemberDetail` for that member × pathway |
+| GET | `/api/diff` | `{ progress: ProgressDiff, membership: MembershipDiff }` |
+| GET | `/api/membership-file` | latest `membership-*.csv` as `Content-Disposition: attachment` |
 
-### Frontend
+SQLite is the **single source of truth**. The CSV-based fallback (`loadFromCsvs`) is removed.
+If the DB has no snapshot yet, the API returns a `503` with `{ error: { code: "SNAPSHOT_MISSING" } }`
+and the UI renders an actionable empty state.
 
-- React SPA built with a standard toolchain (Vite assumed) and styled with
-  **shadcn/ui** (Radix + Tailwind). SA makes the final library call; shadcn
-  is the named candidate.
-- Views:
-  - **Dashboard**: summary table (sortable is a nice-to-have), member names
-    link to detail.
-  - **Member detail**: all-levels accordion per
-    `feature-member-detail-all-levels.md`, including Expand/Collapse All.
-  - **Download Membership CSV** button (calls `/api/membership.csv`).
-- Data is fetched from the JSON API; no HTML is rendered server-side.
+For the full response shapes and error envelope, see `architecture-react.md`.
 
-### Serving / build
+### Frontend — React pages (Next.js App Router)
 
-- React build output (e.g. `dist/`) is served as **static assets** by the
-  Node HTTP server. The server also serves the `/api/*` routes.
-- `npm run ui` runs the server on `localhost:3000` and serves the built app.
-- A dev mode is acceptable where Vite's dev server proxies `/api/*` to the
-  Node server — but the production-equivalent (`npm run ui`) must serve the
-  built assets from the Node server on a single port.
-- A build step is introduced **only for the UI** (`npm run ui:build` or
-  similar). The CLI (`tsx`) stays build-free, preserving the tech-stack
-  "no build step for the CLI" constraint.
+- **`/` (Dashboard):** member roster table — one row per person, sub-rows for multi-pathway
+  members (see `ui-design-react.md §1`). Member name links to the detail view.
+- **`/members/[email]?pathway=<name>` (Detail):** all-levels accordion per
+  `feature-member-detail-all-levels.md`, including Expand/Collapse All.
+- **Download button:** calls `/api/membership-file` — browser triggers a file download.
+- All data is fetched from the JSON API; no HTML is rendered server-side on the React pages
+  (pages are client components that call the API routes).
+
+### Serving
+
+- `npm run dev` → `next dev` — development server on `localhost:3000`, HMR, no proxy needed.
+- `npm run build` → `next build` — production build.
+- `npm start` → `next start` — production server.
+- The CLI scripts (`npm run fetch`, `npm run membership`) are unchanged.
+- `npm run cli` → `tsx index.ts` — renamed from the old `npm start` (CLI menu launcher).
+
+### Cleanup on completion
+
+- `services/ui.ts` is deleted (all routing moves to Next.js API routes + pages).
+- The CSV fallback (`loadFromCsvs`) is deleted.
+- `npm run ui` script is removed from `package.json`.
+- Docker is updated to run `next build && next start` instead of `tsx services/ui.ts`.
 
 ### Non-functional
 
-- Localhost-only. **No auth, no hosting, no CI/CD** for this feature.
-- Docker must still launch the UI after the change (per tech-stack constraint).
+- Localhost-only. No auth, no hosting, no CDN.
+- Docker must still launch the UI after this change.
+- The CLI (`tsx`) stays build-free — the build step is for Next.js only.
 
 ## Out of Scope
 
 - Authentication, multi-user, or remote hosting.
 - Replacing or restyling the CLI output.
-- New data/metrics beyond what the API exposes above.
-- Real-time updates / websockets — fetch-on-load is sufficient.
+- New data or metrics beyond what the API exposes above.
+- Real-time updates / websockets.
 - Historical/trend views (future work).
 
-## Open Questions
+## Resolved Decisions
 
-1. Toolchain: Vite + React + TypeScript assumed. Confirm, or prefer something
-   lighter (e.g. esbuild-only, no framework)?
-2. Where does the React app live in the repo (`web/`, `ui/`) and where does its
-   build output land so the Node server can serve it?
-3. shadcn/ui pulls in Tailwind + a `components/` scaffold. Acceptable footprint
-   for personal tooling, or prefer a lighter component set (e.g. plain Radix or
-   Pico CSS)? SA to decide.
-4. Should `/api/members` and the detail endpoint be added **first** (so the
-   current HTML UI can keep working against them) and the React frontend land
-   second, to de-risk the migration? Recommendation: yes — ship the API, then
-   swap the frontend.
+| Question | Decision |
+|---|---|
+| Framework | **Next.js 15** (not Vite; no separate `web/` subfolder). See `architecture-react.md`. |
+| Component library | **shadcn/ui** (Radix + Tailwind). CLI copies source into `components/ui/`. |
+| Repo structure | Everything in the root package — no monorepo, no subfolder with its own `package.json`. |
+| Migration strategy | Incremental: add API routes first (HTML server still works), then build React pages, then remove HTML server. |

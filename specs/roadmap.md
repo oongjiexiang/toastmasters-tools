@@ -80,16 +80,17 @@ view works; API routes read directly from SQLite; no CSV reads in the request pa
 
 ## Phase 5 — Testing infrastructure
 
-_There are currently zero unit tests. Establish the framework and baseline coverage._
+_Establish the framework and baseline coverage. Partially complete (unit tests written; npm install pending)._
 
-- [ ] Add **vitest** + `@vitest/coverage-v8`; `npm test` and `npm run test:cov`
-- [ ] First tests authored by the tester agent
-- [ ] Baseline coverage for `helpers/` (pure logic: `pathway.ts`, `db.ts` queries) and the
-      API mappers in `services/`
-- [ ] Coverage target: 70% lines on `helpers/`, smoke coverage on each API endpoint mapper
+- [x] Add **vitest** + `@vitest/coverage-v8` to `package.json`; `npm test`, `npm run test:watch`, `npm run test:coverage`
+- [x] 97 unit tests for `helpers/pathway.ts` (57) and `helpers/db.ts` (40) — all passing
+- [x] `vitest.config.ts` committed
+- [ ] Run `npm install` to sync `package-lock.json` with the new vitest devDependencies
+- [ ] Add coverage for Next.js API route mappers once Phase 4 is implemented
+- [ ] Coverage target: 90%+ lines on `helpers/`, smoke coverage on each API route
 
-**Validation:** `npm test` passes; `npm run test:cov` reports ≥70% line coverage on
-`helpers/` and at least one test per API endpoint.
+**Validation:** `npm test` passes with no failures; `npm run test:coverage` reports ≥90% line
+coverage on `helpers/pathway.ts` and `helpers/db.ts`.
 
 ---
 

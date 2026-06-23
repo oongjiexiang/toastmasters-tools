@@ -56,13 +56,14 @@ sections, so the full progress story is visible on one screen.
 
 ## Data Notes
 
-- Completion status (`X/Y`) per level comes from project-level data
-  (`details.csv` / its DB equivalent), filtered by member + pathway + level.
+- Completion status (`X/Y`) per level comes from the **`project_snapshots`** table
+  (introduced in Phase 3), filtered by member + pathway + level, excluding overview lessons
+  via `isOverviewLesson`. This table is the SQLite replacement for `details.csv`.
 - The **Approved** badge is distinct from `X/Y complete`: a level can read
-  `4/4 complete` but only show the Approved badge if its `level_N` flag is 1.
-  Surface both independently — do not infer approval from project counts.
-- No new data needs to be captured; all required fields already exist
-  (`progress_snapshots.level_1..5`, `path_done`, and per-project details).
+  `4/4 complete` but only show the Approved badge if its `level_N` flag is 1 in
+  `progress_snapshots`. Surface both independently — do not infer approval from project counts.
+- The `project_snapshots` table is a **Phase 3 prerequisite**: `fetch.ts` must persist
+  per-project data to SQLite before this feature can read from it.
 
 ## Out of Scope
 

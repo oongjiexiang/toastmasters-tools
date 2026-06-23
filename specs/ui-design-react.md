@@ -1,11 +1,11 @@
-# UI Design Spec — React Dashboard (Phase 4 candidate)
+# UI Design Spec — React Dashboard (Phase 4)
 
 Design spec for re-implementing the Phase 2 dashboard in React + shadcn/ui. One user
 (the club VPE), runs locally, light mode only, laptop only. Handoff target: a developer.
 
 - **Tool used:** Markdown / ASCII wireframes (Figma not used for this internal tool).
-- **Source of truth for data shapes:** [`types.ts`](../types.ts) and the CSV columns in
-  [`services/ui.ts`](../services/ui.ts). This spec references those — it does not redefine them.
+- **Source of truth for data shapes:** `architecture-react.md` (API shapes) and
+  [`types.ts`](../types.ts). This spec references those — it does not redefine them.
 - **Component library:** [shadcn/ui](https://ui.shadcn.com) (Radix primitives + Tailwind).
 
 ---
@@ -128,10 +128,11 @@ requested). Header carries the per-level controls and a path-wide progress meter
 
 Notes wired to real data:
 
-- The **right-aligned `done / total`** count comes from `details.csv` rows for that level
-  (excluding `isOverviewLesson` entries — keep that filter).
-- **Speech title + date** come from `details.csv` (`Speech Title`, `Speech Date` →
-  `SpeechInfo`). Show `Speech · <date>` when present; omit the meta when there's no speech.
+- The **right-aligned `done / total`** count comes from the `project_snapshots` table for that
+  level (excluding `isOverviewLesson` entries — keep that filter). This is the `projectsDone` /
+  `projectsTotal` in `LevelGroup` from `architecture-react.md`.
+- **Speech title + date** come from `project_snapshots` (populated from Basecamp detail API via
+  `fetch.ts`). Show `Speech · <date>` when present; omit when there's no speech.
 - `(elective)` tag when `Type == Elective`.
 - The **status pill** per level is the level's status (§4), independent of the count.
 
@@ -165,23 +166,26 @@ Icons (lucide-react, ships with shadcn): `CircleCheck` (approved), `Flag` (ready
 
 ## 3. Routing & data
 
-| Route | Screen | Data source |
+| Route | Screen | API call |
 |---|---|---|
-| `/` | Member List | summary rows (the `SummaryRow` shape, extended — see below) |
-| `/member/:name/:pathway` | Member Detail | all levels for that member×pathway from `details.csv` / SQLite |
+| `/` | Member List | `GET /api/members` → `MemberSummary[]` |
+| `/members/[email]?pathway=<name>` | Member Detail | `GET /api/members/:email?pathway=<name>` → `MemberDetail` |
 
-**Extend `SummaryRow`** (currently `name, title, pathway, nextLevel, remaining`) to support the
-new visuals without recomputing on the client:
+**`MemberSummary`** (from `architecture-react.md`) already carries the `pathways[]` sub-array
+and the per-pathway `status` field needed for both screens. No client-side derivation — `status`
+is computed server-side in the API route. The React layer only renders.
 
-```text
-name, title, pathway, nextLevel, remaining,
-status: "completed" | "ready" | "close" | "in-progress" | "not-started",
-pathways: Array<{ pathway, title, nextLevel, remaining, status }>   // length 1 = single-path
+```ts
+// From architecture-react.md — repeated here for readability
+interface MemberSummary {
+  email: string; name: string; title: string;
+  pathways: { pathway, title, nextLevel, remaining,
+              status: "completed"|"ready"|"close"|"in-progress"|"not-started" }[];
+}
 ```
 
-`status` is derived server-side per the rules in §4 so both screens agree. Keep all derivation
-in the existing helpers ([`helpers/pathway.ts`](../helpers/pathway.ts)); the React layer only
-renders.
+Keep all business logic (title derivation, status computation) in
+[`helpers/pathway.ts`](../helpers/pathway.ts) so it is reusable and testable.
 
 ---
 
@@ -278,7 +282,7 @@ is unchanged.
 | **No data at all** | No SQLite snapshot and no CSVs (`rows.length === 0`) | Card: **"No data yet."** Body: "Run `npm run fetch` then `npm run membership`, then refresh."  No empty table chrome. |
 | **Loading (initial)** | Fetching the roster | `Skeleton` rows (≈8) under a real table header; header summary shows a skeleton line. |
 | **Zero results (filter)** | Search/filter matches nothing | Keep table header + filters; body row: **"No members match this filter."** + `Clear filters` button. Distinct from "no data". |
-| **Detail: no project data** | `details.csv` has no rows for this member×pathway×level (matches current `projects.length === 0`) | Per-level: muted line **"No project data for this level. Run `npm run fetch` to refresh."** Keep the section header + status pill (status may still be known from the approved flag). |
+| **Detail: no project data** | `project_snapshots` has no rows for this member×pathway×level | Per-level: muted line **"No project data for this level. Run `npm run fetch` to refresh."** Keep the section header + status pill (status may still be known from the approved flag). |
 | **Member/pathway not found** | Bad route params | Card: **"Member not found."** + `← Back to dashboard`. (Mirrors current 404.) |
 | **Refresh/load error** | Read of DB/CSV throws | `Sonner` toast **"Couldn't load data"** + inline card with the error and a `Retry` button. Use a live region (`role="status"`, SC 4.1.3) so the toast is announced. |
 | **Stale data hint (nice-to-have)** | Snapshot older than N days | Amber inline note in the header strip: `Data is N days old — consider re-running fetch.` |
@@ -302,9 +306,10 @@ is unchanged.
 
 - [ ] Extend `SummaryRow` with `status` + `pathways[]` (§3); derive in `helpers/pathway.ts`,
       not in React.
-- [ ] Detail endpoint returns **all** levels (`STANDARD_LEVELS` + `Path Completion`) with
-      per-level `{ status, done, total, projects[] }`, projects carrying
-      `{ lesson, complete, type, speechTitle?, speechDate? }`. Keep the `isOverviewLesson` filter.
+- [ ] Detail API route (`/api/members/:email?pathway=<name>`) returns **all** levels
+      (`STANDARD_LEVELS` + `Path Completion`) with per-level `{ approved, projectsDone,
+      projectsTotal, projects[] }`, projects carrying `{ lesson, complete, type }`.
+      Source: `project_snapshots` table. Keep the `isOverviewLesson` filter.
 - [ ] Compute **"Ready to approve"** = all projects done AND `Level N Approved != true`.
 - [ ] Accordion: `type="multiple"`, controlled `value`, default = all ids; Expand/Collapse set it.
 - [ ] Status rendered with **icon + text + colour** (never colour alone).
