@@ -56,9 +56,9 @@ export async function main(): Promise<void> {
   snapshotMembership(csv);
 }
 
-// if (process.argv[1] === fileURLToPath(import.meta.url)) {
-//   main().catch((err) => {
-//     console.error("Failed:", err instanceof Error ? err.message : err);
-//     process.exit(1);
-//   });
-// }
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((err) => {
+    console.error("Failed:", err instanceof Error ? err.message : err);
+    process.exit(1);
+  });
+}

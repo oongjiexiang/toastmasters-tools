@@ -6,3 +6,16 @@ package-lock.json
 *.csv
 *.sqlite
 tmp*
+
+# Next.js build output
+/.next/
+/out/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Vitest coverage output
+/coverage/
+
+# General build output
+/dist/

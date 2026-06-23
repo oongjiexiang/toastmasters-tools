@@ -58,3 +58,31 @@ export function isOverviewLesson(lesson: string): boolean {
   if (lesson === "Path Introduction") return true;
   return false;
 }
+
+export function nextLevelFromFlags(p: {
+  level1: boolean; level2: boolean; level3: boolean;
+  level4: boolean; level5: boolean; pathDone: boolean;
+}): string {
+  if (!p.level1) return "Level 1";
+  if (!p.level2) return "Level 2";
+  if (!p.level3) return "Level 3";
+  if (!p.level4) return "Level 4";
+  if (!p.level5) return "Level 5";
+  if (!p.pathDone) return "Path Completion";
+  return "Completed";
+}
+
+export function titleFromFlags(
+  p: { level1: boolean; level2: boolean; level3: boolean; level4: boolean; level5: boolean },
+  pathName: string,
+  credentials: string,
+): string {
+  if (/\bDTM\b/.test(credentials)) return "DTM";
+  const init = pathwayInitials(pathName);
+  if (p.level5) return init + "5";
+  if (p.level4) return init + "4";
+  if (p.level3) return init + "3";
+  if (p.level2) return init + "2";
+  if (p.level1) return init + "1";
+  return "";
+}

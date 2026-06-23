@@ -19,7 +19,7 @@ import { fileURLToPath } from "url";
 import { mkdirSync, writeFileSync } from "fs";
 import { fetchAllProgress, fetchDetail } from "../helpers/api";
 import { buildCsv, buildDetailCsv } from "../helpers/csv";
-import { snapshotProgress } from "../helpers/db";
+import { snapshotProgress, snapshotProjects } from "../helpers/db";
 import {
   DETAIL_OUTPUT_FILE,
   OUTPUT_FILE,
@@ -71,6 +71,7 @@ export async function main(): Promise<void> {
   // Step 3: Write detail CSV
   const detailCsv = buildDetailCsv(detailEntries);
   writeFileSync(DETAIL_OUTPUT_FILE, detailCsv, "utf-8");
+  snapshotProjects(detailEntries);
 
   const totalLessons = detailEntries.reduce(
     (sum, { detail }) =>
@@ -82,9 +83,9 @@ export async function main(): Promise<void> {
   );
 }
 
-// if (process.argv[1] === fileURLToPath(import.meta.url)) {
-//   main().catch((err) => {
-//     console.error("Failed:", err instanceof Error ? err.message : err);
-//     process.exit(1);
-//   });
-// }
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((err) => {
+    console.error("Failed:", err instanceof Error ? err.message : err);
+    process.exit(1);
+  });
+}

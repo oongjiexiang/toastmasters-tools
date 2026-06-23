@@ -3,7 +3,8 @@ import { parse } from "csv-parse/sync";
 import { existsSync, mkdirSync } from "fs";
 import { resolve } from "path";
 import { RESULTS_DIR } from "../config";
-import { MemberProgress } from "../types";
+import { DetailResponse, MemberProgress } from "../types";
+import { isOverviewLesson } from "./pathway";
 
 export const DEFAULT_DB_PATH = resolve(process.cwd(), RESULTS_DIR, "db.sqlite");
 
@@ -33,6 +34,17 @@ function openDb(dbPath: string): Database.Database {
       name         TEXT    NOT NULL,
       status       TEXT    NOT NULL,
       credentials  TEXT    NOT NULL DEFAULT ''
+    );
+
+    CREATE TABLE IF NOT EXISTS project_snapshots (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      captured_at TEXT NOT NULL,
+      email       TEXT NOT NULL,
+      path_name   TEXT NOT NULL,
+      level       TEXT NOT NULL,
+      lesson      TEXT NOT NULL,
+      complete    INTEGER NOT NULL,
+      type        TEXT NOT NULL
     );
   `);
   return db;
@@ -113,6 +125,91 @@ export function snapshotMembership(
 
   console.log(`  DB snapshot: ${rows.length} membership rows (${capturedAt})`);
   db.close();
+}
+
+export function snapshotProjects(
+  entries: Array<{ member: MemberProgress; detail: DetailResponse }>,
+  dbPath = DEFAULT_DB_PATH,
+  capturedAt = new Date().toISOString(),
+): void {
+  const db = openDb(dbPath);
+
+  const insert = db.prepare(`
+    INSERT INTO project_snapshots
+      (captured_at, email, path_name, level, lesson, complete, type)
+    VALUES
+      (@capturedAt, @email, @pathName, @level, @lesson, @complete, @type)
+  `);
+
+  let count = 0;
+  db.transaction(() => {
+    for (const { member, detail } of entries) {
+      const email = member.user.email.toLowerCase().trim();
+      for (const chapter of detail.blocks.children) {
+        for (const lesson of chapter.children) {
+          if (isOverviewLesson(lesson.display_name)) continue;
+          insert.run({
+            capturedAt,
+            email,
+            pathName: member.path_name,
+            level: chapter.display_name,
+            lesson: lesson.display_name,
+            complete: lesson.complete ? 1 : 0,
+            type: lesson.block_lib_type === "elective" ? "Elective" : "Core",
+          });
+          count++;
+        }
+      }
+    }
+  })();
+
+  console.log(`  DB snapshot: ${count} project rows (${capturedAt})`);
+  db.close();
+}
+
+export function getLatestProjects(
+  email: string,
+  pathName: string,
+  dbPath = DEFAULT_DB_PATH,
+): ProjectSnapshot[] {
+  if (!existsSync(dbPath)) return [];
+  const db = openDb(dbPath);
+
+  const latestRow = db.prepare(`
+    SELECT captured_at FROM project_snapshots
+    WHERE email = ? AND path_name = ?
+    ORDER BY captured_at DESC LIMIT 1
+  `).get(email, pathName) as { captured_at: string } | undefined;
+
+  if (!latestRow) {
+    db.close();
+    return [];
+  }
+
+  type RawRow = {
+    email: string;
+    path_name: string;
+    level: string;
+    lesson: string;
+    complete: number;
+    type: string;
+  };
+
+  const rows = db.prepare(`
+    SELECT email, path_name, level, lesson, complete, type
+    FROM project_snapshots WHERE captured_at = ? AND email = ? AND path_name = ?
+  `).all(latestRow.captured_at, email, pathName) as RawRow[];
+
+  db.close();
+
+  return rows.map(r => ({
+    email: r.email,
+    pathName: r.path_name,
+    level: r.level,
+    lesson: r.lesson,
+    complete: r.complete === 1,
+    type: r.type,
+  }));
 }
 
 // ── Diff types ────────────────────────────────────────────────────────────────
@@ -279,6 +376,15 @@ export interface MembershipSnapshotRow {
   name: string;
   status: string;
   credentials: string;
+}
+
+export interface ProjectSnapshot {
+  email: string;
+  pathName: string;
+  level: string;
+  lesson: string;
+  complete: boolean;
+  type: string;
 }
 
 export function getLatestProgress(dbPath = DEFAULT_DB_PATH): ProgressSnapshot[] | null {
