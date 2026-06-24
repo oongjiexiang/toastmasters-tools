@@ -49,12 +49,12 @@ list matches `details.csv`.
 
 _Today the detail page only shows the next level. The VPE needs the full picture._
 
-- [ ] **Persist per-project detail in SQLite** (`project_snapshots` table) on each `fetch`
+- [x] **Persist per-project detail in SQLite** (`project_snapshots` table) on each `fetch`
       run — this is the prerequisite that unblocks Phase 6
-- [ ] Detail view lists **every** project across Levels 1–5 + Path Completion, grouped by
+- [x] Detail view lists **every** project across Levels 1–5 + Path Completion, grouped by
       level in expand/collapse accordions (default: expanded)
-- [ ] Expand all / Collapse all controls
-- [ ] Per-level completion badge (e.g. "3 / 4" or "Complete")
+- [x] Expand all / Collapse all controls
+- [x] Per-level completion badge (e.g. "3 / 4" or "Complete")
 
 **Validation:** Open a member who has completed Level 1 but not Level 3. The detail page
 shows all six level groups; Level 1 is badged complete, Level 3 lists its outstanding
