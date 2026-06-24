@@ -112,6 +112,20 @@ dashboard (including all-levels detail and diff) with no `details.csv`/`progress
 
 ---
 
+## Phase 7 — In-browser data refresh
+
+_Today fetching requires running CLI commands before opening the dashboard. This phase lets the VPE trigger a data refresh directly from the web UI._
+
+- [ ] Add a **Refresh** button (or split "Fetch progress" / "Fetch membership" buttons) to the dashboard
+- [ ] Each button calls a Next.js API route (`POST /api/refresh/progress`, `POST /api/refresh/membership`) that spawns the existing scraper logic server-side
+- [ ] Cookies (`BASECAMP_SESSIONID`, TI credentials) remain in `.env`; the API routes read them from `process.env` — no credential input in the browser
+- [ ] Show a loading/spinner state while the scrape is in progress and surface any error (e.g. expired cookie) as a toast or inline message
+- [ ] On success, invalidate and reload the dashboard data automatically
+
+**Validation:** Open `localhost:3000`, click Refresh, confirm the dashboard updates with fresh data without touching the terminal.
+
+---
+
 ## Deferred — Hardened pipeline (was Phase 3, low priority)
 
 _Pain point: cookie expiry silently breaks runs; manual step order is error-prone._
