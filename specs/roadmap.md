@@ -66,12 +66,12 @@ projects, and the figures match `details.csv` for that member.
 
 _See `architecture-react.md` (ADR) for the full decision, API contract, and migration steps._
 
-- [ ] Install Next.js 15 + React 19 + Tailwind + shadcn/ui into the existing root package
+- [x] Install Next.js 15 + React 19 + Tailwind + shadcn/ui into the existing root package
       (no separate `web/` subfolder — unified codebase)
-- [ ] Add Next.js API routes (`app/api/…`) — replaces the hand-rolled Node HTTP server
-- [ ] Rebuild dashboard + all-levels detail view (Phase 3) as React components using shadcn/ui
-- [ ] `npm run dev` (`next dev`) serves both the UI and API on `localhost:3000`
-- [ ] Old HTML string server (`services/ui.ts`) removed once React UI reaches parity
+- [x] Add Next.js API routes (`app/api/…`) — replaces the hand-rolled Node HTTP server
+- [x] Rebuild dashboard + all-levels detail view (Phase 3) as React components using shadcn/ui
+- [x] `npm run dev` (`next dev`) serves both the UI and API on `localhost:3000`
+- [x] Old HTML string server (`services/ui.ts`) removed once React UI reaches parity
 
 **Validation:** `npm run dev` serves the React dashboard on `localhost:3000`; every Phase 2/3
 view works; API routes read directly from SQLite; no CSV reads in the request path.
