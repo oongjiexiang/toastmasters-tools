@@ -4,6 +4,8 @@ import {
   isOverviewLesson,
   isLevelDone,
   nextLevelToComplete,
+  nextLevelFromFlags,
+  titleFromFlags,
   STANDARD_LEVELS,
 } from "../../helpers/pathway.js";
 
@@ -329,6 +331,79 @@ describe("nextLevelToComplete", () => {
       "Level 3 Approved": "true",
     };
     expect(nextLevelToComplete(row)).toBe("Level 2");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// nextLevelFromFlags
+// ---------------------------------------------------------------------------
+
+describe("nextLevelFromFlags", () => {
+  const none = { level1: false, level2: false, level3: false, level4: false, level5: false, pathDone: false };
+
+  it("returns 'Level 1' when no levels are approved", () => {
+    expect(nextLevelFromFlags(none)).toBe("Level 1");
+  });
+
+  it("returns 'Level 2' when only level1 is approved", () => {
+    expect(nextLevelFromFlags({ ...none, level1: true })).toBe("Level 2");
+  });
+
+  it("returns 'Level 3' when levels 1–2 are approved", () => {
+    expect(nextLevelFromFlags({ ...none, level1: true, level2: true })).toBe("Level 3");
+  });
+
+  it("returns 'Level 4' when levels 1–3 are approved", () => {
+    expect(nextLevelFromFlags({ ...none, level1: true, level2: true, level3: true })).toBe("Level 4");
+  });
+
+  it("returns 'Level 5' when levels 1–4 are approved", () => {
+    expect(nextLevelFromFlags({ ...none, level1: true, level2: true, level3: true, level4: true })).toBe("Level 5");
+  });
+
+  it("returns 'Path Completion' when all five levels are approved but path not done", () => {
+    expect(nextLevelFromFlags({ level1: true, level2: true, level3: true, level4: true, level5: true, pathDone: false })).toBe("Path Completion");
+  });
+
+  it("returns 'Completed' when all levels and path completion are done", () => {
+    expect(nextLevelFromFlags({ level1: true, level2: true, level3: true, level4: true, level5: true, pathDone: true })).toBe("Completed");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// titleFromFlags
+// ---------------------------------------------------------------------------
+
+describe("titleFromFlags", () => {
+  const none = { level1: false, level2: false, level3: false, level4: false, level5: false };
+  const pm = "Presentation Mastery";
+
+  it("returns 'DTM' when credentials contains 'DTM'", () => {
+    expect(titleFromFlags(none, pm, "DTM")).toBe("DTM");
+  });
+
+  it("returns '' when no levels are approved", () => {
+    expect(titleFromFlags(none, pm, "")).toBe("");
+  });
+
+  it("returns pathway initials + '1' when only level1 is approved", () => {
+    expect(titleFromFlags({ ...none, level1: true }, pm, "")).toBe("PM1");
+  });
+
+  it("returns pathway initials + '2' when level2 is the highest approved", () => {
+    expect(titleFromFlags({ ...none, level1: true, level2: true }, pm, "")).toBe("PM2");
+  });
+
+  it("returns pathway initials + '3' when level3 is the highest approved", () => {
+    expect(titleFromFlags({ ...none, level1: true, level2: true, level3: true }, pm, "")).toBe("PM3");
+  });
+
+  it("returns pathway initials + '4' when level4 is the highest approved", () => {
+    expect(titleFromFlags({ ...none, level1: true, level2: true, level3: true, level4: true }, pm, "")).toBe("PM4");
+  });
+
+  it("returns pathway initials + '5' when level5 is approved", () => {
+    expect(titleFromFlags({ level1: true, level2: true, level3: true, level4: true, level5: true }, pm, "")).toBe("PM5");
   });
 });
 
