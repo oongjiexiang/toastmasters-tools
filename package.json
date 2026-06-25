@@ -10,9 +10,6 @@
     "cli": "tsx index.ts",
     "fetch": "tsx services/fetch.ts",
     "membership": "tsx services/membership.ts",
-    "analyze": "tsx services/analyze.ts",
-    "diff": "tsx services/diff.ts",
-    "validate": "tsx scripts/validate-phase1.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

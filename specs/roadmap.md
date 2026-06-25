@@ -99,12 +99,12 @@ coverage on `helpers/pathway.ts` and `helpers/db.ts`.
 _The dashboard is now authoritative. The CSV workarounds predate it. Requires Phase 3's
 `project_snapshots` table (per-project detail must already live in SQLite)._
 
-- [ ] Delete `results/details.csv`, `results/progress.csv`, `results/summary.csv` and stop
+- [x] Delete `results/details.csv`, `results/progress.csv`, `results/summary.csv` and stop
       writing them from `fetch`
-- [ ] **Keep** `membership-YYYY-MM-DD.csv` (downloadable from the UI)
-- [ ] Remove `services/analyze.ts` and `scripts/validate-phase1.ts`
-- [ ] Prune npm scripts: remove `analyze`, `diff`, `validate`, `ui`. Keep `fetch`,
-      `membership`, `cli` (was `start`), `dev`, `build`, `start` (Next.js), `test`
+- [x] **Keep** `membership-YYYY-MM-DD.csv` (downloadable from the UI)
+- [x] Remove `services/analyze.ts`, `services/diff.ts`, and `scripts/validate-phase1.ts`
+- [x] Prune npm scripts: removed `analyze`, `diff`, `validate`. Keep `fetch`,
+      `membership`, `cli`, `dev`, `build`, `start` (Next.js), `test`
 
 **Validation:** Fresh clone → `npm run fetch && npm run ui` produces a fully working
 dashboard (including all-levels detail and diff) with no `details.csv`/`progress.csv`/

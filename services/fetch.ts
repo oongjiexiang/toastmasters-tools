@@ -1,31 +1,7 @@
-/**
- * Toastmasters Basecamp Progress Fetcher
- *
- * Fetches all member progress data from the Basecamp API and exports to CSV.
- *
- * Setup:
- *   1. npm install
- *   2. Copy .env.example to .env and fill in your values
- *   3. npm run fetch
- *
- * How to get your auth cookie:
- *   1. Log in to https://basecamp.toastmasters.org in your browser
- *   2. Open DevTools (F12) → Application → Cookies → basecamp.toastmasters.org
- *   3. Copy the value of the "sessionid" cookie
- *   4. Set it as BASECAMP_SESSIONID in your .env file
- */
-
 import { fileURLToPath } from "url";
-import { mkdirSync, writeFileSync } from "fs";
 import { fetchAllProgress, fetchDetail } from "../helpers/api";
-import { buildCsv, buildDetailCsv } from "../helpers/csv";
 import { snapshotProgress, snapshotProjects } from "../helpers/db";
-import {
-  DETAIL_OUTPUT_FILE,
-  OUTPUT_FILE,
-  RESULTS_DIR,
-  SESSION_ID,
-} from "../config";
+import { SESSION_ID } from "../config";
 import { DetailResponse, MemberProgress } from "../types";
 
 export async function main(): Promise<void> {
@@ -39,13 +15,10 @@ export async function main(): Promise<void> {
     );
   }
 
-  // Step 1: Fetch all overview data
+  // Step 1: Fetch all overview data and snapshot to SQLite
   const members = await fetchAllProgress();
-  const overviewCsv = buildCsv(members);
-  mkdirSync(RESULTS_DIR, { recursive: true });
-  writeFileSync(OUTPUT_FILE, overviewCsv, "utf-8");
-  console.log(`Overview CSV saved to: ${OUTPUT_FILE} (${members.length} rows)\n`);
   snapshotProgress(members);
+  console.log(`Progress snapshotted: ${members.length} members\n`);
 
   // Step 2: Fetch detail for each member
   console.log(`Fetching lesson details for ${members.length} members...`);
@@ -68,19 +41,9 @@ export async function main(): Promise<void> {
     }
   }
 
-  // Step 3: Write detail CSV
-  const detailCsv = buildDetailCsv(detailEntries);
-  writeFileSync(DETAIL_OUTPUT_FILE, detailCsv, "utf-8");
+  // Step 3: Snapshot project detail to SQLite
   snapshotProjects(detailEntries);
-
-  const totalLessons = detailEntries.reduce(
-    (sum, { detail }) =>
-      sum + detail.blocks.children.reduce((s, ch) => s + ch.children.length, 0),
-    0
-  );
-  console.log(
-    `\nDetail CSV saved to: ${DETAIL_OUTPUT_FILE} (${totalLessons} lesson rows across ${detailEntries.length} members)`
-  );
+  console.log(`\nProject details snapshotted for ${detailEntries.length} members`);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
