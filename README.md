@@ -1,10 +1,10 @@
-# Toastmasters User Retriever
+# Toastmasters Tools
 
-Fetches member progress from the Toastmasters Basecamp learning platform and the club membership roster, then produces a summary CSV and local web dashboard for VPE reporting.
+Personal VPE tooling for one Toastmasters club. Scrapes Basecamp (pathway progress) and toastmasters.org (membership roster), stores snapshots in SQLite, and serves a local web dashboard for weekly/monthly reporting.
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) v18 or later **— OR —** [Docker](https://www.docker.com/)
+- [Node.js](https://nodejs.org/) v18 or later
 - An active Toastmasters officer account with access to both Basecamp and toastmasters.org
 
 ## Installation
@@ -26,125 +26,126 @@ cp .env.example .env
 1. Log in to [basecamp.toastmasters.org](https://basecamp.toastmasters.org)
 2. Open DevTools (`F12`) → **Application** → **Cookies** → `basecamp.toastmasters.org`
 3. Copy the value of the `sessionid` cookie
-4. Paste it as `BASECAMP_SESSIONID=<value>` in `.env`
+4. Add it to `.env` as `BASECAMP_SESSIONID=<value>`
 
 ### Getting `TI_COOKIE`
 
 1. Log in to [www.toastmasters.org](https://www.toastmasters.org)
 2. Open DevTools (`F12`) → **Application** → **Cookies** → `www.toastmasters.org`
-3. Select all cookies and copy them as a single semicolon-separated string
-   (e.g. `cookie1=val1; cookie2=val2; ...`)
-4. Paste it as `TI_COOKIE=<value>` in `.env`
+3. Copy all cookies as a single semicolon-separated string (e.g. `cookie1=val1; cookie2=val2; ...`)
+4. Add it to `.env` as `TI_COOKIE=<value>`
 
-Both cookies expire with your browser session, so you will need to refresh them periodically.
+Both cookies expire with your browser session — you will need to refresh them periodically.
 
-## Usage
-
-### Interactive launcher
+## Typical workflow
 
 ```bash
-npm start
+# 1. Fetch latest data (run both before opening the dashboard)
+npm run fetch       # Scrape Basecamp → SQLite
+npm run membership  # Scrape TI membership roster → SQLite
+
+# 2. Open the dashboard
+npm run dev         # http://localhost:3000
 ```
 
-Presents a numbered menu to choose which script(s) to run.
+Or use the interactive CLI launcher to run fetch and membership in sequence:
 
-### Run scripts directly
+```bash
+npm run cli
+```
+
+## Commands
 
 | Command | Description |
 |---|---|
-| `npm run fetch` | Download Basecamp progress data → `results/progress.csv` + `results/details.csv`, snapshot to SQLite |
-| `npm run membership` | Download club membership roster → `results/membership-YYYY-MM-DD.csv`, snapshot to SQLite |
-| `npm run analyze` | Generate member summary → `results/summary.csv` |
-| `npm run diff` | Show what changed since the previous run (who advanced, joined, or went unpaid) |
-| `npm run ui` | Start the local web dashboard at `http://localhost:3000` |
+| `npm run fetch` | Scrape Basecamp progress for all members and snapshot to SQLite |
+| `npm run membership` | Download TI membership roster and snapshot to SQLite |
+| `npm run cli` | Interactive launcher — choose which scripts to run |
+| `npm run dev` | Start the local web dashboard at `http://localhost:3000` |
+| `npm run build` | Build the Next.js app for production |
+| `npm start` | Start the production build |
+| `npm test` | Run the test suite |
+| `npm run test:coverage` | Run tests with coverage report |
 
-Run **fetch** and **membership** first (in either order), then **analyze** or **ui**.
+## Web dashboard
 
-### Web dashboard
+Start with `npm run dev`, then open `http://localhost:3000`.
 
-```bash
-npm run ui
-```
+The dashboard reads from the SQLite database written by `fetch` and `membership`. Run those first — the dashboard shows a banner if no snapshot is found.
 
-Opens a dashboard at `http://localhost:3000`:
+### Member table
 
-- **Table view** — all paid members with their pathway, current title, next level to complete, and remaining project count. Click a member to drill in.
-- **Detail view** — every project in a member's current level, marked Done or Pending.
+Lists all active (paid) members with:
+- Pathway name and current title (e.g. `PM3`)
+- Next level to complete
+- Number of remaining projects in that level
+- Status badge: **Completed**, **Ready** (level done, awaiting approval), **Close** (1 project left), **In Progress**, or **Not Started**
 
-The dashboard reads from the SQLite snapshot (written by `fetch` and `membership`) and falls back to the CSV files if no snapshot exists yet.
+Click any member row to open the detail view.
 
-Press `Ctrl+C` to stop the server.
+### Member detail view
 
-## Docker
+Shows all six level groups (Level 1–5 + Path Completion) in expand/collapse accordions, each with:
+- Per-level completion badge (e.g. `3 / 4` or `Complete`)
+- Every project in that level — Core or Elective, marked Done or Pending
 
-### Build the image
+Expand all / Collapse all controls at the top.
 
-```bash
-docker build -t user-retriever .
-```
+### Diff view
 
-### Run
+Shows what changed between the two most recent snapshots: who advanced a level, who joined, who left, and membership status changes.
 
-```bash
-# macOS / Linux
-docker run -it --env-file .env -v "$(pwd)/results:/app/results" user-retriever
+### Membership file download
 
-# Windows PowerShell
-docker run -it --env-file .env -v "${PWD}/results:/app/results" user-retriever
+Downloads the raw membership CSV from toastmasters.org that was last fetched.
 
-# Windows Command Prompt
-docker run -it --env-file .env -v "%cd%/results:/app/results" user-retriever
-```
+## Title logic
 
-- `-it` — required for the interactive menu (keyboard input + coloured output)
-- `--env-file .env` — passes your credentials in; the `.env` file is never copied into the image
-- `-v .../results:/app/results` — mounts the local `results/` folder so output files are written to your machine
-
-The `results/` folder will be created automatically if it does not exist.
-
-## Output files
-
-All files are written to the `results/` folder.
-
-| File | Description |
+| Title | Meaning |
 |---|---|
-| `progress.csv` | One row per member per pathway. Includes level completion counts and approval status. |
-| `details.csv` | One row per lesson per member per pathway. Captures completion status, type (Core/Elective), and speech details. |
-| `membership-YYYY-MM-DD.csv` | Raw export from toastmasters.org. Used to determine paid membership status and earned credentials. |
-| `summary.csv` | One row per member per pathway. Columns: Name, Title, Pathways, Next Level to Complete, Next Project, Remaining Projects. |
-| `db.sqlite` | SQLite database holding timestamped snapshots from each `fetch` and `membership` run. Used by `diff` and `ui`. |
+| `DTM` | Member holds a DTM credential in the membership roster |
+| `PM5`, `DL3`, … | Pathway initials + highest approved level |
+| *(blank)* | No levels approved yet |
 
-### Title logic
+Members with `UnpaidMember` status are excluded from all views.
 
-- **DTM** — member holds a DTM credential in the membership roster
-- **XX5**, **XX4**, … — pathway initials + highest approved level (e.g. `PM3` = Presentation Mastery Level 3 approved)
-- *(blank)* — no levels approved yet
-- Members with `UnpaidMember` status are excluded entirely
+## Data storage
+
+All data lives in `results/db.sqlite`. The only file written to `results/` is the membership CSV downloaded by `npm run membership` (kept for the download endpoint in the dashboard).
 
 ## Project structure
 
 ```
-├── index.ts              # Interactive launcher (npm start)
+├── index.ts              # Interactive CLI launcher (npm run cli)
 ├── config.ts             # Environment variables and shared constants
 ├── types.ts              # TypeScript type definitions
-├── Dockerfile            # Container image definition
-├── .dockerignore         # Files excluded from the Docker image
-├── .env                  # Your local credentials (not committed)
-├── .env.example          # Template for .env
 │
 ├── services/
-│   ├── fetch.ts          # Downloads Basecamp progress data
-│   ├── membership.ts     # Downloads TI membership CSV
-│   ├── analyze.ts        # Generates summary.csv
-│   ├── diff.ts           # Prints change report between the two latest snapshots
-│   └── ui.ts             # Local web dashboard (port 3000)
+│   ├── fetch.ts          # Scrapes Basecamp progress, snapshots to SQLite
+│   └── membership.ts     # Downloads TI membership CSV, snapshots to SQLite
 │
 ├── helpers/
-│   ├── api.ts            # Basecamp API calls (fetchAllProgress, fetchDetail)
-│   ├── csv.ts            # CSV building utilities (buildCsv, buildDetailCsv)
-│   ├── db.ts             # SQLite snapshot read/write (snapshotProgress, snapshotMembership, …)
+│   ├── api.ts            # Basecamp API calls
+│   ├── csv.ts            # CSV parsing utilities
+│   ├── db.ts             # SQLite read/write (snapshots, queries, diff)
 │   ├── files.ts          # File utilities (findLatestMembershipFile)
-│   └── pathway.ts        # Pathway/level logic (pathwayInitials, isLevelDone, …)
+│   └── pathway.ts        # Pathway/level logic (titles, next level, etc.)
 │
-└── results/              # Generated output files (not committed)
+├── app/                  # Next.js 15 app (App Router)
+│   ├── page.tsx          # Dashboard home (member table)
+│   ├── members/[email]/  # Member detail page
+│   └── api/
+│       ├── members/      # GET /api/members — member list with pathway summaries
+│       ├── members/[email]/ # GET /api/members/:email — full level detail
+│       ├── diff/         # GET /api/diff — progress + membership diff
+│       └── membership-file/ # GET /api/membership-file — CSV download
+│
+├── components/           # React UI components (MemberTable, LevelAccordion, …)
+├── lib/                  # Client-side fetch wrappers (api.ts)
+│
+├── tests/
+│   ├── helpers/          # Unit tests for pathway.ts and db.ts
+│   └── api/              # Smoke tests for each API route
+│
+└── results/              # SQLite DB + membership CSV (not committed)
 ```

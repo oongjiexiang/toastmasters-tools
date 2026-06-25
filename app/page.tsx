@@ -3,8 +3,11 @@
 import { useEffect, useState } from "react";
 import { getMembers, type MemberSummary } from "@/lib/api";
 import { MemberTable } from "@/components/MemberTable";
+import { DiffSection } from "@/components/DiffSection";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { buttonVariants } from "@/components/ui/button";
+import { Download } from "lucide-react";
 
 export default function DashboardPage() {
   const [members, setMembers] = useState<MemberSummary[] | null>(null);
@@ -69,13 +72,26 @@ export default function DashboardPage() {
 
   return (
     <main className="max-w-[960px] mx-auto py-8 px-4">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold">Toastmasters Dashboard</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          {members.length} members
-        </p>
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-semibold">Toastmasters Dashboard</h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            {members.length} members
+          </p>
+        </div>
+        <a
+          href="/api/membership-file"
+          download
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+        >
+          <Download className="h-4 w-4" />
+          Membership CSV
+        </a>
       </div>
       <MemberTable members={members} />
+      <div className="mt-6">
+        <DiffSection />
+      </div>
     </main>
   );
 }

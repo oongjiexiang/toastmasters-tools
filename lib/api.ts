@@ -58,3 +58,34 @@ export async function getMember(
   );
   return handleResponse<MemberDetail>(res);
 }
+
+export interface ProgressChange {
+  email: string;
+  firstName: string;
+  lastName: string;
+  pathName: string;
+  gained: string[];
+}
+
+export interface MembershipRow {
+  email: string;
+  name: string;
+  status: string;
+}
+
+export interface StatusChange {
+  email: string;
+  name: string;
+  oldStatus: string;
+  newStatus: string;
+}
+
+export interface DiffResult {
+  progress: { older: string; newer: string; changes: ProgressChange[] };
+  membership: { older: string; newer: string; joined: MembershipRow[]; left: MembershipRow[]; statusChanged: StatusChange[] };
+}
+
+export async function getDiff(): Promise<DiffResult> {
+  const res = await fetch("/api/diff");
+  return handleResponse<DiffResult>(res);
+}
