@@ -89,3 +89,13 @@ export async function getDiff(): Promise<DiffResult> {
   const res = await fetch("/api/diff");
   return handleResponse<DiffResult>(res);
 }
+
+export async function refreshProgress(): Promise<void> {
+  const res = await fetch("/api/refresh/progress", { method: "POST" });
+  await handleResponse<{ ok: true }>(res);
+}
+
+export async function refreshMembership(): Promise<void> {
+  const res = await fetch("/api/refresh/membership", { method: "POST" });
+  await handleResponse<{ ok: true }>(res);
+}
