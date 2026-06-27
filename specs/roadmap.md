@@ -3,6 +3,9 @@
 Phases are ordered so each one delivers usable value on its own. A phase should be
 completable in a single sitting. Each phase lists a concrete validation criterion.
 
+> **Agent workflow:** implement the phase → run its **Validation** steps → if they all pass,
+> report what was done and ask the user to commit. Do **not** commit without explicit instruction.
+
 > **Sequencing note (load-bearing):** per-project lesson detail currently lives **only**
 > in `details.csv`. SQLite stores level approval flags, not individual projects. So the
 > "all levels" detail view (Phase 3) first migrates per-project data into SQLite. Only
@@ -18,8 +21,8 @@ completable in a single sitting. Each phase lists a concrete validation criterio
 - [x] Interactive CLI launcher (`npm start`)
 - [x] Docker support
 
-**Validation:** `npm run analyze` produces a `summary.csv` whose row count matches paid
-members in the membership CSV; spot-checking 2–3 known members confirms title and next project.
+**Validation (historical):** Superseded by Phases 4–6; the CSV pipeline and `summary.csv`
+no longer exist. No re-validation needed.
 
 ---
 
@@ -28,8 +31,8 @@ members in the membership CSV; spot-checking 2–3 known members confirms title 
 - [x] Add `better-sqlite3`; snapshot progress + membership rows on each run
 - [x] `npm run diff` compares the two most recent snapshots
 
-**Validation:** Run `fetch` + `membership` twice; `npm run diff` prints a non-empty change
-list reflecting a known difference between snapshots.
+**Validation (historical):** `npm run diff` was removed in Phase 6. Current equivalent is
+`GET /api/diff`. No re-validation needed.
 
 ---
 
@@ -40,12 +43,12 @@ list reflecting a known difference between snapshots.
 - [x] Detail view: every project in the member's **next** level (done vs. outstanding)
 - [x] Reads from SQLite; falls back to latest CSVs
 
-**Validation:** Open `localhost:3000`, click a known member, confirm the next-level project
-list matches `details.csv`.
+**Validation (historical):** The hand-rolled Node server (`services/ui.ts`) was removed in
+Phase 4 and replaced by Next.js. No re-validation needed.
 
 ---
 
-## Phase 3 — Member detail across ALL levels
+## Phase 3 — Done (Member detail across ALL levels)
 
 _Today the detail page only shows the next level. The VPE needs the full picture._
 
@@ -56,13 +59,14 @@ _Today the detail page only shows the next level. The VPE needs the full picture
 - [x] Expand all / Collapse all controls
 - [x] Per-level completion badge (e.g. "3 / 4" or "Complete")
 
-**Validation:** Open a member who has completed Level 1 but not Level 3. The detail page
-shows all six level groups; Level 1 is badged complete, Level 3 lists its outstanding
-projects, and the figures match `details.csv` for that member.
+**Validation:**
+1. `grep "project_snapshots" helpers/db.ts` — table definition and `snapshotProjects` writer present
+2. `npm test` passes
+3. With dev server running: `curl -s "http://localhost:3000/api/members/<email>?pathway=<path>" | grep -c '"level"'` — returns 6 (one per level group)
 
 ---
 
-## Phase 4 — Next.js + shadcn/ui migration
+## Phase 4 — Done (Next.js + shadcn/ui migration)
 
 _See `architecture-react.md` (ADR) for the full decision, API contract, and migration steps._
 
@@ -73,14 +77,17 @@ _See `architecture-react.md` (ADR) for the full decision, API contract, and migr
 - [x] `npm run dev` (`next dev`) serves both the UI and API on `localhost:3000`
 - [x] Old HTML string server (`services/ui.ts`) removed once React UI reaches parity
 
-**Validation:** `npm run dev` serves the React dashboard on `localhost:3000`; every Phase 2/3
-view works; API routes read directly from SQLite; no CSV reads in the request path.
+**Validation:**
+1. `npm run build` exits 0 with no TypeScript errors
+2. `test ! -f services/ui.ts` — old server removed
+3. Files exist: `app/api/members/route.ts`, `app/api/members/[email]/route.ts`, `app/api/diff/route.ts`
+4. `npm test` passes
 
 ---
 
-## Phase 5 — Testing infrastructure
+## Phase 5 — Done (Testing infrastructure)
 
-_Establish the framework and baseline coverage. Partially complete (unit tests written; npm install pending)._
+_Establish the framework and baseline coverage._
 
 - [x] Add **vitest** + `@vitest/coverage-v8` to `package.json`; `npm test`, `npm run test:watch`, `npm run test:coverage`
 - [x] 122 unit tests for `helpers/pathway.ts` (71) and `helpers/db.ts` (40) + API route smoke tests (11) — all passing
@@ -89,15 +96,15 @@ _Establish the framework and baseline coverage. Partially complete (unit tests w
 - [x] Add coverage for Next.js API route mappers
 - [x] Coverage target: 100% lines on `helpers/pathway.ts`, smoke coverage on each API route (76–90%)
 
-**Validation:** `npm test` passes with no failures; `npm run test:coverage` reports ≥90% line
-coverage on `helpers/pathway.ts` and `helpers/db.ts`.
+**Validation:**
+1. `npm test` exits 0 with no failures
+2. `npm run test:coverage` reports ≥90% line coverage on `helpers/pathway.ts` and `helpers/db.ts`
 
 ---
 
-## Phase 6 — CSV cleanup
+## Phase 6 — Done (CSV cleanup)
 
-_The dashboard is now authoritative. The CSV workarounds predate it. Requires Phase 3's
-`project_snapshots` table (per-project detail must already live in SQLite)._
+_The dashboard is now authoritative. The CSV workarounds predate it._
 
 - [x] Delete `results/details.csv`, `results/progress.csv`, `results/summary.csv` and stop
       writing them from `fetch`
@@ -106,17 +113,17 @@ _The dashboard is now authoritative. The CSV workarounds predate it. Requires Ph
 - [x] Prune npm scripts: removed `analyze`, `diff`, `validate`. Keep `fetch`,
       `membership`, `cli`, `dev`, `build`, `start` (Next.js), `test`
 
-**Validation:** Fresh clone → `npm run fetch && npm run ui` produces a fully working
-dashboard (including all-levels detail and diff) with no `details.csv`/`progress.csv`/
-`summary.csv` on disk and no code referencing them.
+**Validation:**
+1. `grep -rE "details\.csv|progress\.csv|summary\.csv" services/ helpers/ app/ lib/` — no matches
+2. `grep -E '"analyze"|"diff"|"validate"' package.json` — no matches (scripts removed)
+3. `npm run build` exits 0
 
 ---
 
-## Phase 7 — Parallel detail fetching
+## Phase 7 — Done (Parallel detail fetching)
 
-_Today `npm run fetch` fetches lesson detail for each member one at a time. With ~20 members each taking ~1 s, Step 2 alone takes ~20 s. Running detail fetches concurrently cuts that to a fraction._
-
-**Feasibility note:** Step 1 (pagination) stays sequential — each `next` URL is only known after the prior page resolves. Step 2 (per-member `fetchDetail`) is fully independent per member and is the bottleneck.
+_`npm run fetch` fetches lesson detail for each member one at a time. Running detail fetches
+concurrently cuts Step 2 wall time from O(N) to O(N/concurrency)._
 
 - [x] Replace the sequential `for` loop in `services/fetch.ts` Step 2 with a **concurrency-limited** parallel runner (default concurrency: 5)
 - [x] Implement the limiter inline (no new dependency needed — a simple semaphore/chunk loop suffices)
@@ -124,25 +131,68 @@ _Today `npm run fetch` fetches lesson detail for each member one at a time. With
 - [x] Error handling stays per-member: one failed detail fetch logs a warning and continues; it does not abort the run
 - [x] Concurrency cap is a constant at the top of `services/fetch.ts` (e.g. `const DETAIL_CONCURRENCY = 5`) so it can be tuned without touching logic
 
-**Validation:** `npm run fetch` with ~20 members completes Step 2 noticeably faster than the sequential baseline; all members' project rows appear in `project_snapshots`; a single unreachable member logs a warning and the rest succeed.
+**Validation:**
+1. `grep "DETAIL_CONCURRENCY" services/fetch.ts` — constant defined and set to a number
+2. `grep "Promise.allSettled" services/fetch.ts` — parallel runner is present
+3. `npm test` passes
 
 ---
 
-## Phase 8 — In-browser data refresh
+## Phase 8 — Done (In-browser data refresh)
 
-_Today fetching requires running CLI commands before opening the dashboard. This phase lets the VPE trigger a data refresh directly from the web UI._
+_Fetching previously required running CLI commands. This phase lets the VPE trigger a refresh
+directly from the web UI._
 
-- [ ] Add a **Refresh** button (or split "Fetch progress" / "Fetch membership" buttons) to the dashboard
-- [ ] Each button calls a Next.js API route (`POST /api/refresh/progress`, `POST /api/refresh/membership`) that spawns the existing scraper logic server-side
-- [ ] Cookies (`BASECAMP_SESSIONID`, TI credentials) remain in `.env`; the API routes read them from `process.env` — no credential input in the browser
-- [ ] Show a loading/spinner state while the scrape is in progress and surface any error (e.g. expired cookie) as a toast or inline message
-- [ ] On success, invalidate and reload the dashboard data automatically
+- [x] Split "Refresh Progress" / "Refresh Membership" buttons always visible in the dashboard header
+- [x] Each button calls a Next.js API route (`POST /api/refresh/progress`, `POST /api/refresh/membership`) that runs the existing scraper logic server-side
+- [x] Cookies (`BASECAMP_SESSIONID`, TI credentials) remain in `.env`; the API routes read them from `process.env` — no credential input in the browser
+- [x] Loading spinner on the active button; both buttons disabled while a refresh is in progress
+- [x] Sonner toast: loading → success / error (first line of error message shown)
+- [x] On success, dashboard data reloads automatically
 
-**Validation:** Open `localhost:3000`, click Refresh, confirm the dashboard updates with fresh data without touching the terminal.
+**Validation:**
+1. `npm run build` exits 0 — no TypeScript errors
+2. Files exist: `app/api/refresh/progress/route.ts`, `app/api/refresh/membership/route.ts`
+3. `grep -E "refreshProgress|refreshMembership" lib/api.ts` — both functions exported
+4. `grep "Refresh Progress" app/page.tsx` — button label present in source
+5. With dev server running:
+   - `curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:3000/api/refresh/progress` — `500` (missing cookie), not `404`
+   - `curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:3000/api/refresh/membership` — `500`, not `404`
+
+> **Note:** Steps 1–5 validate code structure and API routing only. Visual UI behaviour
+> (button visible on load, spinner state, toast text) requires the Playwright E2E tests
+> added in Phase 9.
 
 ---
 
-## Deferred — Hardened pipeline (was Phase 3, low priority)
+## Phase 9 — E2E testing with Playwright
+
+_Steps 1–5 of Phase 8's validation confirm the code exists and the routes respond, but they
+cannot verify that the button is visible, the spinner renders on click, or the toast fires.
+This phase adds Playwright so that UI behaviour can be validated by the agent without manual
+browser inspection._
+
+- [ ] Install `@playwright/test` and `@playwright/browser-chromium`; add `test:e2e` script to `package.json`
+- [ ] Add `playwright.config.ts` at the project root with `webServer` pointing at `next dev`
+      and `testDir: './tests/e2e'`
+- [ ] Write `tests/e2e/dashboard.spec.ts`:
+  - Both "Refresh Progress" and "Refresh Membership" buttons are visible immediately on page load
+    (before and after data is available)
+  - Clicking "Refresh Progress" shows a spinner on that button and disables both buttons
+  - A Sonner loading toast is visible while the request is in progress
+  - When cookies are missing/invalid, an error toast appears with the first line of the error
+  - On success, the toast changes to success and the member count in the header updates
+- [ ] Seed a minimal SQLite fixture (or mock `/api/members`) so the dashboard renders without
+      real Basecamp credentials for the button-visibility and spinner tests
+
+**Validation:**
+1. `npx playwright install --with-deps chromium` exits 0
+2. `npx playwright test` exits 0 with all E2E tests passing
+3. `npx playwright test --reporter=list` output explicitly shows the button-visibility, spinner, and toast tests as passed
+
+---
+
+## Deferred — Hardened pipeline (low priority)
 
 _Pain point: cookie expiry silently breaks runs; manual step order is error-prone._
 
@@ -150,5 +200,7 @@ _Pain point: cookie expiry silently breaks runs; manual step order is error-pron
 - [ ] Detect expired/invalid cookies at startup with a precise remediation message
 - [ ] Warn when `results/` inputs are older than N days
 
-**Validation:** Set an invalid `BASECAMP_SESSIONID` and run `npm run all` — it exits
-immediately naming the cookie and refresh steps, with no API calls or file writes.
+**Validation:**
+1. `grep '"all"' package.json` — `npm run all` script exists
+2. With `BASECAMP_SESSIONID=invalid npm run fetch` — exits non-zero within seconds and prints a message naming the cookie and the remediation steps; no SQLite writes occur
+3. `npm test` passes

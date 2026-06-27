@@ -51,13 +51,25 @@ so we own and can edit every component. The Next.js App Router is the primary sh
 separate `package.json`; API routes replace the hand-rolled Node server; one `npm run dev`
 command instead of two processes. See ADR for full comparison.
 
-### Layer 5 — Testing (Phase 5)
+### Layer 5 — Unit testing (Phase 5)
 
 | Concern | Choice | Why |
 |---|---|---|
-| Test runner | **vitest** | Native ESM + TS (matches our `tsx` setup), Vite-aligned, Jest-compatible API |
+| Test runner | **Vitest** | Native ESM + TS (matches our `tsx` setup), Vite-aligned, Jest-compatible API |
 | Coverage | `@vitest/coverage-v8` | Built-in, no extra config |
 | Scope | `helpers/` pure logic + API endpoint mappers | Highest value, lowest mocking cost |
+
+### Layer 6 — E2E browser testing (Phase 9)
+
+| Concern | Choice | Why |
+|---|---|---|
+| E2E runner | **Playwright** | Runs against real Chromium; `@playwright/test` integrates with Next.js `webServer` config to start/stop `next dev` automatically |
+| Scope | UI behaviour — button visibility, spinner state, Sonner toasts, data reload after refresh | Cannot be verified by Vitest (jsdom ignores CSS, Sonner toasts are portals outside the component tree, network timing is not realistic) |
+| Test location | `tests/e2e/` | Separate from Vitest unit tests; run via `npx playwright test` |
+
+Playwright is chosen over Cypress for its first-class TypeScript support, lower overhead, and
+tighter Next.js integration. React Testing Library is not sufficient for this layer because
+jsdom cannot assert real CSS visibility or observe Sonner toast portals.
 
 ## Constraints
 
