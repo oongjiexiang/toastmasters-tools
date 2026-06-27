@@ -112,7 +112,23 @@ dashboard (including all-levels detail and diff) with no `details.csv`/`progress
 
 ---
 
-## Phase 7 — In-browser data refresh
+## Phase 7 — Parallel detail fetching
+
+_Today `npm run fetch` fetches lesson detail for each member one at a time. With ~20 members each taking ~1 s, Step 2 alone takes ~20 s. Running detail fetches concurrently cuts that to a fraction._
+
+**Feasibility note:** Step 1 (pagination) stays sequential — each `next` URL is only known after the prior page resolves. Step 2 (per-member `fetchDetail`) is fully independent per member and is the bottleneck.
+
+- [ ] Replace the sequential `for` loop in `services/fetch.ts` Step 2 with a **concurrency-limited** parallel runner (default concurrency: 5)
+- [ ] Implement the limiter inline (no new dependency needed — a simple semaphore/chunk loop suffices)
+- [ ] Preserve per-member progress logging (e.g. `[3/20] Alice Smith — Engaging Humor`)
+- [ ] Error handling stays per-member: one failed detail fetch logs a warning and continues; it does not abort the run
+- [ ] Concurrency cap is a constant at the top of `services/fetch.ts` (e.g. `const DETAIL_CONCURRENCY = 5`) so it can be tuned without touching logic
+
+**Validation:** `npm run fetch` with ~20 members completes Step 2 noticeably faster than the sequential baseline; all members' project rows appear in `project_snapshots`; a single unreachable member logs a warning and the rest succeed.
+
+---
+
+## Phase 8 — In-browser data refresh
 
 _Today fetching requires running CLI commands before opening the dashboard. This phase lets the VPE trigger a data refresh directly from the web UI._
 
