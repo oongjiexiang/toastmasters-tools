@@ -4,6 +4,8 @@ import { snapshotProgress, snapshotProjects } from "../helpers/db";
 import { SESSION_ID } from "../config";
 import { DetailResponse, MemberProgress } from "../types";
 
+const DETAIL_CONCURRENCY = 5;
+
 export async function main(): Promise<void> {
   if (!SESSION_ID) {
     throw new Error(
@@ -20,24 +22,33 @@ export async function main(): Promise<void> {
   snapshotProgress(members);
   console.log(`Progress snapshotted: ${members.length} members\n`);
 
-  // Step 2: Fetch detail for each member
-  console.log(`Fetching lesson details for ${members.length} members...`);
+  // Step 2: Fetch detail for each member (concurrency-limited)
+  console.log(`Fetching lesson details for ${members.length} members (concurrency: ${DETAIL_CONCURRENCY})...`);
   const detailEntries: Array<{ member: MemberProgress; detail: DetailResponse }> = [];
+  let completed = 0;
 
-  for (let i = 0; i < members.length; i++) {
-    const member = members[i];
-    const label = `${member.user.first_name} ${member.user.last_name}`;
-    console.log(`  [${i + 1}/${members.length}] ${label} — ${member.path_name}`);
+  for (let i = 0; i < members.length; i += DETAIL_CONCURRENCY) {
+    const batch = members.slice(i, i + DETAIL_CONCURRENCY);
+    const results = await Promise.allSettled(
+      batch.map((member) => fetchDetail(member.course_id, member.user.username))
+    );
 
-    try {
-      const detail = await fetchDetail(member.course_id, member.user.username);
-      detailEntries.push({ member, detail });
-    } catch (err) {
-      console.warn(
-        `    Warning: could not fetch detail for ${label}: ${
-          err instanceof Error ? err.message : err
-        }`
-      );
+    for (let j = 0; j < batch.length; j++) {
+      const member = batch[j];
+      const label = `${member.user.first_name} ${member.user.last_name}`;
+      const result = results[j];
+      completed++;
+      console.log(`  [${completed}/${members.length}] ${label} — ${member.path_name}`);
+
+      if (result.status === "fulfilled") {
+        detailEntries.push({ member, detail: result.value });
+      } else {
+        console.warn(
+          `    Warning: could not fetch detail for ${label}: ${
+            result.reason instanceof Error ? result.reason.message : result.reason
+          }`
+        );
+      }
     }
   }
 
