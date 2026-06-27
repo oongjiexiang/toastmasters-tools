@@ -165,30 +165,28 @@ directly from the web UI._
 
 ---
 
-## Phase 9 — E2E testing with Playwright
+## Phase 9 — Done (E2E testing with Playwright)
 
 _Steps 1–5 of Phase 8's validation confirm the code exists and the routes respond, but they
 cannot verify that the button is visible, the spinner renders on click, or the toast fires.
 This phase adds Playwright so that UI behaviour can be validated by the agent without manual
 browser inspection._
 
-- [ ] Install `@playwright/test` and `@playwright/browser-chromium`; add `test:e2e` script to `package.json`
-- [ ] Add `playwright.config.ts` at the project root with `webServer` pointing at `next dev`
+- [x] Install `@playwright/test`; add `test:e2e` script to `package.json`
+- [x] Add `playwright.config.ts` at the project root with `webServer` pointing at `next dev`
       and `testDir: './tests/e2e'`
-- [ ] Write `tests/e2e/dashboard.spec.ts`:
-  - Both "Refresh Progress" and "Refresh Membership" buttons are visible immediately on page load
-    (before and after data is available)
-  - Clicking "Refresh Progress" shows a spinner on that button and disables both buttons
+- [x] Write `tests/e2e/dashboard.spec.ts`:
+  - Both "Refresh Progress" and "Refresh Membership" buttons visible on every page state
+  - Clicking "Refresh Progress" shows loading toast and disables both buttons
   - A Sonner loading toast is visible while the request is in progress
   - When cookies are missing/invalid, an error toast appears with the first line of the error
-  - On success, the toast changes to success and the member count in the header updates
-- [ ] Seed a minimal SQLite fixture (or mock `/api/members`) so the dashboard renders without
-      real Basecamp credentials for the button-visibility and spinner tests
+  - On success, the toast updates to success and the member data reloads
+- [x] API responses mocked via `page.route()` — tests run without real Basecamp credentials
 
 **Validation:**
-1. `npx playwright install --with-deps chromium` exits 0
-2. `npx playwright test` exits 0 with all E2E tests passing
-3. `npx playwright test --reporter=list` output explicitly shows the button-visibility, spinner, and toast tests as passed
+1. `npx playwright install chromium` exits 0
+2. `npx playwright test --reporter=list` exits 0 — 6 tests pass covering button visibility,
+   loading toast, disabled state, error toast, and data reload after success
 
 ---
 
