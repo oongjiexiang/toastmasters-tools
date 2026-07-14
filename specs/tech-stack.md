@@ -71,6 +71,31 @@ Playwright is chosen over Cypress for its first-class TypeScript support, lower 
 tighter Next.js integration. React Testing Library is not sufficient for this layer because
 jsdom cannot assert real CSS visibility or observe Sonner toast portals.
 
+### Layer 7 — Desktop app (Phase 11)
+
+_The VPE does not want to install Docker or run a Node dev server. Ship a double-clickable
+Windows `.exe` instead._
+
+| Concern | Choice | Why |
+|---|---|---|
+| Shell | **Electron** | Bundles Node.js, so `@toastmasters/core` (SQLite + scrapers) and `better-sqlite3`'s native module run **unchanged** in the main process — no rewrite |
+| Build tool | **electron-vite** | Modern Vite-based Electron tooling: hot reload in dev, clean main/preload/renderer build split |
+| UI | React (reused from `apps/web`) | The existing `MemberTable` / `LevelAccordion` / refresh-header components port directly; only the data layer changes from `fetch("/api/…")` to IPC |
+| Main ↔ renderer | IPC via `contextBridge` preload | Typed, sandboxed bridge; `nodeIntegration` stays off. Main process owns SQLite + scraping |
+| Packaging | **electron-builder** (NSIS target) | One-command Windows installer `.exe`; user double-clicks, no terminal |
+
+**Why Electron over the alternatives:**
+
+- **Tauri** — a Rust backend would force rewriting all Node.js scraping + `better-sqlite3`
+  integration. The smaller binary isn't worth that cost for one-user personal tooling.
+- **Neutralino.js** — smaller ecosystem and awkward native-module (`better-sqlite3`) support.
+- **Bundling Next.js inside Electron** — Next.js SSR assumes a server runtime; heavier and
+  more moving parts than a plain Vite React renderer for a local desktop app.
+
+**Monorepo prerequisite (Phase 10):** the repo becomes npm workspaces with `packages/core`
+(shared SQLite + scraping + pathway logic) consumed by both `apps/web` (Next.js) and
+`apps/desktop` (Electron). Neither app forks the core logic.
+
 ## Constraints
 
 - **No cloud dependencies** for runtime. Credentials are local; data never leaves the machine.

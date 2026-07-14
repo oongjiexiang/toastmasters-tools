@@ -190,6 +190,66 @@ browser inspection._
 
 ---
 
+## Phase 10 — Next up (Monorepo restructure: extract shared core)
+
+_The desktop app (Phase 11) must reuse the existing SQLite + scraping + pathway logic without
+copy-paste. This phase carves that logic into a shared package so both the Next.js web app and
+the Electron desktop app import one source of truth. It ships no user-facing change on its own —
+its value is unblocking Phase 11 cleanly._
+
+- [ ] Convert the repo to **npm workspaces**: root `package.json` gains a `workspaces` array
+- [ ] Create `packages/core/` and move the framework-agnostic logic into it:
+      `helpers/db.ts`, `helpers/pathway.ts`, `services/fetch.ts`, `services/membership.ts`,
+      and their types. These must not import anything Next.js- or Electron-specific.
+- [ ] Move the existing Next.js app under `apps/web/`; it imports core via `@toastmasters/core`
+- [ ] All existing scripts (`fetch`, `membership`, `cli`, `dev`, `build`, `test`, `test:e2e`)
+      continue to work from the root via workspace delegation
+- [ ] Vitest + Playwright configs updated for the new paths; no test is deleted
+
+**Validation:**
+1. `grep '"workspaces"' package.json` — workspaces array present
+2. `test -f packages/core/package.json` and `test -d apps/web` — new layout exists
+3. `npm run build` exits 0 from the root
+4. `npm test` passes (all Phase 5 unit tests green against the moved core)
+5. `npx playwright test --reporter=list` exits 0 (Phase 9 E2E still green)
+
+---
+
+## Phase 11 — Next up (Electron desktop app / `.exe`)
+
+_The VPE does not want to install Docker or run a Node dev server. This phase delivers a
+double-clickable Windows `.exe` that bundles Node.js, the scrapers, SQLite, and the dashboard
+into one native app — no terminal, no `npm run dev`._
+
+**Stack (see `tech-stack.md` Layer 7):** Electron + `electron-vite` + React, packaged with
+`electron-builder`. The Electron **main** process runs `@toastmasters/core` (SQLite + scrapers)
+directly; the **renderer** reuses the existing React components, talking to main over IPC
+instead of `fetch("/api/…")`.
+
+- [ ] Create `apps/desktop/` (Electron main + preload + renderer) importing `@toastmasters/core`
+- [ ] Main process exposes the current API surface over IPC: list members, member detail,
+      diff, refresh progress, refresh membership, download membership CSV
+- [ ] Preload script bridges IPC to the renderer via a typed `contextBridge` API (no `nodeIntegration`)
+- [ ] Renderer reuses `MemberTable`, `LevelAccordion`, and the refresh-button header from the web app
+- [ ] Credentials (`BASECAMP_SESSIONID`, TI login) read from a local `.env` / userData config file —
+      never entered in a scraped page. SQLite DB lives in Electron `app.getPath('userData')`
+- [ ] `npm run desktop:dev` runs the app with hot reload; `npm run desktop:build` produces a
+      Windows installer `.exe` via `electron-builder` (NSIS target)
+- [ ] **Write a user guide** — `apps/desktop/USER_GUIDE.md`, aimed at the VPE (non-technical):
+      how to install the `.exe`, where to paste the Basecamp cookie / TI credentials the first
+      time, how to hit Refresh, and how to read the dashboard. Keep it simple, intuitive, and
+      concise — screenshots or short numbered steps, no jargon.
+
+**Validation:**
+1. `test -d apps/desktop` and `grep '"electron"' apps/desktop/package.json` — app scaffolded
+2. `grep -E '"desktop:dev"|"desktop:build"' package.json` — both scripts present
+3. `npm run desktop:build` produces a `.exe` under `apps/desktop/dist/` (or `release/`)
+4. `test -f apps/desktop/USER_GUIDE.md` — end-user guide exists
+5. Launching the built app shows the member table; clicking "Refresh Progress" with a valid
+   cookie repopulates data (manual check — document the result)
+
+---
+
 ## Deferred — Hardened pipeline (low priority)
 
 _Pain point: cookie expiry silently breaks runs; manual step order is error-prone._
