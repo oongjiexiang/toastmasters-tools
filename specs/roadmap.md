@@ -19,7 +19,7 @@ completable in a single sitting. Each phase lists a concrete validation criterio
 - [x] Download TI membership roster (`membership-YYYY-MM-DD.csv`)
 - [x] Generate unified summary (`summary.csv`)
 - [x] Interactive CLI launcher (`npm start`)
-- [x] Docker support
+- [x] Docker support (retired in Phase 10 — see below)
 
 **Validation (historical):** Superseded by Phases 4–6; the CSV pipeline and `summary.csv`
 no longer exist. No re-validation needed.
@@ -190,21 +190,53 @@ browser inspection._
 
 ---
 
-## Phase 10 — Next up (Monorepo restructure: extract shared core)
+## Phase 10 — Done (Monorepo restructure: extract shared core)
 
 _The desktop app (Phase 11) must reuse the existing SQLite + scraping + pathway logic without
 copy-paste. This phase carves that logic into a shared package so both the Next.js web app and
 the Electron desktop app import one source of truth. It ships no user-facing change on its own —
 its value is unblocking Phase 11 cleanly._
 
-- [ ] Convert the repo to **npm workspaces**: root `package.json` gains a `workspaces` array
-- [ ] Create `packages/core/` and move the framework-agnostic logic into it:
-      `helpers/db.ts`, `helpers/pathway.ts`, `services/fetch.ts`, `services/membership.ts`,
-      and their types. These must not import anything Next.js- or Electron-specific.
-- [ ] Move the existing Next.js app under `apps/web/`; it imports core via `@toastmasters/core`
-- [ ] All existing scripts (`fetch`, `membership`, `cli`, `dev`, `build`, `test`, `test:e2e`)
-      continue to work from the root via workspace delegation
-- [ ] Vitest + Playwright configs updated for the new paths; no test is deleted
+- [x] Convert the repo to **npm workspaces**: root `package.json` gains a `workspaces` array
+      (`["apps/*", "packages/*"]`)
+- [x] Create `packages/core/` (`@toastmasters/core`, private, no build step — runs via `tsx`) and
+      move the framework-agnostic logic into it: `config.ts`, `types.ts`,
+      `helpers/{db,pathway,api,files}.ts`, `services/{fetch,membership}.ts`, and `index.ts`
+      (the interactive CLI). Consumed through package `exports` subpaths — `@toastmasters/core/db`,
+      `/pathway`, `/api`, `/files`, `/config`, `/paths`, `/types`, `/fetch`,
+      `/membership`. These must not import anything Next.js- or Electron-specific.
+- [x] Drop `helpers/csv.ts` (`buildCsv` / `buildDetailCsv`) and the `csv-stringify` dependency.
+      Both were orphaned by the Phase 6 CSV cleanup — no importer remained — and the restructure
+      had carried them into core mechanically. `csv-parse` stays (`helpers/db.ts` uses it).
+- [x] Move the existing Next.js app under `apps/web/` (`@toastmasters/web`); it imports core via
+      `@toastmasters/core` and declares `transpilePackages: ["@toastmasters/core"]` in
+      `next.config.ts`. Its `@/*` alias now resolves within `apps/web`.
+- [x] All existing scripts (`fetch`, `membership`, `cli`, `dev`, `build`, `start`, `test`,
+      `test:e2e`) continue to work unchanged from the root via workspace delegation
+- [x] Vitest + Playwright configs updated for the new paths; no test is deleted — tests split into
+      `packages/core/tests/` (163) and `apps/web/tests/{api,e2e}/` (13 unit + 6 E2E). **176** unit/API
+      tests in total.
+- [x] `packages/core/tests/workspace.test.ts` guards the structural invariants: the `exports` map,
+      the public symbols the web routes call, and that no core source imports `next`/`react`.
+      That last invariant is the precondition for Phase 11.
+- [x] **Data-path resolution fixed (regression introduced by this restructure).** `results/` and
+      `.env` were resolved relative to `process.cwd()`, but workspace scripts run with cwd = the
+      workspace directory — so `npm run fetch` would have used `packages/core/results/db.sqlite`
+      while `npm run dev` used `apps/web/results/db.sqlite`, splitting the CLI and the dashboard
+      across two databases, orphaning the real data at the repo root, and leaving the root `.env`
+      unread. Fixed with `packages/core/paths.ts`: `REPO_ROOT` is found by walking up from
+      `import.meta.url` (never cwd) to the `package.json` declaring `workspaces`; `ENV_FILE` and
+      `DATA_DIR` derive from it, making `RESULTS_DIR` and `DEFAULT_DB_PATH` absolute.
+      `TOASTMASTERS_DATA_DIR` (absolute) overrides `DATA_DIR` — the hook Phase 11 uses for
+      Electron's `app.getPath('userData')`. Exported as a tenth subpath, `@toastmasters/core/paths`.
+      No data migration was needed. Guarded by `packages/core/tests/paths.test.ts`, which spawns
+      `tsx` out-of-process with the cwd set to each workspace and asserts every anchor resolves to
+      the repo root, plus negative-control tests that fail if the guard is ever weakened.
+- [x] **Docker retired** (user-approved): `Dockerfile` and `.dockerignore` deleted. The image had
+      been broken since the Phase 4 Next.js migration — it never ran `npm run build`, and
+      `npm ci --omit=dev` stripped `tsx`/`typescript`, so neither the CLI nor the dashboard could
+      start. It has no CI consumer and is superseded by the Phase 11 `.exe`. Recoverable from git
+      history: `git show 2912204:Dockerfile`.
 
 **Validation:**
 1. `grep '"workspaces"' package.json` — workspaces array present
@@ -212,6 +244,13 @@ its value is unblocking Phase 11 cleanly._
 3. `npm run build` exits 0 from the root
 4. `npm test` passes (all Phase 5 unit tests green against the moved core)
 5. `npx playwright test --reporter=list` exits 0 (Phase 9 E2E still green)
+6. `test ! -f Dockerfile && test ! -f .dockerignore` — Docker removed
+7. `test -f packages/core/tests/paths.test.ts` — the out-of-process path regression suite exists
+   and runs as part of `npm test` (core's vitest `include` is `tests/**/*.test.ts`)
+8. Both workspace cwds resolve the database to the repo root — run from `packages/core` and again
+   from `apps/web`:
+   `npx tsx -e "import('@toastmasters/core/db').then(m => console.log(m.DEFAULT_DB_PATH))"` —
+   prints the same `<repo>/results/db.sqlite` both times
 
 ---
 
@@ -225,6 +264,12 @@ into one native app — no terminal, no `npm run dev`._
 `electron-builder`. The Electron **main** process runs `@toastmasters/core` (SQLite + scrapers)
 directly; the **renderer** reuses the existing React components, talking to main over IPC
 instead of `fetch("/api/…")`.
+
+**Prerequisite met:** Phase 10 shipped `packages/core` — the file paths below are unchanged, and
+`@toastmasters/core` now exists as a real workspace package with a framework-agnostic guarantee
+enforced by `packages/core/tests/workspace.test.ts`. `apps/desktop/` is a new sibling of
+`apps/web/` under the existing `workspaces: ["apps/*", "packages/*"]` array — no root
+restructuring is required.
 
 - [ ] Create `apps/desktop/` (Electron main + preload + renderer) importing `@toastmasters/core`
 - [ ] Main process exposes the current API surface over IPC: list members, member detail,

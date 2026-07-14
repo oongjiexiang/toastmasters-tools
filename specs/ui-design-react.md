@@ -5,15 +5,18 @@ Design spec for re-implementing the Phase 2 dashboard in React + shadcn/ui. One 
 
 - **Tool used:** Markdown / ASCII wireframes (Figma not used for this internal tool).
 - **Source of truth for data shapes:** `architecture-react.md` (API shapes) and
-  [`types.ts`](../types.ts). This spec references those — it does not redefine them.
+  [`types.ts`](../packages/core/types.ts). This spec references those — it does not redefine them.
 - **Component library:** [shadcn/ui](https://ui.shadcn.com) (Radix primitives + Tailwind).
+
+> **Paths note:** file paths here reflect the post–Phase 10 monorepo layout — shared logic in
+> `packages/core/`, the Next.js app in `apps/web/`. The design itself is unchanged.
 
 ---
 
 ## 0. The problem this redesign fixes
 
 The Phase 2 UI only shows the **next** level to complete (`nextLevelToComplete`,
-[`helpers/pathway.ts`](../helpers/pathway.ts)). When a member has data for Levels 4 and 5
+[`helpers/pathway.ts`](../packages/core/helpers/pathway.ts)). When a member has data for Levels 4 and 5
 already in Basecamp, those levels are **invisible** to the VPE. The detail view must show
 **all** levels for a member's pathway, not just the next one.
 
@@ -24,7 +27,7 @@ The data model separates two things the original prompt collapsed into one:
 | Concept | Source | Meaning |
 |---|---|---|
 | **Approved** | `Level N Approved == true` (`isLevelDone`) | VPE clicked "approve" in Basecamp. Official. |
-| **Projects done** | `details.csv` per-lesson `Complete == Yes` | Member finished the speech projects. |
+| **Projects done** | per-lesson `Complete == Yes` — from the `project_snapshots` table (originally `details.csv`, retired in Phase 6) | Member finished the speech projects. |
 
 These can disagree. A member can have **all projects done but the level not yet approved** —
 that member is _waiting on the VPE_ and is the single most actionable row in the tool. The
@@ -132,7 +135,8 @@ Notes wired to real data:
   level (excluding `isOverviewLesson` entries — keep that filter). This is the `projectsDone` /
   `projectsTotal` in `LevelGroup` from `architecture-react.md`.
 - **Speech title + date** come from `project_snapshots` (populated from Basecamp detail API via
-  `fetch.ts`). Show `Speech · <date>` when present; omit when there's no speech.
+  `packages/core/services/fetch.ts`). Show `Speech · <date>` when present; omit when there's no
+  speech.
 - `(elective)` tag when `Type == Elective`.
 - The **status pill** per level is the level's status (§4), independent of the count.
 
@@ -185,14 +189,15 @@ interface MemberSummary {
 ```
 
 Keep all business logic (title derivation, status computation) in
-[`helpers/pathway.ts`](../helpers/pathway.ts) so it is reusable and testable.
+[`helpers/pathway.ts`](../packages/core/helpers/pathway.ts) so it is reusable and testable.
 
 ---
 
 ## 4. Colour & status system
 
-Semantic colour only. Palette reuses the hues already in `services/ui.ts` so the redesign is
-visually continuous (green `#16a34a`, amber, red `#991b1b`, blue title `#1e40af`, grey).
+Semantic colour only. Palette reuses the hues from the Phase 2 server-rendered UI
+(`services/ui.ts`, removed in Phase 4) so the redesign is visually continuous (green `#16a34a`,
+amber, red `#991b1b`, blue title `#1e40af`, grey).
 
 ### Level status (Screen 2 pills, and the row-level rollup on Screen 1)
 
@@ -240,7 +245,8 @@ text label, so the amber "Ready" vs "In progress" pair is distinguishable withou
 ### Screen 1 — Member List
 
 - **Row click target:** entire row is clickable for single-pathway members → navigates to
-  `/member/:name/:pathway`. Use `cursor: pointer` + hover background (`#f7f7f7`, matches current).
+  `/members/:email?pathway=<name>` (§3). Use `cursor: pointer` + hover background (`#f7f7f7`,
+  matches current).
 - **Chevron (multi-pathway only):** click toggles sub-rows _without_ navigating. Chevron has its
   own hit area (≥ 24×24 px, SC 2.5.8); clicking it must `stopPropagation` so it doesn't also fire
   the row navigation.
@@ -279,7 +285,7 @@ is unchanged.
 
 | State | When | What shows |
 |---|---|---|
-| **No data at all** | No SQLite snapshot and no CSVs (`rows.length === 0`) | Card: **"No data yet."** Body: "Run `npm run fetch` then `npm run membership`, then refresh."  No empty table chrome. |
+| **No data at all** | No SQLite snapshot (`rows.length === 0`) — the CSV fallback was retired in Phase 6 | Card: **"No data yet."** Body: "Run `npm run fetch` then `npm run membership`, then refresh."  No empty table chrome. |
 | **Loading (initial)** | Fetching the roster | `Skeleton` rows (≈8) under a real table header; header summary shows a skeleton line. |
 | **Zero results (filter)** | Search/filter matches nothing | Keep table header + filters; body row: **"No members match this filter."** + `Clear filters` button. Distinct from "no data". |
 | **Detail: no project data** | `project_snapshots` has no rows for this member×pathway×level | Per-level: muted line **"No project data for this level. Run `npm run fetch` to refresh."** Keep the section header + status pill (status may still be known from the approved flag). |
@@ -304,9 +310,9 @@ is unchanged.
 
 ## 8. Developer handoff checklist
 
-- [ ] Extend `SummaryRow` with `status` + `pathways[]` (§3); derive in `helpers/pathway.ts`,
-      not in React.
-- [ ] Detail API route (`/api/members/:email?pathway=<name>`) returns **all** levels
+- [ ] Extend `SummaryRow` with `status` + `pathways[]` (§3); derive in
+      `packages/core/helpers/pathway.ts`, not in React.
+- [ ] Detail API route (`apps/web/app/api/members/[email]/route.ts`) returns **all** levels
       (`STANDARD_LEVELS` + `Path Completion`) with per-level `{ approved, projectsDone,
       projectsTotal, projects[] }`, projects carrying `{ lesson, complete, type }`.
       Source: `project_snapshots` table. Keep the `isOverviewLesson` filter.

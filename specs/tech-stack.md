@@ -8,12 +8,45 @@
 | Runtime | Node.js v18+ via `tsx` | Zero-compile dev loop; familiar ecosystem |
 | CSV I/O | `csv-parse` / `csv-stringify` | Robust RFC 4180 handling without a DB dependency |
 | Auth | Browser session cookies (manual) | Only viable method; both portals lack public OAuth |
-| Packaging | Docker | Reproducible environment without a global Node install |
+| Packaging | Electron `.exe` (Phase 11) for the end user; `npm run dev` for development | The VPE double-clicks an installer; developers run the workspace scripts from the repo root |
 | Output | Flat CSV files in `results/` | Opens directly in Google Sheets / Excel |
 
 ## Target Architecture
 
-The stack evolves in three layers. Each is independently useful and can be added in phases without breaking the one before it.
+The stack evolves in layers. Each is independently useful and can be added in phases without breaking the one before it.
+
+### Layer 0 — Monorepo (Phase 10, done)
+
+The repo is **npm workspaces**: `workspaces: ["apps/*", "packages/*"]` in a private root
+`package.json` that holds no source and delegates every script into a workspace.
+
+| Workspace | Package | Role |
+|---|---|---|
+| `packages/core` | `@toastmasters/core` | Framework-agnostic shared logic: SQLite (`helpers/db.ts`), scrapers (`services/{fetch,membership}.ts`), pathway rules (`helpers/pathway.ts`), config, types, and the interactive CLI. No build step — runs under `tsx`, and Next.js transpiles it via `transpilePackages`. |
+| `apps/web` | `@toastmasters/web` | Next.js dashboard (Layer 4). Imports core; owns its own `tsconfig`, `vitest.config.ts`, `playwright.config.ts`. |
+| `apps/desktop` | _(Phase 11)_ | Electron app (Layer 7). Imports the same core from the main process. |
+
+Core is consumed through explicit `exports` subpaths (`@toastmasters/core/db`, `/pathway`,
+`/api`, `/files`, `/config`, `/paths`, `/types`, `/fetch`, `/membership`) — not deep
+relative imports — so its public surface is a deliberate contract rather than an accident of
+file layout.
+
+**Path resolution is anchored, not cwd-relative.** npm workspace scripts run with the cwd set to
+the _workspace_ directory (`npm run fetch` → `packages/core`, `npm run dev` → `apps/web`), so any
+path derived from `process.cwd()` resolves differently per entry point — which would give the CLI
+and the dashboard two different SQLite databases. `packages/core/paths.ts` (exported as
+`@toastmasters/core/paths`) resolves `REPO_ROOT` by walking up from `import.meta.url` to the
+`package.json` that declares `workspaces`, and derives `ENV_FILE` (`<repo>/.env`) and `DATA_DIR`
+(`<repo>/results`) from it. `config.ts` and `helpers/db.ts` consume those anchors, so
+`RESULTS_DIR` and `DEFAULT_DB_PATH` are absolute regardless of cwd. `TOASTMASTERS_DATA_DIR`
+(absolute) overrides `DATA_DIR` — that is the hook Phase 11's Electron main process uses to point
+data at `app.getPath('userData')`, where there is no repo and cwd is arbitrary.
+
+**The load-bearing invariant:** core must never import `next` or `react`. That is what allows
+`apps/desktop` to run the exact same scraping and SQLite code in an Electron main process with no
+fork and no rewrite. It is enforced by `packages/core/tests/workspace.test.ts` (which also asserts
+that every core subpath resolves and that no source file uses the dead pre-monorepo `@/` aliases),
+so the precondition for Phase 11 cannot silently rot.
 
 ### Layer 1 — CLI (keep as-is)
 
@@ -84,6 +117,10 @@ Windows `.exe` instead._
 | Main ↔ renderer | IPC via `contextBridge` preload | Typed, sandboxed bridge; `nodeIntegration` stays off. Main process owns SQLite + scraping |
 | Packaging | **electron-builder** (NSIS target) | One-command Windows installer `.exe`; user double-clicks, no terminal |
 
+**Supersedes Docker (Phase 0 baseline), retired in Phase 10.** Docker solved "run this without a
+global Node install" for a developer; the `.exe` solves it for the actual end user, and does so
+without a terminal. See `roadmap.md` Phase 10 for the removal rationale.
+
 **Why Electron over the alternatives:**
 
 - **Tauri** — a Rust backend would force rewriting all Node.js scraping + `better-sqlite3`
@@ -100,6 +137,9 @@ Windows `.exe` instead._
 
 - **No cloud dependencies** for runtime. Credentials are local; data never leaves the machine.
 - **CLI stays build-free.** `tsx` runs the Node code directly. The build step is scoped to the
-  React app (`web/`) only — `npm start` and the CLI never require a bundler.
+  React app (`apps/web`) only — the CLI never requires a bundler.
+- **`packages/core` imports no framework.** No `next`, no `react`. Enforced by
+  `packages/core/tests/workspace.test.ts`.
 - **shadcn components are vendored source**, committed to the repo and edited in place.
-- **Docker remains optional** but must continue to work after each layer is added.
+- **The end-user entry point is the packaged desktop app.** Any packaging path not covered by a
+  roadmap **Validation** step is not supported.

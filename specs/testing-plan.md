@@ -6,12 +6,23 @@ This project uses two complementary testing layers:
 
 | Layer | Framework | Scope | Runs in |
 |---|---|---|---|
-| Unit / integration | **Vitest** | Pure helper logic, SQLite queries, API route mappers | Node.js (no browser) |
+| Unit / integration | **Vitest** | Pure helper logic, SQLite queries, workspace/path invariants, API route mappers | Node.js (no browser) |
 | End-to-end (E2E) | **Playwright** | Browser UI behaviour — element visibility, clicks, toasts, data reload | Real Chromium via Next.js dev server |
 
 The two layers are **independent** — Vitest covers logic that has no browser surface; Playwright covers
 the parts that Vitest cannot: toast notifications, spinner state, actual CSS visibility, and
 server-triggered data refresh.
+
+### Where tests live (monorepo, Phase 10)
+
+Each workspace owns its own tests and its own Vitest config. The root `npm test` runs core first,
+then web.
+
+| Location | Config | Contents |
+|---|---|---|
+| `packages/core/tests/` | `packages/core/vitest.config.ts` | `pathway.test.ts`, `db.test.ts`, `workspace.test.ts`, `paths.test.ts` |
+| `apps/web/tests/api/` | `apps/web/vitest.config.ts` | One smoke test per Next.js API route |
+| `apps/web/tests/e2e/` | `apps/web/playwright.config.ts` | `dashboard.spec.ts` (Playwright) |
 
 ---
 
@@ -28,16 +39,22 @@ server-triggered data refresh.
   costs are zero if needed.
 - Fast: Vitest parallelises test files by default and uses esbuild transforms.
 
-**Configuration file:** `vitest.config.ts`
+**Configuration files:** `packages/core/vitest.config.ts` and `apps/web/vitest.config.ts` (one per
+workspace — the web config carries the `@` alias used to mock API route imports).
 
 ### What to test vs what to skip
 
-#### Test (unit tests — in `tests/`)
+Paths below are relative to `packages/core/` unless stated otherwise.
+
+#### Test (unit tests)
 
 | Module | Reason |
 |---|---|
 | `helpers/pathway.ts` | Pure functions with no I/O. 100% deterministic. |
 | `helpers/db.ts` | SQLite logic. Testable with temp-file databases (no mocking of the DB layer). |
+| `paths.ts` | Repo-root anchoring. Regression-tested **out of process**: the suite spawns `tsx` with the cwd set to each workspace and asserts `REPO_ROOT` / `DATA_DIR` / `DEFAULT_DB_PATH` still land at the repo root. Includes negative controls that fail if the cwd-independence guard is weakened. |
+| Workspace invariants | `workspace.test.ts` asserts the `exports` map, that every subpath resolves, that no core source imports `next`/`react`, and that no source uses the dead pre-monorepo `@/` alias. |
+| `apps/web/app/api/**` | One smoke test per route — status code plus response shape. |
 
 #### Defer to E2E or skip
 
@@ -55,19 +72,26 @@ server-triggered data refresh.
 |---|---|---|
 | `helpers/pathway.ts` | 100% line + branch | Pure functions; no excuse for gaps |
 | `helpers/db.ts` | 90%+ line | All public functions tested; internals covered implicitly |
+| `apps/web/app/api/**` | Smoke coverage per route | Enforced by a 75% line/function threshold in the web Vitest config |
 | `services/**` | Not targeted | Integration tests deferred; see table above |
 
 ### Running unit tests
 
-```
-npm test                  # run once (CI / pre-commit)
-npm run test:watch        # watch mode during development
-npm run test:coverage     # with coverage report → coverage/index.html
+Only `npm test` exists at the root; watch and coverage are workspace scripts, run with `-w`.
+
+```bash
+npm test                                        # both workspaces, once (CI / pre-commit)
+npm test -w @toastmasters/core                  # core only
+npm run test:coverage -w @toastmasters/core     # coverage → packages/core/coverage/index.html
+npm run test:watch -w @toastmasters/web         # watch mode (web only — core has no watch script)
+npm run test:coverage -w @toastmasters/web      # coverage → apps/web/coverage/index.html
 ```
 
 ### Database isolation strategy
 
-`helpers/db.ts` functions accept an optional `dbPath` parameter. All unit tests pass a
+`helpers/db.ts` functions accept an optional `dbPath` parameter, defaulting to `DEFAULT_DB_PATH`
+(`<repo>/results/db.sqlite`, resolved via `paths.ts` — see
+[`tech-stack.md`](tech-stack.md) Layer 0). All unit tests pass a
 **temporary file path** (created with `mkdtempSync` from `os.tmpdir()`) and delete it after
 each test using `rmSync`. No test reads from or writes to `results/db.sqlite`.
 
@@ -116,40 +140,48 @@ Playwright avoids all of these by using a real browser against a real server.
 
 ### E2E test configuration
 
-Playwright config lives in `playwright.config.ts` at the project root. Key settings:
+Playwright config lives in `apps/web/playwright.config.ts` (it moved out of the repo root in the
+Phase 10 monorepo restructure — Playwright belongs to the workspace that owns the dev server).
+Key settings:
 
 ```ts
-// playwright.config.ts (target shape — written in Phase 9)
-import { defineConfig } from '@playwright/test';
+// apps/web/playwright.config.ts
+import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
-  testDir: './tests/e2e',
+  testDir: "./tests/e2e",
   webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:3000',
+    command: "npm run dev",
+    url: "http://localhost:3000",
     reuseExistingServer: !process.env.CI,
   },
-  use: { baseURL: 'http://localhost:3000' },
+  use: { baseURL: "http://localhost:3000" },
 });
 ```
 
 ### Running E2E tests
 
+```bash
+npm run test:e2e                  # from the repo root — delegates to the web workspace
 ```
+
+Or from `apps/web/` for the interactive flags:
+
+```bash
 npx playwright test               # run all E2E tests headless
 npx playwright test --ui          # Playwright UI mode (interactive, with time-travel)
 npx playwright test --headed      # watch tests run in a real browser window
 npx playwright show-report        # open last HTML report
 ```
 
-E2E tests require a running (or auto-started) Next.js server and valid `.env` credentials for
-the success-flow tests. The error-flow tests use a deliberately invalid session cookie and do
-not require real credentials.
+Playwright auto-starts the Next.js dev server via `webServer`. The suite mocks API responses with
+`page.route()`, so no real Basecamp or TI credentials are needed — including for the success flow.
 
 ---
 
 ## Future test additions
 
-- `helpers/files.ts` — unit test `findLatestMembershipFile` with a temp directory of fixture CSVs.
+- `packages/core/helpers/files.ts` — unit test `findLatestMembershipFile` with a temp directory of
+  fixture CSVs.
 - E2E: member detail page — verify all six level groups render with correct completion badges.
 - E2E: diff section — verify the diff table appears after two fetch runs with different data.

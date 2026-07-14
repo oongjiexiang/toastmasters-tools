@@ -1,4 +1,4 @@
-/node_modules/
+node_modules/
 /.vscode/
 package-lock.json
 *.data.json
@@ -8,14 +8,18 @@ package-lock.json
 tmp*
 
 # Next.js build output
-/.next/
-/out/
+.next/
+out/
 
 # TypeScript incremental build cache
 *.tsbuildinfo
 
 # Vitest coverage output
-/coverage/
+coverage/
 
 # General build output
-/dist/
+dist/
+
+# Playwright output
+test-results/
+playwright-report/

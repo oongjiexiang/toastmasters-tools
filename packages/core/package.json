@@ -1,0 +1,37 @@
+{
+  "name": "@toastmasters/core",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    "./db": "./helpers/db.ts",
+    "./pathway": "./helpers/pathway.ts",
+    "./api": "./helpers/api.ts",
+    "./files": "./helpers/files.ts",
+    "./config": "./config.ts",
+    "./paths": "./paths.ts",
+    "./types": "./types.ts",
+    "./fetch": "./services/fetch.ts",
+    "./membership": "./services/membership.ts"
+  },
+  "bin": { "toastmasters-cli": "./index.ts" },
+  "scripts": {
+    "cli": "tsx index.ts",
+    "fetch": "tsx services/fetch.ts",
+    "membership": "tsx services/membership.ts",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "csv-parse": "^6.1.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^2.1.9",
+    "@vitest/coverage-v8": "^2.1.9"
+  }
+}
