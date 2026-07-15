@@ -8,6 +8,7 @@ name: Release Desktop
 # installer.
 on:
   push:
+    branches: ["user/oong/v2"] # TEMP: debugging trigger, revert before done
     tags:
       - "v[0-9]+.[0-9]+*" # v1.0, v1.2.3
       - "[0-9]+.[0-9]+*" #  1.0,  1.2.3  (the 1.0 release used this form)
@@ -19,7 +20,7 @@ permissions:
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
 
