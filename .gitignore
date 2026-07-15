@@ -1,6 +1,6 @@
 node_modules/
 /.vscode/
-package-lock.json
+# package-lock.json is committed: CI (npm ci + setup-node cache) requires it.
 *.data.json
 .env
 *.csv
