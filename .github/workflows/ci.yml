@@ -1,0 +1,45 @@
+name: CI
+
+# Keeps main self-verifying: the full unit/API/bundle suite plus the Playwright
+# E2E tests run on every branch push and on PRs into main. Tag pushes are handled
+# by release.yml, not here (this filter matches branches only).
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+# Newer runs of the same ref cancel older, still-running ones.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      # Installs every workspace and builds the better-sqlite3 native module.
+      - name: Install dependencies
+        run: npm ci
+
+      # core + web + desktop. The desktop suite rebuilds and evaluates the
+      # electron-vite main bundle; no display or real Electron launch is needed.
+      - name: Unit / API / bundle tests
+        run: npm test
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      # E2E mocks the network via page.route, so it needs no Toastmasters cookies.
+      - name: E2E tests
+        run: npm run test:e2e

@@ -1,10 +1,12 @@
 # Toastmasters Tools
 
-Personal VPE tooling for one Toastmasters club. Scrapes Basecamp (pathway progress) and toastmasters.org (membership roster), stores snapshots in SQLite, and serves a local web dashboard for weekly/monthly reporting.
+[![CI](https://github.com/oongjiexiang/toastmasters-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/oongjiexiang/toastmasters-tools/actions/workflows/ci.yml)
+
+Personal VPE tooling for one Toastmasters club. Scrapes Basecamp (pathway progress) and toastmasters.org (membership roster), stores snapshots in SQLite, and serves a local web dashboard for weekly/monthly reporting. Also ships as a double-clickable Windows desktop app (see [Desktop app](#desktop-app)).
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) v18 or later
+- [Node.js](https://nodejs.org/) v20 LTS or later (matches CI)
 - An active Toastmasters officer account with access to both Basecamp and toastmasters.org
 
 ## Installation
@@ -40,9 +42,9 @@ cp .env.example .env
 
 Both cookies expire with your browser session — you will need to refresh them periodically.
 
-> **Desktop app:** the Electron app (see [`specs/roadmap.md`](specs/roadmap.md) Phase 12) can obtain
-> these cookies automatically — click **Log in** and sign in on the embedded Toastmasters pages,
-> and it harvests `BASECAMP_SESSIONID` / `TI_COOKIE` for you (writing them to its own `config.env`).
+> **Desktop app:** the [desktop app](#desktop-app) obtains these cookies automatically — click
+> **Log in** and sign in on the embedded Toastmasters pages, and it harvests
+> `BASECAMP_SESSIONID` / `TI_COOKIE` for you (writing them to its own `config.env`).
 > The DevTools method above is still the way to supply cookies for the CLI and web app.
 
 ## Typical workflow
@@ -74,7 +76,9 @@ All commands are run from the repository root.
 | `npm run dev` | web | Start the local web dashboard at `http://localhost:3000` |
 | `npm run build` | web | Build the Next.js app for production |
 | `npm start` | web | Start the production build |
-| `npm test` | core + web | Run the full unit/API test suite (core first, then web) |
+| `npm run desktop:dev` | desktop | Run the Electron desktop app with hot reload |
+| `npm run desktop:build` | desktop | Build the Windows installer (`apps/desktop/release/*.exe`) |
+| `npm test` | core + web + desktop | Run the full unit/API/bundle test suite (core → web → desktop) |
 | `npm run test:e2e` | web | Run the Playwright E2E tests |
 
 Workspace-only scripts (coverage, watch mode) are run with `-w`:
@@ -116,6 +120,40 @@ Shows what changed between the two most recent snapshots: who advanced a level, 
 
 Downloads the raw membership CSV from toastmasters.org that was last fetched.
 
+## Desktop app
+
+A double-clickable Windows app (`apps/desktop`, Electron) that bundles Node, the scrapers,
+SQLite, and the dashboard into one native app — no terminal, no `npm run dev`. It reuses the
+same `@toastmasters/core` logic and React components as the web app, talking to the main
+process over IPC instead of HTTP.
+
+- **Download:** grab `Toastmasters Tools Setup <version>.exe` from the repo's
+  [Releases](https://github.com/oongjiexiang/toastmasters-tools/releases) page — CI builds and
+  publishes it automatically on each version tag (see [CI/CD](#cicd)). Or build it yourself:
+
+  ```bash
+  npm run desktop:dev     # run with hot reload
+  npm run desktop:build   # produce the NSIS installer in apps/desktop/release/
+  ```
+
+- **Log in, no cookie pasting:** click **Log in** and sign in on the embedded Toastmasters
+  pages — the app harvests your `BASECAMP_SESSIONID` / `TI_COOKIE` session cookies itself (into
+  its own `config.env`), and stays logged in across restarts until the session expires. A full
+  end-user walkthrough is in [`apps/desktop/USER_GUIDE.md`](apps/desktop/USER_GUIDE.md).
+- The SQLite database and credentials live in Electron's user-data directory (via the
+  `TOASTMASTERS_DATA_DIR` anchor described under [Data storage](#data-storage)), not in the repo.
+
+## CI/CD
+
+GitHub Actions (`.github/workflows/`) keep `main` releasable:
+
+- **`ci.yml`** runs the full test suite (`npm test` — core + web + desktop) and the Playwright
+  E2E tests on every branch push and PR into `main`. It needs no Toastmasters cookies — the
+  tests mock the network.
+- **`release.yml`** builds the Windows installer on `windows-latest` when you push a **version
+  tag** (e.g. `1.0`) or trigger it manually. On a tag it creates a **GitHub Release** with the
+  `.exe` attached; a manual run uploads the installer as a workflow artifact.
+
 ## Title logic
 
 | Title | Meaning |
@@ -146,9 +184,8 @@ TOASTMASTERS_DATA_DIR=/absolute/path/to/data npm run fetch
 ```
 
 The database and membership CSVs then live there instead of `<repo>/results/`; `.env` stays at
-the repo root. This override is how the planned desktop app
-(see [`specs/roadmap.md`](specs/roadmap.md) Phase 11) will point data at Electron's
-`app.getPath('userData')`.
+the repo root. This override is how the [desktop app](#desktop-app) points its data at
+Electron's `app.getPath('userData')`.
 
 ## Project structure
 
@@ -168,16 +205,16 @@ repository root — the root `package.json` delegates to the right workspace.
 │       ├── services/
 │       │   ├── fetch.ts      # Scrapes Basecamp progress, snapshots to SQLite
 │       │   └── membership.ts # Downloads TI membership CSV, snapshots to SQLite
+│       ├── queries.ts        # Transport-agnostic read-models (list/detail/diff) — web + desktop
 │       ├── helpers/
 │       │   ├── api.ts        # Basecamp API calls
-│       │   ├── csv.ts        # CSV parsing utilities
 │       │   ├── db.ts         # SQLite read/write (snapshots, queries, diff)
 │       │   ├── files.ts      # File utilities (findLatestMembershipFile)
 │       │   └── pathway.ts    # Pathway/level logic (titles, next level, etc.)
 │       └── tests/            # Unit tests for pathway.ts and db.ts + workspace invariants
 │
 ├── apps/
-│   └── web/                  # @toastmasters/web — Next.js app (App Router)
+│   ├── web/                  # @toastmasters/web — Next.js app (App Router)
 │       ├── app/
 │       │   ├── page.tsx      # Dashboard home (member table)
 │       │   ├── members/[email]/     # Member detail page
@@ -192,7 +229,16 @@ repository root — the root `package.json` delegates to the right workspace.
 │       └── tests/
 │           ├── api/          # Smoke tests for each API route
 │           └── e2e/          # Playwright E2E tests for the dashboard
+│   └── desktop/              # @toastmasters/desktop — Electron app
+│       ├── src/
+│       │   ├── main/         # Main process: IPC handlers, in-app login, credentials, menu
+│       │   ├── preload/      # contextBridge — the only renderer→Node surface
+│       │   ├── renderer/     # React UI (reuses the web components over IPC)
+│       │   └── shared/       # Typed IPC contract
+│       ├── tests/            # IPC, preload, auth, credentials + main-bundle invariant
+│       └── USER_GUIDE.md     # Non-technical end-user guide
 │
+├── .github/workflows/        # CI (tests) + release (Windows installer) pipelines
 └── results/                  # SQLite DB + membership CSV (not committed)
 ```
 
@@ -208,7 +254,7 @@ import type { SummaryRow } from "@toastmasters/core/types";
 ```
 
 Available subpaths: `/db`, `/pathway`, `/api`, `/files`, `/config`, `/paths`, `/types`,
-`/fetch`, `/membership`.
+`/fetch`, `/membership`, `/queries`.
 
 `@toastmasters/core/paths` is the filesystem anchor described under
 [Data storage](#data-storage) — importing it (directly, or transitively via `/config` or `/db`)
@@ -216,5 +262,4 @@ loads the repo-root `.env` as a side effect.
 
 Core must stay free of `next` and `react` imports — a test in
 `packages/core/tests/workspace.test.ts` enforces this, because that invariant is what lets the
-planned Electron desktop app (see [`specs/roadmap.md`](specs/roadmap.md) Phase 11) reuse the
-same code.
+Electron [desktop app](#desktop-app) reuse the same code.

@@ -383,6 +383,66 @@ that also lets the web app pick up refreshed cookies without a server restart.
 
 ---
 
+## Phase 13 — Repo README refresh + GitHub Actions CI/CD  ← current priority
+
+_The 1.0 release is tagged, but the repo has no automated checks and the README still
+describes the pre-desktop state. This phase makes `main` self-verifying (tests run on every
+push/PR) and turns a version tag into a downloadable Windows installer, then brings the
+README up to date with the shipped monorepo. **Higher priority than the Deferred item below.**_
+
+### Part A — README refresh (`README.md`)
+The README predates Phases 10–12 and has drifted:
+- [x] Desktop app is **shipped**, not "planned" — rewrite the Phase 11/12 "planned" asides
+      (Data storage, Importing core, the `TI_COOKIE` note) to describe `apps/desktop` as real.
+- [x] Add `apps/desktop` to the **Project structure** tree and document `npm run desktop:dev`
+      / `npm run desktop:build` in the **Commands** table (and that `npm test` now covers
+      core + web + **desktop**).
+- [x] Fix the core subpath list: add `/queries` (10th subpath, Phase 11) and remove the dead
+      `helpers/csv.ts` reference (deleted in Phase 10).
+- [x] Add a short **Desktop app** section: what the `.exe` is, that CI publishes it on a
+      version tag (link to GitHub Releases), and the in-app **Log in** flow (Phase 12).
+- [x] Add a **CI status badge** at the top (points at the workflow from Part B).
+- [x] Bump the Node prerequisite to match CI (Node 20 LTS).
+
+### Part B — GitHub Actions CI/CD (`.github/workflows/`)
+No workflows exist yet. Add:
+- [x] **`ci.yml` — test job** (`ubuntu-latest`, Node 20, `npm ci`): runs `npm test` (core +
+      web + desktop, incl. the `electron-vite`-rebuild bundle test) and the Playwright E2E
+      suite (`npx playwright install --with-deps chromium` + `npm run test:e2e`). Triggers on
+      **push** (all branches) and **pull_request** to `main`. This is the gate that keeps
+      `main` green.
+- [x] **`release.yml` — desktop build/publish job** (`windows-latest`, Node 20 — required:
+      the NSIS installer and the `better-sqlite3` native rebuild must run on real Windows):
+      `npm ci` → `npm run desktop:build` → collect `apps/desktop/release/*.exe` (+ `.blockmap`).
+      **Triggers (decided): version tags** (`v*` / `1.0`-style) **and `workflow_dispatch`** —
+      not every main push, to conserve Windows minutes. **On a tag, auto-create a GitHub
+      Release and attach the installer** so the VPE can download it from the Releases page;
+      manual runs upload the `.exe` as a workflow artifact only (no Release).
+- [x] Pin any third-party action to a specific version (supply chain); grant the release job
+      only the `contents: write` permission it needs.
+- [x] **Do not** let CI touch or require real secrets — tests must pass with **no** cookies
+      (they mock the network; the API/refresh routes already assert the missing-cookie path).
+      No `BASECAMP_SESSIONID` / `TI_COOKIE` in any workflow.
+
+**Validation:**
+1. [x] `test -f .github/workflows/ci.yml` and `release.yml` — both exist and parse as valid
+   YAML (js-yaml load: `ci.yml` job `test`, triggers push/pull_request; `release.yml` job
+   `build-windows`, triggers push-tags/workflow_dispatch).
+2. [x] `npm test` (303) and `npm run test:e2e` (6) pass locally — the workflow just wraps them.
+3. [ ] **Pending first push:** the **test** workflow run goes green on GitHub Actions
+   (`gh run list`). CI runs on GitHub, not locally.
+4. [ ] **Pending next tag / manual dispatch:** the desktop build produces
+   `Toastmasters Tools Setup <version>.exe` as a CI artifact and, on a tag, attaches it to the
+   GitHub Release.
+5. [x] README has the CI badge and no stale "planned"/`csv.ts` references
+   (`grep -nE "planned|csv\.ts" README.md` — no hits).
+
+> **Note:** Items 1, 2, 5 pass locally now; items 3–4 can only be confirmed after pushing —
+> the workflows run on GitHub. `actionlint` was unavailable offline, so YAML was validated by
+> js-yaml parse instead.
+
+---
+
 ## Deferred — Hardened pipeline (low priority)
 
 _Pain point: cookie expiry silently breaks runs; manual step order is error-prone._

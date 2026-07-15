@@ -1,0 +1,58 @@
+name: Release Desktop
+
+# Builds the Windows installer. On a version tag it also publishes a GitHub
+# Release with the .exe attached; a manual run only uploads the artifact.
+#
+# Windows is required, not a preference: electron-builder's NSIS target and the
+# better-sqlite3 native rebuild must run on real Windows to produce a working
+# installer.
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+*" # v1.0, v1.2.3
+      - "[0-9]+.[0-9]+*" #  1.0,  1.2.3  (the 1.0 release used this form)
+  workflow_dispatch:
+
+# Needed by the release step to create the Release and upload assets.
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Produces apps/desktop/release/Toastmasters Tools Setup <version>.exe.
+      # Code-signing is skipped (no certificate); that is expected.
+      - name: Build desktop installer
+        run: npm run desktop:build
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: toastmasters-tools-installer
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.blockmap
+          if-no-files-found: error
+
+      # Only on a tag push — a manual run has no tag and stops after the artifact.
+      # Pinned to a major version; uses the built-in GITHUB_TOKEN.
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.blockmap
+          fail_on_unmatched_files: true
+          generate_release_notes: true
