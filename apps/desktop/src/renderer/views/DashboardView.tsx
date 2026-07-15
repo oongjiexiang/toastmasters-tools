@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Download } from "lucide-react";
+import { Download, LogIn } from "lucide-react";
 import { DashboardHeader } from "@/components/DashboardHeader";
 import { MemberTable } from "@/components/MemberTable";
 import { DiffSection } from "@/components/DiffSection";
@@ -11,10 +11,16 @@ import {
   downloadMembershipCsv,
   getDiff,
   getMembers,
+  IpcError,
+  logIn,
+  onRefreshLog,
   refreshMembership,
   refreshProgress,
   type MemberSummary,
 } from "../lib/api";
+
+/** A failed refresh whose message looks like an expired/invalid session. */
+const AUTH_ERROR = /HTTP 40[13]/;
 
 interface DashboardViewProps {
   onSelectMember: (email: string, pathway: string) => void;
@@ -25,44 +31,111 @@ export function DashboardView({ onSelectMember }: DashboardViewProps) {
   const [error, setError] = useState<string | null>(null);
   const [refreshingProgress, setRefreshingProgress] = useState(false);
   const [refreshingMembership, setRefreshingMembership] = useState(false);
+  const [log, setLog] = useState<string[]>([]);
 
+  const refreshing = refreshingProgress || refreshingMembership;
+
+  // Subscribe once to the live progress stream; append each line to the console.
   useEffect(() => {
-    getMembers()
-      .then(setMembers)
-      .catch((e: Error) => setError(e.message));
+    const unsubscribe = onRefreshLog((line) => setLog((prev) => [...prev, line]));
+    return unsubscribe;
   }, []);
 
+  /**
+   * Loads the member table. An empty database (SNAPSHOT_MISSING) is not an error
+   * here — it renders the friendly "No data yet" card, which tells the user to
+   * refresh. Only genuine failures set `error`.
+   */
+  async function loadMembers() {
+    try {
+      setMembers(await getMembers());
+      setError(null);
+    } catch (e) {
+      if (e instanceof IpcError && e.code === "SNAPSHOT_MISSING") {
+        setMembers([]);
+        setError(null);
+      } else {
+        setError(e instanceof Error ? e.message : "Failed to load data");
+      }
+    }
+  }
+
+  // Load the table once on mount. loadMembers closes over stable setters only.
+  useEffect(() => {
+    void loadMembers();
+  }, []);
+
+  /** Runs the in-app login flow with a loading→result toast, reloading the table
+   *  on success. Returns whether any credential was obtained. */
+  async function handleLogin(): Promise<boolean> {
+    const id = toast.loading("Waiting for Toastmasters login...");
+    try {
+      const status = await logIn();
+      if (status.basecamp || status.ti) {
+        toast.success("Logged in — now use the Refresh buttons to load data", {
+          id,
+        });
+        await loadMembers();
+        return true;
+      }
+      toast.error("No cookies captured — the login did not complete.", { id });
+      return false;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message.split("\n")[0] : "Login failed", {
+        id,
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Reports a failed refresh. An auth-shaped failure (HTTP 401/403) means the
+   * session expired, so the toast offers a "Log in again" action that logs in and
+   * retries the same refresh.
+   */
+  function reportRefreshError(id: string | number, e: unknown, retry: () => void) {
+    const message = e instanceof Error ? e.message : "Refresh failed";
+    const firstLine = message.split("\n")[0];
+    if (AUTH_ERROR.test(message)) {
+      toast.error(firstLine, {
+        id,
+        action: {
+          label: "Log in again",
+          onClick: async () => {
+            if (await handleLogin()) retry();
+          },
+        },
+      });
+    } else {
+      toast.error(firstLine, { id });
+    }
+  }
+
   async function handleRefreshProgress() {
+    setLog([]);
     setRefreshingProgress(true);
     const id = toast.loading("Fetching progress from Basecamp...");
     try {
       await refreshProgress();
       toast.success("Progress refreshed", { id });
-      setError(null);
-      setMembers(await getMembers());
+      await loadMembers();
     } catch (e) {
-      toast.error(
-        e instanceof Error ? e.message.split("\n")[0] : "Refresh failed",
-        { id },
-      );
+      reportRefreshError(id, e, () => void handleRefreshProgress());
     } finally {
       setRefreshingProgress(false);
     }
   }
 
   async function handleRefreshMembership() {
+    setLog([]);
     setRefreshingMembership(true);
     const id = toast.loading("Downloading membership from TI...");
     try {
       await refreshMembership();
       toast.success("Membership refreshed", { id });
-      setError(null);
-      setMembers(await getMembers());
+      await loadMembers();
     } catch (e) {
-      toast.error(
-        e instanceof Error ? e.message.split("\n")[0] : "Refresh failed",
-        { id },
-      );
+      reportRefreshError(id, e, () => void handleRefreshMembership());
     } finally {
       setRefreshingMembership(false);
     }
@@ -133,6 +206,12 @@ export function DashboardView({ onSelectMember }: DashboardViewProps) {
         refreshingMembership={refreshingMembership}
         onRefreshProgress={handleRefreshProgress}
         onRefreshMembership={handleRefreshMembership}
+        authControl={
+          <Button variant="outline" size="sm" onClick={() => void handleLogin()}>
+            <LogIn className="h-4 w-4" />
+            Log in
+          </Button>
+        }
         membershipCsvControl={
           <Button variant="outline" size="sm" onClick={handleDownloadCsv}>
             <Download className="h-4 w-4" />
@@ -140,7 +219,53 @@ export function DashboardView({ onSelectMember }: DashboardViewProps) {
           </Button>
         }
       />
+      {(refreshing || log.length > 0) && (
+        <RefreshConsole lines={log} active={refreshing} />
+      )}
       {renderBody()}
     </main>
+  );
+}
+
+/**
+ * A live, auto-scrolling output panel for refresh progress. Shows the lines the
+ * scrapers emit so the user can see the run advancing (and roughly how long it
+ * will take) instead of staring at a spinner.
+ */
+function RefreshConsole({ lines, active }: { lines: string[]; active: boolean }) {
+  const endRef = useRef<HTMLDivElement>(null);
+
+  // Keep the newest line in view as the stream grows.
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "nearest" });
+  }, [lines]);
+
+  return (
+    <div className="mb-6 rounded-md border bg-muted/40">
+      <div className="flex items-center gap-2 border-b px-3 py-2">
+        <span
+          className={
+            "h-2 w-2 rounded-full " +
+            (active ? "bg-green-500 animate-pulse" : "bg-muted-foreground/40")
+          }
+          aria-hidden
+        />
+        <span className="text-xs font-medium text-muted-foreground">
+          {active ? "Refreshing…" : "Last refresh"}
+        </span>
+      </div>
+      <div className="max-h-56 overflow-y-auto px-3 py-2 font-mono text-xs leading-relaxed">
+        {lines.length === 0 ? (
+          <p className="text-muted-foreground">Starting…</p>
+        ) : (
+          lines.map((line, i) => (
+            <div key={i} className="whitespace-pre-wrap text-foreground/80">
+              {line}
+            </div>
+          ))
+        )}
+        <div ref={endRef} />
+      </div>
+    </div>
   );
 }

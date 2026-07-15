@@ -6,18 +6,32 @@
  * lets the shared components from `apps/web` be reused verbatim.
  */
 
-import type { IpcResult } from "../../shared/ipc";
+import type { AuthStatus, IpcResult } from "../../shared/ipc";
 import type {
   DiffResult,
   MemberDetail,
   MemberSummary,
 } from "@toastmasters/core/queries";
 
-export type { DiffResult, MemberDetail, MemberSummary };
+export type { AuthStatus, DiffResult, MemberDetail, MemberSummary };
+
+/**
+ * An IPC failure that carries the query's `code` (e.g. "SNAPSHOT_MISSING"), so
+ * the UI can distinguish an empty database from a genuine error rather than
+ * pattern-matching the message text.
+ */
+export class IpcError extends Error {
+  readonly code: string;
+  constructor(message: string, code: string) {
+    super(message);
+    this.name = "IpcError";
+    this.code = code;
+  }
+}
 
 /** Mirrors `handleResponse` in the web app: unwrap `data`, or throw the message. */
 function unwrap<T>(result: IpcResult<T>): T {
-  if (!result.ok) throw new Error(result.message);
+  if (!result.ok) throw new IpcError(result.message, result.code);
   return result.data;
 }
 
@@ -47,4 +61,22 @@ export async function refreshMembership(): Promise<void> {
 /** Saves the newest membership CSV. Resolves to null when the user cancels. */
 export async function downloadMembershipCsv(): Promise<string | null> {
   return unwrap(await window.toastmasters.downloadMembershipCsv());
+}
+
+/** Runs the in-app login flow; resolves to which credentials were obtained. */
+export async function logIn(): Promise<AuthStatus> {
+  return unwrap(await window.toastmasters.login());
+}
+
+/** Reports which session cookies are currently held (non-empty). */
+export async function getAuthStatus(): Promise<AuthStatus> {
+  return unwrap(await window.toastmasters.authStatus());
+}
+
+/**
+ * Subscribes to live progress lines emitted during a refresh. Returns an
+ * unsubscribe function; call it on cleanup so listeners don't accumulate.
+ */
+export function onRefreshLog(listener: (line: string) => void): () => void {
+  return window.toastmasters.onRefreshLog(listener);
 }

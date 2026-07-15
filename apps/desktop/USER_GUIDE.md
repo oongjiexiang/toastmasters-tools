@@ -12,12 +12,45 @@ A simple Windows app that shows each club member's Pathways progress in one plac
    Start menu.
 
 The first time it opens, the dashboard will be empty. That is normal — the app
-does not have your logins yet. The next section fixes that.
+is not logged in to Toastmasters yet. The next section fixes that.
 
-## First-time setup: add your logins
+## First-time setup: log in to Toastmasters
 
-The app reads two cookies from your browser so it can see your club's data on
-your behalf. You only do this once (and again whenever the cookies expire).
+You sign in to Toastmasters right inside the app. You only do this once (and
+again whenever your session expires). You do **not** need to copy anything or
+touch any settings files.
+
+### 1. Click Log in
+
+On the dashboard, top right, click the **Log in** button. (You can also use the
+menu: **File → Log in to Toastmasters…**.)
+
+### 2. Sign in on the Toastmasters window
+
+A Toastmasters login window opens. Sign in exactly as you normally would in a
+browser — your username and password, plus any verification code Toastmasters
+asks for. This is the real Toastmasters site; the app never sees your password.
+
+### 3. Sign in on the second window, if one opens
+
+After you finish, a second window for **Basecamp** may open. If it does, sign in
+there the same way. This second window only appears when the first login did not
+already cover Basecamp — often it does, and no second window opens.
+
+### 4. Done
+
+When the login window (or windows) close, you are logged in and the dashboard
+refreshes on its own. That is it — no files, no restart.
+
+Your login **stays active until the session expires** (Toastmasters ends
+sessions after a while, just like a browser). It also survives closing and
+reopening the app. When the session does expire, the app will tell you — see
+[Troubleshooting](#troubleshooting).
+
+## If login doesn't work: enter cookies manually (fallback)
+
+If the **Log in** button does not work for you, you can enter your session
+cookies by hand instead. Most people never need this.
 
 ### 1. Open the logins file
 
@@ -48,8 +81,8 @@ you do, paste your club number after the `=`.
 ### 5. Save and restart
 
 Save the file (**Ctrl+S**), then **fully close the app and open it again**. The
-app only reads your cookies when it starts, so it will not notice them until you
-restart.
+app reads a hand-pasted file when it starts, so it will not notice your changes
+until you restart.
 
 ## Load your data
 
@@ -61,8 +94,13 @@ On the dashboard, top right, there are two buttons:
    Toastmasters.org.
 
 A small message appears at the bottom of the screen while it works, then tells
-you it succeeded or shows an error. Each refresh can take up to a minute. When
-it finishes, the table fills in (or updates).
+you it succeeded or shows an error. Each refresh can take up to a minute.
+
+While it runs, a **progress panel** appears just under the buttons showing what
+the app is doing right now — for example "Step 1/3 — gathering the member
+overview list…" and then each member as it is fetched. This is just so you can
+see it is working and roughly how far along it is; you do not need to do anything
+with it. When it finishes, the table fills in (or updates).
 
 Run both whenever you want the latest numbers.
 
@@ -102,7 +140,8 @@ ever want to back up or reset the app's data.
 
 | Problem | Fix |
 | --- | --- |
-| It says my cookie isn't set | Open **File → Open Credentials File…** and check there is a value after `BASECAMP_SESSIONID=` (and `TI_COOKIE=`). Save, then close and reopen the app. |
-| A refresh worked before but now fails | Cookies expire after a while. Copy fresh ones from your browser (see First-time setup), save, and restart. |
+| A refresh says my session expired (or fails with a "not authorized" error) | Your login timed out. Click **Log in again** in the message that appears — after you sign in, the app retries the refresh for you. You can also just click **Log in** at the top right again. |
+| A refresh worked before but now fails | Same as above — sessions expire after a while. Click **Log in** (top right) and sign in again. |
+| I clicked Log in but nothing loaded | Make sure you finished signing in on the Toastmasters window(s) before they closed. Click **Log in** and try again. If it still won't work, use the manual fallback in [If login doesn't work](#if-login-doesnt-work-enter-cookies-manually-fallback). |
 | SmartScreen blocked the installer | Click **More info**, then **Run anyway**. The app is safe but unsigned. |
 | The dashboard is empty | You have not loaded data yet — click **Refresh Progress** and **Refresh Membership**. |

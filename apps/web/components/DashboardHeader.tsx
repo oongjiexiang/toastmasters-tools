@@ -16,6 +16,12 @@ interface DashboardHeaderProps {
    * in the header is identical, so only the differing element is injected.
    */
   membershipCsvControl: React.ReactNode;
+  /**
+   * Optional slot for an auth control (the Electron "Log in" button). Undefined
+   * for the web app — the browser cannot harvest cross-origin cookies — so its
+   * layout and behaviour are unchanged.
+   */
+  authControl?: React.ReactNode;
 }
 
 export function DashboardHeader({
@@ -25,6 +31,7 @@ export function DashboardHeader({
   onRefreshProgress,
   onRefreshMembership,
   membershipCsvControl,
+  authControl,
 }: DashboardHeaderProps) {
   const isRefreshing = refreshingProgress || refreshingMembership;
 
@@ -39,6 +46,7 @@ export function DashboardHeader({
         )}
       </div>
       <div className="flex gap-2 flex-wrap justify-end">
+        {authControl}
         <Button
           variant="outline"
           size="sm"

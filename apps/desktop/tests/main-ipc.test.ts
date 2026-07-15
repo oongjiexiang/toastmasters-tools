@@ -96,8 +96,13 @@ beforeAll(async () => {
 beforeEach(() => vi.clearAllMocks());
 
 describe("main registers the IPC surface", () => {
-  it("registers exactly the six documented channels", () => {
-    expect([...handlers.keys()].sort()).toEqual(Object.values(IPC).sort());
+  it("registers an invoke handler for every channel except the send-only REFRESH_LOG", () => {
+    // REFRESH_LOG is one-way (main -> renderer via webContents.send), so it is
+    // never registered with ipcMain.handle. Every *other* channel must be.
+    const expected = Object.values(IPC)
+      .filter((c) => c !== IPC.REFRESH_LOG)
+      .sort();
+    expect([...handlers.keys()].sort()).toEqual(expected);
   });
 
   it("registers no channel outside the shared IPC contract", () => {
@@ -232,6 +237,45 @@ describe("main runs the refresh scrapers", () => {
 
     expect(runMembership).toHaveBeenCalledTimes(1);
     expect(result).toEqual({ ok: true, data: null });
+  });
+
+  it("streams the scraper's progress lines to the calling renderer over REFRESH_LOG", async () => {
+    const sent: Array<[string, string]> = [];
+    const event = {
+      sender: {
+        isDestroyed: () => false,
+        send: (channel: string, line: string) => sent.push([channel, line]),
+      },
+    };
+    runFetch.mockImplementation(async (report: (line: string) => void) => {
+      report("Step 1/3 — gathering the member overview list…");
+      report("Step 3/3 done — saved project details for 2 members.");
+    });
+
+    const handler = handlers.get(IPC.REFRESH_PROGRESS)!;
+    const result = await handler(event);
+
+    expect(result).toEqual({ ok: true, data: null });
+    // The scraper is handed a reporter, and each line it emits is forwarded.
+    expect(runFetch).toHaveBeenCalledWith(expect.any(Function));
+    expect(sent).toEqual([
+      [IPC.REFRESH_LOG, "Step 1/3 — gathering the member overview list…"],
+      [IPC.REFRESH_LOG, "Step 3/3 done — saved project details for 2 members."],
+    ]);
+  });
+
+  it("does not stream progress to a renderer that has been destroyed", async () => {
+    const send = vi.fn();
+    const event = { sender: { isDestroyed: () => true, send } };
+    runMembership.mockImplementation(async (report: (line: string) => void) => {
+      report("Downloading the membership roster…");
+    });
+
+    const handler = handlers.get(IPC.REFRESH_MEMBERSHIP)!;
+    const result = await handler(event);
+
+    expect(result).toEqual({ ok: true, data: null });
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("returns data:null when the user cancels the CSV save dialog", async () => {

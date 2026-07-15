@@ -14,7 +14,7 @@ import { fileURLToPath } from "url";
 import { mkdirSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { snapshotMembership } from "../helpers/db";
-import { RESULTS_DIR, TI_COOKIE } from "../config";
+import { RESULTS_DIR, getTiCookie } from "../config";
 
 const MEMBERSHIP_URL =
   "https://www.toastmasters.org/api/sitecore/ClubMembershipLanding/ExportClubMembershipToCSVDownload";
@@ -23,8 +23,10 @@ function todayDateString(): string {
   return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 }
 
-export async function main(): Promise<void> {
-  if (!TI_COOKIE) {
+export async function main(
+  report: (line: string) => void = console.log
+): Promise<void> {
+  if (!getTiCookie()) {
     throw new Error(
       "TI_COOKIE is not set.\n" +
         "  Add it to your .env file as TI_COOKIE=<value>\n" +
@@ -35,13 +37,13 @@ export async function main(): Promise<void> {
     );
   }
 
-  console.log("Downloading membership CSV...");
+  report("Downloading the membership roster from Toastmasters…");
 
   const response = await fetch(MEMBERSHIP_URL, {
     headers: {
       Accept: "text/csv,*/*",
       "User-Agent": "Mozilla/5.0",
-      Cookie: TI_COOKIE,
+      Cookie: getTiCookie(),
     },
   });
 
@@ -55,7 +57,7 @@ export async function main(): Promise<void> {
   const outputFile = resolve(RESULTS_DIR, `membership-${todayDateString()}.csv`);
   mkdirSync(RESULTS_DIR, { recursive: true });
   writeFileSync(outputFile, csv, "utf-8");
-  console.log(`Saved to: ${outputFile}`);
+  report("Roster downloaded — saved and recorded.");
   snapshotMembership(csv);
 }
 

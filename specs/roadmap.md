@@ -299,6 +299,90 @@ restructuring is required.
 
 ---
 
+## Phase 12 — Done (In-app Toastmasters login) — no more cookie pasting
+
+_Today the VPE must open DevTools, copy `BASECAMP_SESSIONID` and the full `TI_COOKIE`
+string by hand, and paste them into `config.env` (Phase 11). This phase replaces that with
+a real login: the user clicks **Log in**, authenticates on the genuine Toastmasters pages
+inside an embedded window (username/password, MFA, SSO — whatever TI presents), and the app
+harvests the resulting session cookies itself. **Electron only** — the browser's cross-origin
+cookie isolation makes this impossible for the Next.js web app, which keeps the manual paste
+(and can read the `config.env` the desktop app now writes)._
+
+**Why this is an Electron-only capability:** the scrapers authenticate purely by sending a
+`Cookie` header (`packages/core/helpers/api.ts:11`, `packages/core/services/membership.ts:44`).
+Electron's **main-process** `session.cookies.get()` can read those cookies — including the
+**httpOnly** auth cookies a renderer `document.cookie` read would silently miss — from a real
+Chromium session after the user logs in. We never see the password; it goes straight to TI over
+HTTPS. We only read the cookies from our own session store.
+
+**Load-bearing constraint (discovered, must be solved first):** `config.ts` freezes `SESSION_ID`
+and `TI_COOKIE` into module-level consts at import time (`packages/core/config.ts:6-7`), and core
+is imported lazily but **once**. A login that happens after that first import would have no effect
+until an app restart. So core must read the two cookies **dynamically** (live from `process.env`
+at request time), not from frozen consts. This is a framework-agnostic change (no Electron import)
+that also lets the web app pick up refreshed cookies without a server restart.
+
+- [x] **Core: dynamic cookie reads.** Add live accessors in `packages/core/config.ts`
+      (e.g. `getSessionId()` / `getTiCookie()` reading `process.env` at call time) and switch
+      `helpers/api.ts` (`buildHeaders`) and `services/{fetch,membership}.ts` to use them instead
+      of the frozen `SESSION_ID` / `TI_COOKIE` consts. Keep the consts exported for
+      backward-compat. `DATA_DIR` / `DEFAULT_DB_PATH` stay frozen (correct — SQLite opens at
+      import). Update `packages/core/tests/workspace.test.ts` if it asserts the const surface.
+- [x] **Desktop: `src/main/auth.ts`.** A persistent session partition
+      (`persist:toastmasters`) so the login survives app restarts. Pure, unit-testable helpers:
+  - `harvestCookies(session)` → reads `sessionid` from
+    `https://basecamp.toastmasters.org/` and joins every cookie for
+    `https://www.toastmasters.org/` into one `name=value; …` string, returning
+    `{ basecampSessionId?, tiCookie? }`.
+  - `applyCookies(...)` → writes non-empty values into `config.env` (reusing the
+    `credentials.ts` writer) **and** sets `process.env` live, so the very next refresh uses them.
+- [x] **Desktop: login window + flow.** `openLoginWindow(url)` opens a `BrowserWindow` bound to
+      the persistent partition's session, loading the **genuine** HTTPS Toastmasters page.
+      Security: `nodeIntegration: false`, `contextIsolation: true`, `sandbox: true`, **no preload**
+      — it shows a third-party page and must not reach our IPC bridge. The **Log in** action runs
+      a sequence that handles both the SSO and non-SSO cases without prior knowledge: open the TI
+      login window → on close, harvest → if the Basecamp `sessionid` was **not** captured by SSO,
+      open the Basecamp login window → harvest again. Harvesting logs which cookies were found.
+- [x] **Desktop: IPC + menu + startup self-heal.** New channels `AUTH_LOGIN` (run the flow,
+      return which credentials were obtained) and `AUTH_STATUS` (which cookies are currently
+      non-empty). A **File → Log in to Toastmasters…** menu item. On startup, after
+      `loadCredentials`, re-harvest from the persistent session and set `process.env` if cookies
+      are present — this is what keeps the user logged in across restarts. Keep **Open Credentials
+      File…** as the manual fallback.
+- [x] **Desktop: renderer UX.** A **Log in** control injected via a new _optional_ `authControl`
+      slot on the shared `DashboardHeader` (undefined for the web app — no web behaviour change).
+      When a refresh fails with an auth-shaped error (HTTP 401/403), the error toast offers a
+      "Log in again" action that triggers `AUTH_LOGIN`; on success, re-run the pending refresh and
+      reload the table.
+- [x] **Update `apps/desktop/USER_GUIDE.md`** — replace the DevTools cookie-copying steps with:
+      click **Log in**, sign in on the Toastmasters window(s), done. Keep the manual paste as a
+      "if login doesn't work" fallback. Note that logins persist until the session expires.
+
+**Validation:**
+1. [x] `grep -E "getSessionId|getTiCookie" packages/core/config.ts` — live accessors present, and
+   `grep -n "process.env" packages/core/config.ts` shows them reading env at call time
+2. [x] `grep -E "getSessionId|getTiCookie" packages/core/helpers/api.ts packages/core/services/membership.ts`
+   — scrapers no longer bind the frozen consts
+3. [x] `test -f apps/desktop/src/main/auth.ts` and `grep "persist:toastmasters" apps/desktop/src/main/auth.ts`
+   — persistent-partition login module exists
+4. [x] `grep -E "AUTH_LOGIN|AUTH_STATUS" apps/desktop/src/shared/ipc.ts` — channels declared
+5. [x] `grep -i "Log in to Toastmasters" apps/desktop/src/main/index.ts` — menu item present
+6. [x] `npm test` — full suite green (dynamic-cookie change + new `auth.ts` pure-helper unit tests
+   with a mocked `session.cookies.get`). **298 tests pass.**
+7. [x] `npm run build` exits 0 (web app unaffected by the new optional header slot)
+8. [x] `npm run desktop:build` produces the NSIS installer
+   `apps/desktop/release/Toastmasters Tools Setup 1.0.0.exe` (~91.6 MB). Code-signing is
+   skipped — no certificate — so the installer is unsigned (SmartScreen "unknown publisher",
+   as in Phase 11).
+9. [ ] **Manual (pending user — not headlessly verifiable, mirrors Phase 11 step 5):** launch the app,
+   click **Log in**, complete the real Toastmasters login once, then click **Refresh Progress** and
+   **Refresh Membership** with an empty `config.env` — both succeed using only the harvested
+   cookies. Confirms whether a single TI login also covers Basecamp (SSO) or the second login
+   window is needed; the harvest log records which cookies each step captured.
+
+---
+
 ## Deferred — Hardened pipeline (low priority)
 
 _Pain point: cookie expiry silently breaks runs; manual step order is error-prone._

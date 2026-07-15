@@ -1,13 +1,21 @@
 import { fileURLToPath } from "url";
 import { fetchAllProgress, fetchDetail } from "../helpers/api";
 import { snapshotProgress, snapshotProjects } from "../helpers/db";
-import { SESSION_ID } from "../config";
+import { getSessionId } from "../config";
 import { DetailResponse, MemberProgress } from "../types";
 
 const DETAIL_CONCURRENCY = 5;
 
-export async function main(): Promise<void> {
-  if (!SESSION_ID) {
+/**
+ * Receives a human-readable progress line. Defaults to `console.log` for the CLI;
+ * the Electron main process passes a reporter that streams each line to the
+ * renderer's live output panel over IPC. Kept as a plain callback so core stays
+ * framework-agnostic (no Electron import).
+ */
+export type ProgressReporter = (line: string) => void;
+
+export async function main(report: ProgressReporter = console.log): Promise<void> {
+  if (!getSessionId()) {
     throw new Error(
       "BASECAMP_SESSIONID is not set.\n" +
         "  1. Log in to https://basecamp.toastmasters.org\n" +
@@ -18,12 +26,15 @@ export async function main(): Promise<void> {
   }
 
   // Step 1: Fetch all overview data and snapshot to SQLite
-  const members = await fetchAllProgress();
+  report("Step 1/3 — gathering the member overview list…");
+  const members = await fetchAllProgress(report);
   snapshotProgress(members);
-  console.log(`Progress snapshotted: ${members.length} members\n`);
+  report(`Step 1/3 done — ${members.length} members found.`);
 
   // Step 2: Fetch detail for each member (concurrency-limited)
-  console.log(`Fetching lesson details for ${members.length} members (concurrency: ${DETAIL_CONCURRENCY})...`);
+  report(
+    `Step 2/3 — fetching lesson details for ${members.length} members (${DETAIL_CONCURRENCY} at a time)…`
+  );
   const detailEntries: Array<{ member: MemberProgress; detail: DetailResponse }> = [];
   let completed = 0;
 
@@ -38,12 +49,12 @@ export async function main(): Promise<void> {
       const label = `${member.user.first_name} ${member.user.last_name}`;
       const result = results[j];
       completed++;
-      console.log(`  [${completed}/${members.length}] ${label} — ${member.path_name}`);
+      report(`  [${completed}/${members.length}] ${label} — ${member.path_name}`);
 
       if (result.status === "fulfilled") {
         detailEntries.push({ member, detail: result.value });
       } else {
-        console.warn(
+        report(
           `    Warning: could not fetch detail for ${label}: ${
             result.reason instanceof Error ? result.reason.message : result.reason
           }`
@@ -54,7 +65,7 @@ export async function main(): Promise<void> {
 
   // Step 3: Snapshot project detail to SQLite
   snapshotProjects(detailEntries);
-  console.log(`\nProject details snapshotted for ${detailEntries.length} members`);
+  report(`Step 3/3 done — saved project details for ${detailEntries.length} members.`);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

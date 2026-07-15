@@ -11,7 +11,7 @@ import { IPC } from "../src/shared/ipc";
 
 vi.mock("electron", () => ({
   contextBridge: { exposeInMainWorld: vi.fn() },
-  ipcRenderer: { invoke: vi.fn() },
+  ipcRenderer: { invoke: vi.fn(), on: vi.fn(), removeListener: vi.fn() },
 }));
 
 type Bridge = Record<string, (...args: unknown[]) => unknown>;
@@ -36,12 +36,14 @@ describe("preload contextBridge surface", () => {
     expect(key).toBe("toastmasters");
   });
 
-  it("exposes exactly the six documented functions and nothing else", async () => {
+  it("exposes exactly the nine documented functions and nothing else", async () => {
     const { bridge } = await loadPreload();
 
-    // A literal list on purpose: adding a seventh function to the bridge (i.e.
+    // A literal list on purpose: adding a tenth function to the bridge (i.e.
     // widening what the renderer can reach into Node) must fail this test until
-    // someone widens the contract deliberately.
+    // someone widens the contract deliberately. Phase 12 added the two Electron-
+    // only auth calls (`login` / `authStatus`) to the original six data calls;
+    // the live-refresh-log work added the one-way `onRefreshLog` subscription.
     expect(Object.keys(bridge).sort()).toEqual(
       [
         "listMembers",
@@ -50,6 +52,9 @@ describe("preload contextBridge surface", () => {
         "refreshProgress",
         "refreshMembership",
         "downloadMembershipCsv",
+        "login",
+        "authStatus",
+        "onRefreshLog",
       ].sort(),
     );
   });
@@ -64,8 +69,8 @@ describe("preload contextBridge surface", () => {
     expect(nonFunctions).toEqual([]);
   });
 
-  it("declares exactly six IPC channels", () => {
-    expect(Object.values(IPC)).toHaveLength(6);
+  it("declares exactly nine IPC channels", () => {
+    expect(Object.values(IPC)).toHaveLength(9);
   });
 
   it("namespaces every channel under toastmasters:", () => {
@@ -125,5 +130,29 @@ describe("preload bridges each function to its IPC channel", () => {
     bridge.downloadMembershipCsv();
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IPC.DOWNLOAD_MEMBERSHIP_CSV);
+  });
+
+  it("onRefreshLog subscribes to REFRESH_LOG and delivers only the line (not the event)", async () => {
+    const { bridge } = await loadPreload();
+    const received: string[] = [];
+
+    const unsubscribe = bridge.onRefreshLog((line: unknown) =>
+      received.push(line as string),
+    ) as unknown as () => void;
+
+    // The preload must register one listener on the REFRESH_LOG channel.
+    expect(ipcRenderer.on).toHaveBeenCalledWith(IPC.REFRESH_LOG, expect.any(Function));
+    const handler = vi.mocked(ipcRenderer.on).mock.calls[0][1] as (
+      event: unknown,
+      line: string,
+    ) => void;
+
+    // Electron passes (event, line); the renderer callback must see only `line`.
+    handler({ sender: "ipc-event" }, "Step 1/3 — gathering the overview list…");
+    expect(received).toEqual(["Step 1/3 — gathering the overview list…"]);
+
+    // Unsubscribing must remove that exact listener.
+    unsubscribe();
+    expect(ipcRenderer.removeListener).toHaveBeenCalledWith(IPC.REFRESH_LOG, handler);
   });
 });

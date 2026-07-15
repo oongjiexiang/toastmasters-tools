@@ -20,7 +20,17 @@ export const IPC = {
   REFRESH_PROGRESS: "toastmasters:refresh:progress",
   REFRESH_MEMBERSHIP: "toastmasters:refresh:membership",
   DOWNLOAD_MEMBERSHIP_CSV: "toastmasters:membership:download",
+  AUTH_LOGIN: "toastmasters:auth:login",
+  AUTH_STATUS: "toastmasters:auth:status",
+  // Main → renderer stream (one-way): a progress line emitted during a refresh.
+  REFRESH_LOG: "toastmasters:refresh:log",
 } as const;
+
+/** Which session cookies are currently held (non-empty). */
+export interface AuthStatus {
+  basecamp: boolean;
+  ti: boolean;
+}
 
 /**
  * The IPC analogue of the web app's `{ data } | { error: { code, message } }`
@@ -39,6 +49,15 @@ export interface ToastmastersBridge {
   refreshMembership(): Promise<IpcResult<null>>;
   /** Resolves to the saved file path, or null when the user cancels the dialog. */
   downloadMembershipCsv(): Promise<IpcResult<string | null>>;
+  /** Runs the in-app login flow; resolves to which credentials were obtained. */
+  login(): Promise<IpcResult<AuthStatus>>;
+  /** Reports which session cookies are currently held (non-empty). */
+  authStatus(): Promise<IpcResult<AuthStatus>>;
+  /**
+   * Subscribes to the live progress lines emitted during a refresh. Returns an
+   * unsubscribe function. One-way (main → renderer), so it is not an IpcResult.
+   */
+  onRefreshLog(listener: (line: string) => void): () => void;
 }
 
 export type { DiffResult, MemberDetail, MemberSummary };

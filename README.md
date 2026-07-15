@@ -40,6 +40,11 @@ cp .env.example .env
 
 Both cookies expire with your browser session — you will need to refresh them periodically.
 
+> **Desktop app:** the Electron app (see [`specs/roadmap.md`](specs/roadmap.md) Phase 12) can obtain
+> these cookies automatically — click **Log in** and sign in on the embedded Toastmasters pages,
+> and it harvests `BASECAMP_SESSIONID` / `TI_COOKIE` for you (writing them to its own `config.env`).
+> The DevTools method above is still the way to supply cookies for the CLI and web app.
+
 ## Typical workflow
 
 ```bash

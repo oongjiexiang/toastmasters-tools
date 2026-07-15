@@ -8,6 +8,26 @@ export const TI_COOKIE = process.env.TI_COOKIE ?? "";
 export const BASE_URL = "https://basecamp.toastmasters.org/api/bcm/progress/";
 
 /**
+ * Live accessor for the Basecamp session cookie.
+ *
+ * Unlike the `SESSION_ID` const (frozen at module-evaluation time), this reads
+ * `process.env` at call time, so a cookie applied *after* core was imported —
+ * e.g. by the Electron in-app login — takes effect on the very next request
+ * without an app restart. The const is kept for backward-compat.
+ */
+export function getSessionId(): string {
+  return process.env.BASECAMP_SESSIONID ?? "";
+}
+
+/**
+ * Live accessor for the Toastmasters.org cookie string. Reads `process.env` at
+ * call time for the same reason as {@link getSessionId}.
+ */
+export function getTiCookie(): string {
+  return process.env.TI_COOKIE ?? "";
+}
+
+/**
  * Absolute path to the data directory (db.sqlite + membership CSVs).
  * Formerly the relative string "results", which broke once npm workspace scripts
  * started running with the workspace directory as cwd.

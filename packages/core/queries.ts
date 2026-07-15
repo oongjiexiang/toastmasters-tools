@@ -49,7 +49,7 @@ export type QueryResult<T> =
 const SNAPSHOT_MISSING = {
   ok: false,
   code: "SNAPSHOT_MISSING",
-  message: "Run npm run fetch and npm run membership first.",
+  message: "No data yet — use the Refresh buttons to load member data.",
 } as const;
 
 const NOT_FOUND = {

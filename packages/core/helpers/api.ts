@@ -1,4 +1,4 @@
-import { BASE_URL, CLUB_ID, SESSION_ID } from "../config";
+import { BASE_URL, CLUB_ID, getSessionId } from "../config";
 import { ApiResponse, DetailResponse, MemberProgress } from "../types";
 
 function buildHeaders(): Record<string, string> {
@@ -6,8 +6,9 @@ function buildHeaders(): Record<string, string> {
     Accept: "application/json",
     "User-Agent": "Mozilla/5.0",
   };
-  if (SESSION_ID) {
-    headers["Cookie"] = `sessionid=${SESSION_ID};`;
+  const sessionId = getSessionId();
+  if (sessionId) {
+    headers["Cookie"] = `sessionid=${sessionId};`;
   }
   return headers;
 }
@@ -24,29 +25,27 @@ async function fetchPage(url: string): Promise<ApiResponse> {
   return (await response.json()) as ApiResponse;
 }
 
-export async function fetchAllProgress(): Promise<MemberProgress[]> {
+export async function fetchAllProgress(
+  report: (line: string) => void = console.log
+): Promise<MemberProgress[]> {
   const firstUrl = `${BASE_URL}?club=${CLUB_ID}&page=1`;
   const allResults: MemberProgress[] = [];
-
-  console.log(`Fetching progress data for club: ${CLUB_ID}`);
 
   let url: string | null = firstUrl;
   let pageNum = 1;
 
   while (url !== null) {
-    console.log(`  Fetching page ${pageNum}...`);
     const page = await fetchPage(url);
     allResults.push(...page.results);
 
     if (pageNum === 1) {
-      console.log(`  Total members expected: ${page.count}`);
+      report(`  Found ${page.count} members; downloading…`);
     }
-    console.log(`  Total fetched so far: ${allResults.length}`);
+    report(`  Page ${pageNum}: ${allResults.length} of ${page.count} downloaded.`);
     url = page.next;
     pageNum++;
   }
 
-  console.log(`  Done — retrieved ${allResults.length} records.\n`);
   return allResults;
 }
 

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from "electron";
 import { copyFileSync } from "fs";
 import { basename, join } from "path";
 import { IPC, type IpcResult } from "../shared/ipc";
@@ -7,6 +7,15 @@ import {
   ensureCredentialsFile,
   loadCredentials,
 } from "./credentials";
+// auth.ts is core-free (like credentials.ts), so importing it statically here
+// does NOT breach the import-order invariant — it never evaluates config.ts.
+import {
+  applyCookies,
+  currentAuthStatus,
+  harvestCookies,
+  LOGIN_PARTITION,
+  runLoginFlow,
+} from "./auth";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Bootstrap. The order of these three steps is load-bearing — see ./core.ts.
@@ -62,6 +71,49 @@ function handle<T>(
   });
 }
 
+/**
+ * Registers an auth handler that always answers with an IpcResult. Unlike
+ * `handle`, it does NOT load core — the login flow reads cookies straight from
+ * Electron's session store, so routing it through `loadCore()` would needlessly
+ * evaluate core (and could do so before credentials are populated).
+ */
+function handleAuth<T>(
+  channel: string,
+  handler: () => Promise<IpcResult<T>>,
+): void {
+  ipcMain.handle(channel, async () => {
+    try {
+      return await handler();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { ok: false, code: "SERVER_ERROR", message } satisfies IpcResult<T>;
+    }
+  });
+}
+
+/**
+ * Registers a refresh handler that streams the scraper's progress lines back to
+ * the calling renderer over REFRESH_LOG while it runs, then answers with the
+ * usual IpcResult. The `isDestroyed` guard avoids sending to a closed window.
+ */
+function handleRefresh(
+  channel: string,
+  run: (core: Core, report: (line: string) => void) => Promise<void>,
+): void {
+  ipcMain.handle(channel, async (event) => {
+    const report = (line: string): void => {
+      if (!event.sender.isDestroyed()) event.sender.send(IPC.REFRESH_LOG, line);
+    };
+    try {
+      await run(await loadCore(), report);
+      return { ok: true, data: null } satisfies IpcResult<null>;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { ok: false, code: "SERVER_ERROR", message } satisfies IpcResult<null>;
+    }
+  });
+}
+
 /** Maps core's transport-agnostic QueryResult onto the IPC envelope. */
 function fromQuery<T>(
   result:
@@ -91,15 +143,11 @@ function registerIpcHandlers(): void {
 
   handle(IPC.GET_DIFF, async (core) => fromQuery(core.getDiff()));
 
-  handle(IPC.REFRESH_PROGRESS, async (core) => {
-    await core.runFetch();
-    return { ok: true, data: null };
-  });
+  handleRefresh(IPC.REFRESH_PROGRESS, (core, report) => core.runFetch(report));
 
-  handle(IPC.REFRESH_MEMBERSHIP, async (core) => {
-    await core.runMembership();
-    return { ok: true, data: null };
-  });
+  handleRefresh(IPC.REFRESH_MEMBERSHIP, (core, report) =>
+    core.runMembership(report),
+  );
 
   handle(IPC.DOWNLOAD_MEMBERSHIP_CSV, async (core) => {
     const source = core.findLatestMembershipFile(core.RESULTS_DIR);
@@ -114,6 +162,30 @@ function registerIpcHandlers(): void {
     copyFileSync(source, filePath);
     return { ok: true, data: filePath };
   });
+
+  handleAuth(IPC.AUTH_LOGIN, async () => {
+    const applied = await runLoginFlow(CREDENTIALS_FILE);
+    return { ok: true, data: applied };
+  });
+
+  handleAuth(IPC.AUTH_STATUS, async () => {
+    const status = await currentAuthStatus(session.fromPartition(LOGIN_PARTITION));
+    return { ok: true, data: status };
+  });
+}
+
+/** Runs the login flow from the menu, then reloads the focused window so the
+ *  dashboard re-fetches with the freshly harvested cookies. */
+async function runLoginFromMenu(): Promise<void> {
+  try {
+    await runLoginFlow(CREDENTIALS_FILE);
+  } catch (err) {
+    console.error(
+      "[toastmasters] login failed:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+  BrowserWindow.getFocusedWindow()?.webContents.reload();
 }
 
 // ── Window & menu ────────────────────────────────────────────────────────────
@@ -125,7 +197,14 @@ function createMenu(): void {
         label: "File",
         submenu: [
           {
-            // Without this the user has no way to enter their cookies.
+            // The primary path: log in on the real Toastmasters pages and let the
+            // app harvest the cookies. "Open Credentials File…" below is the
+            // manual fallback if login does not work.
+            label: "Log in to Toastmasters…",
+            click: () => void runLoginFromMenu(),
+          },
+          {
+            // Without this the user has no way to enter their cookies manually.
             label: "Open Credentials File…",
             click: () => void shell.openPath(CREDENTIALS_FILE),
           },
@@ -174,6 +253,24 @@ function createWindow(): void {
 void app.whenReady().then(async () => {
   registerIpcHandlers();
   createMenu();
+
+  // Startup self-heal: re-harvest from the persistent login partition and apply
+  // any still-valid cookies to process.env + config.env, so a previous login
+  // survives a restart without the user acting. Must run BEFORE the first
+  // loadCore() below, while core's env-derived consts are still unfrozen.
+  // Requires app.whenReady() (session access), hence its home here. A cold first
+  // run has no session yet — the try/catch makes that a no-op.
+  try {
+    const harvested = await harvestCookies(
+      session.fromPartition(LOGIN_PARTITION).cookies,
+    );
+    applyCookies(CREDENTIALS_FILE, harvested);
+  } catch (err) {
+    console.log(
+      "[toastmasters] startup self-heal skipped:",
+      err instanceof Error ? err.message : err,
+    );
+  }
 
   // Observability: prove at runtime — in the packaged app, where there is no
   // repo root — that core resolved its database inside userData rather than

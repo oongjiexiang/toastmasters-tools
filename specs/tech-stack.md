@@ -116,6 +116,18 @@ Windows `.exe` instead._
 | UI | React (reused from `apps/web`) | The existing `MemberTable` / `LevelAccordion` / refresh-header components port directly; only the data layer changes from `fetch("/api/…")` to IPC |
 | Main ↔ renderer | IPC via `contextBridge` preload | Typed, sandboxed bridge; `nodeIntegration` stays off. Main process owns SQLite + scraping |
 | Packaging | **electron-builder** (NSIS target) | One-command Windows installer `.exe`; user double-clicks, no terminal |
+| Auth (Phase 12) | **In-app login** — user signs in on the genuine Toastmasters pages in an embedded window; the main process harvests the session cookies from a persistent Electron partition (`persist:toastmasters`) | The scrapers authenticate by a `Cookie` header; the main process's `session.cookies.get()` can read those cookies — including httpOnly auth cookies — with no manual copy. Manual `config.env` paste stays as a fallback |
+
+**Authentication (Phase 12).** The desktop app replaces cookie-pasting with an in-app login: the
+user authenticates on the real HTTPS Toastmasters pages inside a sandboxed `BrowserWindow`
+(no preload, no IPC bridge), and the main process harvests `BASECAMP_SESSIONID` +
+`TI_COOKIE` from its persistent session partition (`persist:toastmasters`), writing them to both
+`process.env` (live) and `config.env` (durable). The persistent partition and a startup
+self-heal keep the login across restarts; the manual **Open Credentials File…** paste remains as
+a fallback. This depends on core reading its cookies **dynamically** — `getSessionId()` /
+`getTiCookie()` in `packages/core/config.ts` read `process.env` at request time — so a login
+applied after core is imported takes effect on the next refresh with no restart. Browser
+cross-origin cookie isolation makes this Electron-only; the web app keeps the manual paste.
 
 **Supersedes Docker (Phase 0 baseline), retired in Phase 10.** Docker solved "run this without a
 global Node install" for a developer; the `.exe` solves it for the actual end user, and does so

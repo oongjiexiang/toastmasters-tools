@@ -73,3 +73,33 @@ export function loadCredentials(file: string): void {
     }
   }
 }
+
+/**
+ * Rewrites the `KEY=` line of the credentials file in place, creating the file
+ * from the template first if it does not exist. All other lines — including the
+ * commented setup instructions — are preserved verbatim, and a key absent from
+ * the file is appended. Used by the in-app login to persist harvested cookies so
+ * they survive a restart, without core ever being imported here (see the header
+ * comment and `auth.ts`).
+ */
+export function upsertCredential(file: string, key: string, value: string): void {
+  ensureCredentialsFile(file);
+  const lines = readFileSync(file, "utf-8").split("\n");
+  const prefix = `${key}=`;
+
+  let replaced = false;
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trimStart();
+    // Skip comments so the template's "# BASECAMP_SESSIONID: …" hint is never
+    // mistaken for the assignment line.
+    if (trimmed.startsWith("#")) continue;
+    if (trimmed.startsWith(prefix)) {
+      lines[i] = `${key}=${value}`;
+      replaced = true;
+      break;
+    }
+  }
+
+  if (!replaced) lines.push(`${key}=${value}`);
+  writeFileSync(file, lines.join("\n"), "utf-8");
+}
