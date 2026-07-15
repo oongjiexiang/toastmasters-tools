@@ -30,4 +30,16 @@ describe("GET /api/diff", () => {
     expect(body.data.progress).toEqual(mockProgress);
     expect(body.data.membership).toEqual(mockMembership);
   });
+
+  // See members.test.ts: proves the mock is engaged on the *route's* side of the
+  // import graph, not just on this test file's side.
+  it("reaches the database only through the mocked core module", async () => {
+    vi.mocked(getProgressDiff).mockReturnValue(null);
+    vi.mocked(getMembershipDiff).mockReturnValue(null);
+
+    await GET();
+
+    expect(getProgressDiff).toHaveBeenCalledTimes(1);
+    expect(getMembershipDiff).toHaveBeenCalledTimes(1);
+  });
 });

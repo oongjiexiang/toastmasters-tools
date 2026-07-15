@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { ChevronRight, ChevronDown, Trophy, Flag } from "lucide-react";
 import {
   Table,
@@ -48,10 +47,16 @@ function RemainingCell({ pw }: { pw: PathwaySummary }) {
 
 interface MemberTableProps {
   members: MemberSummary[];
+  /**
+   * Navigation is injected rather than performed here: the Next.js app pushes a
+   * route, the Electron renderer (Phase 11) swaps its own view state. Calling
+   * `useRouter()` in this component would bind it to `next/navigation`, which
+   * does not exist in the desktop app's plain Vite renderer.
+   */
+  onSelectMember: (email: string, pathway: string) => void;
 }
 
-export function MemberTable({ members }: MemberTableProps) {
-  const router = useRouter();
+export function MemberTable({ members, onSelectMember }: MemberTableProps) {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   function toggleExpand(email: string, e: React.MouseEvent) {
@@ -89,11 +94,7 @@ export function MemberTable({ members }: MemberTableProps) {
               <TableRow
                 key={m.email}
                 className="cursor-pointer hover:bg-muted/50"
-                onClick={() =>
-                  router.push(
-                    `/members/${encodeURIComponent(m.email)}?pathway=${encodeURIComponent(pw.pathway)}`,
-                  )
-                }
+                onClick={() => onSelectMember(m.email, pw.pathway)}
               >
                 <TableCell className="font-medium">{m.name}</TableCell>
                 <TableCell>
@@ -164,11 +165,7 @@ export function MemberTable({ members }: MemberTableProps) {
                     <div className="flex items-center gap-3">
                       <RemainingCell pw={pw} />
                       <button
-                        onClick={() =>
-                          router.push(
-                            `/members/${encodeURIComponent(m.email)}?pathway=${encodeURIComponent(pw.pathway)}`,
-                          )
-                        }
+                        onClick={() => onSelectMember(m.email, pw.pathway)}
                         className="text-xs text-blue-600 hover:underline cursor-pointer"
                       >
                         details →

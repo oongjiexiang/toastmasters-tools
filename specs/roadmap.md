@@ -254,7 +254,7 @@ its value is unblocking Phase 11 cleanly._
 
 ---
 
-## Phase 11 — Next up (Electron desktop app / `.exe`)
+## Phase 11 — Done (Electron desktop app / `.exe`)
 
 _The VPE does not want to install Docker or run a Node dev server. This phase delivers a
 double-clickable Windows `.exe` that bundles Node.js, the scrapers, SQLite, and the dashboard
@@ -271,27 +271,31 @@ enforced by `packages/core/tests/workspace.test.ts`. `apps/desktop/` is a new si
 `apps/web/` under the existing `workspaces: ["apps/*", "packages/*"]` array — no root
 restructuring is required.
 
-- [ ] Create `apps/desktop/` (Electron main + preload + renderer) importing `@toastmasters/core`
-- [ ] Main process exposes the current API surface over IPC: list members, member detail,
+- [x] Create `apps/desktop/` (Electron main + preload + renderer) importing `@toastmasters/core`
+- [x] Main process exposes the current API surface over IPC: list members, member detail,
       diff, refresh progress, refresh membership, download membership CSV
-- [ ] Preload script bridges IPC to the renderer via a typed `contextBridge` API (no `nodeIntegration`)
-- [ ] Renderer reuses `MemberTable`, `LevelAccordion`, and the refresh-button header from the web app
-- [ ] Credentials (`BASECAMP_SESSIONID`, TI login) read from a local `.env` / userData config file —
-      never entered in a scraped page. SQLite DB lives in Electron `app.getPath('userData')`
-- [ ] `npm run desktop:dev` runs the app with hot reload; `npm run desktop:build` produces a
+- [x] Preload script bridges IPC to the renderer via a typed `contextBridge` API (no `nodeIntegration`)
+- [x] Renderer reuses `MemberTable`, `LevelAccordion`, and the refresh-button header from the web app
+- [x] Credentials (`BASECAMP_SESSIONID`, TI login) read from a local `config.env` in Electron's
+      userData dir (see `apps/desktop/src/main/credentials.ts`) — never entered in a scraped page.
+      SQLite DB lives in Electron `app.getPath('userData')` via the `TOASTMASTERS_DATA_DIR` hook
+- [x] `npm run desktop:dev` runs the app with hot reload; `npm run desktop:build` produces a
       Windows installer `.exe` via `electron-builder` (NSIS target)
-- [ ] **Write a user guide** — `apps/desktop/USER_GUIDE.md`, aimed at the VPE (non-technical):
-      how to install the `.exe`, where to paste the Basecamp cookie / TI credentials the first
-      time, how to hit Refresh, and how to read the dashboard. Keep it simple, intuitive, and
-      concise — screenshots or short numbered steps, no jargon.
+- [x] **Write a user guide** — `apps/desktop/USER_GUIDE.md`, aimed at the VPE (non-technical):
+      install, first-time cookie setup (File → Open Credentials File…), Refresh, reading the
+      dashboard, exporting the roster, troubleshooting. Simple numbered steps, no jargon.
 
 **Validation:**
-1. `test -d apps/desktop` and `grep '"electron"' apps/desktop/package.json` — app scaffolded
-2. `grep -E '"desktop:dev"|"desktop:build"' package.json` — both scripts present
-3. `npm run desktop:build` produces a `.exe` under `apps/desktop/dist/` (or `release/`)
-4. `test -f apps/desktop/USER_GUIDE.md` — end-user guide exists
-5. Launching the built app shows the member table; clicking "Refresh Progress" with a valid
-   cookie repopulates data (manual check — document the result)
+1. [x] `test -d apps/desktop` and `grep '"electron"' apps/desktop/package.json` — app scaffolded
+2. [x] `grep -E '"desktop:dev"|"desktop:build"' package.json` — both scripts present
+3. [x] `npm run desktop:build` produces `apps/desktop/release/Toastmasters Tools Setup 1.0.0.exe`
+       (88 MB, NSIS). The emitted `out/main` bundle is also rebuilt and evaluated on every
+       `npm test` by `apps/desktop/tests/main-bundle.test.ts`, which guards the load-bearing
+       import-order invariant (core is never reached before `TOASTMASTERS_DATA_DIR` is set)
+4. [x] `test -f apps/desktop/USER_GUIDE.md` — end-user guide exists
+5. [ ] **Manual (pending user):** launch the installed `.exe`, paste a live cookie, click
+       "Refresh Progress", confirm the member table repopulates. Not verifiable headlessly —
+       the automated proxy is the full 267-test suite (incl. IPC handlers + bundle evaluation).
 
 ---
 

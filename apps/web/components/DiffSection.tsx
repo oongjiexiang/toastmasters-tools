@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
-import { getDiff, type DiffResult } from "@/lib/api";
+import { type DiffResult } from "@/lib/api";
 import {
   Collapsible,
   CollapsibleContent,
@@ -14,7 +14,16 @@ function fmtDate(iso: string) {
   return iso.slice(0, 10);
 }
 
-export function DiffSection() {
+interface DiffSectionProps {
+  /**
+   * The data source is injected so the component works over either transport:
+   * the web app passes its `fetch("/api/diff")` wrapper, the Electron renderer
+   * passes its IPC wrapper.
+   */
+  loadDiff: () => Promise<DiffResult>;
+}
+
+export function DiffSection({ loadDiff }: DiffSectionProps) {
   const [open, setOpen] = useState(false);
   const [diff, setDiff] = useState<DiffResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -24,7 +33,7 @@ export function DiffSection() {
     setOpen(next);
     if (next && diff === null && error === null) {
       setLoading(true);
-      getDiff()
+      loadDiff()
         .then(setDiff)
         .catch((e: Error) => setError(e.message))
         .finally(() => setLoading(false));

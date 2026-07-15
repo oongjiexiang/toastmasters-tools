@@ -20,6 +20,9 @@ coverage/
 # General build output
 dist/
 
+# electron-builder output (apps/desktop) — the packaged .exe
+release/
+
 # Playwright output
 test-results/
 playwright-report/

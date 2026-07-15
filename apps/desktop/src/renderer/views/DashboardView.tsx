@@ -1,25 +1,26 @@
-"use client";
-
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import {
-  getDiff,
-  getMembers,
-  refreshProgress,
-  refreshMembership,
-  type MemberSummary,
-} from "@/lib/api";
+import { Download } from "lucide-react";
 import { DashboardHeader } from "@/components/DashboardHeader";
 import { MemberTable } from "@/components/MemberTable";
 import { DiffSection } from "@/components/DiffSection";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { buttonVariants } from "@/components/ui/button";
-import { Download } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  downloadMembershipCsv,
+  getDiff,
+  getMembers,
+  refreshMembership,
+  refreshProgress,
+  type MemberSummary,
+} from "../lib/api";
 
-export default function DashboardPage() {
-  const router = useRouter();
+interface DashboardViewProps {
+  onSelectMember: (email: string, pathway: string) => void;
+}
+
+export function DashboardView({ onSelectMember }: DashboardViewProps) {
   const [members, setMembers] = useState<MemberSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshingProgress, setRefreshingProgress] = useState(false);
@@ -67,6 +68,17 @@ export default function DashboardPage() {
     }
   }
 
+  async function handleDownloadCsv() {
+    try {
+      const savedTo = await downloadMembershipCsv();
+      if (savedTo) toast.success(`Saved to ${savedTo}`);
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message.split("\n")[0] : "Download failed",
+      );
+    }
+  }
+
   function renderBody() {
     if (error)
       return (
@@ -105,14 +117,7 @@ export default function DashboardPage() {
 
     return (
       <>
-        <MemberTable
-          members={members}
-          onSelectMember={(email, pathway) =>
-            router.push(
-              `/members/${encodeURIComponent(email)}?pathway=${encodeURIComponent(pathway)}`,
-            )
-          }
-        />
+        <MemberTable members={members} onSelectMember={onSelectMember} />
         <div className="mt-6">
           <DiffSection loadDiff={getDiff} />
         </div>
@@ -129,14 +134,10 @@ export default function DashboardPage() {
         onRefreshProgress={handleRefreshProgress}
         onRefreshMembership={handleRefreshMembership}
         membershipCsvControl={
-          <a
-            href="/api/membership-file"
-            download
-            className={buttonVariants({ variant: "outline", size: "sm" })}
-          >
+          <Button variant="outline" size="sm" onClick={handleDownloadCsv}>
             <Download className="h-4 w-4" />
             Membership CSV
-          </a>
+          </Button>
         }
       />
       {renderBody()}

@@ -79,4 +79,25 @@ describe("GET /api/members/[email]", () => {
     expect(body.data.email).toBe("alice@example.com");
     expect(body.data.levels).toHaveLength(6);
   });
+
+  // See members.test.ts: the route reaches db transitively, through
+  // @toastmasters/core/queries -> ./helpers/db. If this mock stopped matching, the
+  // route would silently query the real database instead of failing.
+  it("reaches the database only through the mocked core module", async () => {
+    vi.mocked(getLatestProgress).mockReturnValue([mockProgressRow] as never);
+    vi.mocked(getLatestMembership).mockReturnValue([]);
+    vi.mocked(getLatestProjects).mockReturnValue([]);
+
+    await GET(
+      makeRequest("alice@example.com", "Presentation Mastery"),
+      makeParams("alice@example.com"),
+    );
+
+    expect(getLatestProgress).toHaveBeenCalledTimes(1);
+    expect(getLatestProjects).toHaveBeenCalledWith(
+      "alice@example.com",
+      "Presentation Mastery",
+      undefined,
+    );
+  });
 });

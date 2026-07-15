@@ -48,9 +48,59 @@ function collectSourceFiles(dir: string, skipDirs: string[] = []): string[] {
   return out;
 }
 
-/** Extract every module specifier imported/re-exported by a source file. */
-function importSpecifiers(file: string): string[] {
-  const src = readFileSync(file, "utf8");
+/**
+ * Remove `//` line comments and block comments from source, so that import-like
+ * text inside comments (e.g. an illustrative `import ... from "@toastmasters/core/x"`
+ * in a doc comment) is never mistaken for a real import specifier.
+ *
+ * String literals are preserved verbatim — a `//` inside a string (a URL, say) is
+ * NOT a comment. Real module specifiers essentially never contain `//`, so the
+ * import regexes below stay accurate once genuine comments are gone.
+ */
+function stripComments(src: string): string {
+  let out = "";
+  type State = "code" | "line" | "block" | "single" | "double" | "template";
+  let state: State = "code";
+
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    const next = src[i + 1];
+
+    switch (state) {
+      case "code":
+        if (c === "/" && next === "/") { state = "line"; i++; }
+        else if (c === "/" && next === "*") { state = "block"; i++; }
+        else if (c === "'") { state = "single"; out += c; }
+        else if (c === '"') { state = "double"; out += c; }
+        else if (c === "`") { state = "template"; out += c; }
+        else out += c;
+        break;
+      case "line":
+        // Drop the comment body; keep the newline that ends it so line-based
+        // structure (and any real import on the next line) survives.
+        if (c === "\n") { state = "code"; out += c; }
+        break;
+      case "block":
+        if (c === "*" && next === "/") { state = "code"; i++; }
+        else if (c === "\n") out += c; // preserve line count
+        break;
+      case "single":
+      case "double":
+      case "template": {
+        out += c;
+        const quote = state === "single" ? "'" : state === "double" ? '"' : "`";
+        if (c === "\\") { out += next ?? ""; i++; }      // escaped char: copy verbatim
+        else if (c === quote) state = "code";            // closing quote
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+/** Extract every module specifier imported/re-exported by a chunk of source text. */
+function extractImportSpecifiers(rawSrc: string): string[] {
+  const src = stripComments(rawSrc);
   const specifiers: string[] = [];
   const staticImport = /(?:import|export)[\s\S]*?from\s+["']([^"']+)["']/g;
   const bareImport = /import\s+["']([^"']+)["']/g;
@@ -63,8 +113,66 @@ function importSpecifiers(file: string): string[] {
   return specifiers;
 }
 
+/** Extract every module specifier imported/re-exported by a source file. */
+function importSpecifiers(file: string): string[] {
+  return extractImportSpecifiers(readFileSync(file, "utf8"));
+}
+
+describe("importSpecifiers ignores comments but still sees real imports", () => {
+  // The whole guard rests on this: if the scanner read import-like text inside
+  // comments, it would raise false positives (a doc comment illustrating a bad
+  // import would be flagged); if it stopped seeing real imports, every "no
+  // offenders" assertion would pass vacuously. Both directions are pinned here.
+
+  it("does not match an import specifier that appears inside a // line comment", () => {
+    const src = `// import x from "@toastmasters/core/undeclared"\nconst y = 1;\n`;
+    expect(extractImportSpecifiers(src)).toEqual([]);
+  });
+
+  it("does not match an import specifier that appears inside a /* block comment */", () => {
+    const src = `/*\n * import x from "@toastmasters/core/undeclared"\n */\nconst y = 1;\n`;
+    expect(extractImportSpecifiers(src)).toEqual([]);
+  });
+
+  it("still catches a genuine undeclared-subpath import in real code", () => {
+    const src = `import { thing } from "@toastmasters/core/undeclared";\n`;
+    expect(extractImportSpecifiers(src)).toEqual(["@toastmasters/core/undeclared"]);
+  });
+
+  it("distinguishes a commented-out import from a real one on adjacent lines", () => {
+    const src =
+      `// import old from "@toastmasters/core/gone";\n` +
+      `import current from "@toastmasters/core/db";\n`;
+    expect(extractImportSpecifiers(src)).toEqual(["@toastmasters/core/db"]);
+  });
+
+  it("does not treat a // inside a string literal as the start of a comment", () => {
+    const src = `const url = "https://example.com";\nimport x from "@toastmasters/core/db";\n`;
+    expect(extractImportSpecifiers(src)).toEqual(["@toastmasters/core/db"]);
+  });
+
+  it("matches bare and dynamic imports too, but not their commented-out twins", () => {
+    const src =
+      `import "@toastmasters/core/db";\n` +
+      `// import "@toastmasters/core/gone";\n` +
+      `const mod = await import("@toastmasters/core/queries");\n` +
+      `/* const dead = await import("@toastmasters/core/dead"); */\n`;
+    expect(extractImportSpecifiers(src).sort()).toEqual(
+      ["@toastmasters/core/db", "@toastmasters/core/queries"].sort(),
+    );
+  });
+});
+
 describe("@toastmasters/core exports map", () => {
-  it("declares the nine public subpaths the workspace depends on", () => {
+  // The literal list below IS the contract. It is deliberately spelled out rather
+  // than derived from `corePkg.exports`, so that adding or removing a subpath
+  // fails this test until someone changes the contract on purpose.
+  //
+  // Phase 11 added `./queries` (the member-summary / detail / diff read models,
+  // lifted out of the Next.js API routes so the Electron main process can call the
+  // same code). That is a real widening of core's public surface, so the list grew
+  // from nine entries to ten.
+  it("declares the ten public subpaths the workspace depends on", () => {
     expect(EXPORT_SUBPATHS.sort()).toEqual(
       [
         "./api",
@@ -75,6 +183,7 @@ describe("@toastmasters/core exports map", () => {
         "./membership",
         "./paths",
         "./pathway",
+        "./queries",
         "./types",
       ].sort(),
     );
@@ -251,18 +360,37 @@ describe("dead pre-monorepo aliases are gone", () => {
     },
   );
 
-  it("every web import of core goes through a declared @toastmasters/core subpath", () => {
-    const webSources = collectSourceFiles(join(REPO_ROOT, "apps", "web"));
-    const declared = new Set(
-      EXPORT_SUBPATHS.map((s) => `@toastmasters/core${s.slice(1)}`),
-    );
+  // Widened in Phase 11: apps/desktop is now a second consumer of core, and it
+  // must respect the same `exports` contract (no deep relative reach into
+  // packages/core/helpers/*).
+  it.each(["web", "desktop"])(
+    "every %s import of core goes through a declared @toastmasters/core subpath",
+    (appName) => {
+      const appSources = collectSourceFiles(join(REPO_ROOT, "apps", appName), [
+        "out",
+        "release",
+      ]);
+      const declared = new Set(
+        EXPORT_SUBPATHS.map((s) => `@toastmasters/core${s.slice(1)}`),
+      );
 
-    const offenders = webSources.flatMap((file) =>
-      importSpecifiers(file)
-        .filter((spec) => spec.startsWith("@toastmasters/core"))
-        .filter((spec) => !declared.has(spec))
-        .map((spec) => `${file} -> ${spec}`),
-    );
-    expect(offenders).toEqual([]);
+      const offenders = appSources.flatMap((file) =>
+        importSpecifiers(file)
+          .filter((spec) => spec.startsWith("@toastmasters/core"))
+          .filter((spec) => !declared.has(spec))
+          .map((spec) => `${file} -> ${spec}`),
+      );
+      expect(offenders).toEqual([]);
+    },
+  );
+
+  it("finds the desktop app's core imports (guards the scan above from passing vacuously)", () => {
+    const desktopSources = collectSourceFiles(join(REPO_ROOT, "apps", "desktop"), [
+      "out",
+      "release",
+    ]);
+    const specs = desktopSources.flatMap(importSpecifiers);
+    expect(specs).toContain("@toastmasters/core/queries");
+    expect(specs).toContain("@toastmasters/core/db");
   });
 });

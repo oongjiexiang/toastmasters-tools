@@ -5,6 +5,7 @@
   "private": true,
   "exports": {
     "./db": "./helpers/db.ts",
+    "./queries": "./queries.ts",
     "./pathway": "./helpers/pathway.ts",
     "./api": "./helpers/api.ts",
     "./files": "./helpers/files.ts",

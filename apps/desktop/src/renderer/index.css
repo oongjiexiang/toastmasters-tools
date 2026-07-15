@@ -1,0 +1,13 @@
+/*
+ * The desktop renderer shares the web app's Tailwind theme and shadcn tokens
+ * verbatim — importing them keeps the two UIs from drifting.
+ */
+@import "../../../web/app/globals.css";
+
+/*
+ * Tailwind v4 detects sources relative to this file, which would miss the
+ * components we reuse from apps/web. Declare them explicitly.
+ */
+@source "../../../web/components";
+@source "../../../web/lib";
+@source "./";
