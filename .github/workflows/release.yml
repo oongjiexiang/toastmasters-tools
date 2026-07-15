@@ -29,6 +29,13 @@ jobs:
           node-version: "20"
           cache: npm
 
+      # node-gyp (used to rebuild better-sqlite3's native module) relies on
+      # distutils, which Python 3.12 removed. Pin 3.11 so the source build
+      # works regardless of the runner's default Python version.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Install dependencies
         run: npm ci
 
