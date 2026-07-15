@@ -383,7 +383,7 @@ that also lets the web app pick up refreshed cookies without a server restart.
 
 ---
 
-## Phase 13 — Repo README refresh + GitHub Actions CI/CD  ← current priority
+## Phase 13 — Done (Repo README refresh + GitHub Actions CI/CD)
 
 _The 1.0 release is tagged, but the repo has no automated checks and the README still
 describes the pre-desktop state. This phase makes `main` self-verifying (tests run on every
@@ -433,17 +433,26 @@ No workflows exist yet. Add:
    the **test** workflow triggered automatically and went green on GitHub Actions
    (`gh run view 29458318895`: job `test` passed in 2m40s, covering `npm test` and
    `npm run test:e2e`). Run: https://github.com/oongjiexiang/toastmasters-tools/actions/runs/29458318895
-4. [ ] **Pending next tag / manual dispatch:** the desktop build produces
-   `Toastmasters Tools Setup <version>.exe` as a CI artifact and, on a tag, attaches it to the
-   GitHub Release. Not yet triggered — `release.yml` runs on `windows-latest` and consumes
-   Windows Actions minutes by design, so it's deferred to a deliberate tag/dispatch rather than
-   fired automatically by this phase.
+4. [x] **Confirmed via manual dispatch, then two debug fixes:** the first two
+   `workflow_dispatch` runs on `windows-latest` failed installing `better-sqlite3` — no
+   prebuilt binary for Node 20.20.2/win32/x64, and the `node-gyp` source-build fallback
+   couldn't parse the newer Visual Studio install `windows-latest` now ships
+   (unrecognized version string). Pinning `runs-on: windows-2022` fixed VS detection but
+   surfaced a second issue: `node-gyp`'s bundled `gyp` imports `distutils`, removed in
+   Python 3.12 (the runner's default). Added `actions/setup-python@v5` pinned to `3.11`
+   before `npm ci`. Verified via two temporary debug runs (pushed to a temp `push` trigger
+   on this branch, reverted after): run `29459106670` confirmed the windows-2022 fix
+   surfaced the Python issue, run `29459225166` went green in 4m40s and produced the
+   `toastmasters-tools-installer` artifact. Trigger reverted back to tags +
+   `workflow_dispatch` only (commit `1ce41ea`) — confirmed the next push did **not**
+   re-trigger `release.yml`, only `ci.yml` as expected.
 5. [x] README has the CI badge and no stale "planned"/`csv.ts` references
    (`grep -nE "planned|csv\.ts" README.md` — no hits).
 
-> **Note:** Items 1, 2, 3, 5 are confirmed. Item 4 (release.yml) requires a version tag or a
-> manual `workflow_dispatch` run — ask before triggering it, since it spends Windows CI minutes
-> and (on a tag) publishes a public GitHub Release.
+> **Note:** All 5 validation items are confirmed. `release.yml` now targets `windows-2022`
+> (not `windows-latest`) and pins Python 3.11 for the `better-sqlite3` native rebuild — both
+> load-bearing fixes, not stylistic choices; do not revert either without re-verifying a
+> `workflow_dispatch` run.
 
 ---
 
