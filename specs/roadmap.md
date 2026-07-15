@@ -429,17 +429,157 @@ No workflows exist yet. Add:
    YAML (js-yaml load: `ci.yml` job `test`, triggers push/pull_request; `release.yml` job
    `build-windows`, triggers push-tags/workflow_dispatch).
 2. [x] `npm test` (303) and `npm run test:e2e` (6) pass locally — the workflow just wraps them.
-3. [ ] **Pending first push:** the **test** workflow run goes green on GitHub Actions
-   (`gh run list`). CI runs on GitHub, not locally.
+3. [x] **Confirmed after push:** pushed `user/oong/v2` to origin (12 commits, incl. Part A/B) —
+   the **test** workflow triggered automatically and went green on GitHub Actions
+   (`gh run view 29458318895`: job `test` passed in 2m40s, covering `npm test` and
+   `npm run test:e2e`). Run: https://github.com/oongjiexiang/toastmasters-tools/actions/runs/29458318895
 4. [ ] **Pending next tag / manual dispatch:** the desktop build produces
    `Toastmasters Tools Setup <version>.exe` as a CI artifact and, on a tag, attaches it to the
-   GitHub Release.
+   GitHub Release. Not yet triggered — `release.yml` runs on `windows-latest` and consumes
+   Windows Actions minutes by design, so it's deferred to a deliberate tag/dispatch rather than
+   fired automatically by this phase.
 5. [x] README has the CI badge and no stale "planned"/`csv.ts` references
    (`grep -nE "planned|csv\.ts" README.md` — no hits).
 
-> **Note:** Items 1, 2, 5 pass locally now; items 3–4 can only be confirmed after pushing —
-> the workflows run on GitHub. `actionlint` was unavailable offline, so YAML was validated by
-> js-yaml parse instead.
+> **Note:** Items 1, 2, 3, 5 are confirmed. Item 4 (release.yml) requires a version tag or a
+> manual `workflow_dispatch` run — ask before triggering it, since it spends Windows CI minutes
+> and (on a tag) publishes a public GitHub Release.
+
+---
+
+## Phase 14 — Remove the Next.js web app (minor version → 1.1.0)
+
+_The Electron desktop app (Phases 11–12) is the delivered product. The Next.js web app
+(`apps/web`) is no longer used — nobody runs `npm run dev` to serve a dashboard on
+`localhost:3000` anymore. This phase deletes it, collapsing the repo to a single app plus
+shared packages. There is no user-facing change to the shipped `.exe`, so **tag the resulting
+build with a minor bump — `1.1.0`.**_
+
+> **Load-bearing constraint (must be solved first — mirrors the Phase 3/6 sequencing note):**
+> the desktop renderer reuses the web app's React components **verbatim**. It imports
+> `DashboardHeader`, `MemberTable`, `LevelAccordion`, `ProjectRow`, `DiffSection`, the shadcn
+> `ui/` primitives, and `providers` through an `@` alias that resolves to `apps/web`
+> (`apps/desktop/electron.vite.config.ts:37-38`, `WEB_DIR`), and its data layer mirrors
+> `apps/web/lib/api.ts`. **Deleting `apps/web` outright breaks the desktop build.** So the
+> shared UI + lib must be **extracted into a package first** (e.g. `packages/ui`,
+> `@toastmasters/ui`), the desktop `@` alias repointed at that package, and only then is
+> `apps/web` safe to remove. Do not delete before extracting.
+
+- [ ] **Extract shared UI into `packages/ui`** (`@toastmasters/ui`, private, no build step —
+      consumed via `exports` subpaths, same pattern as `@toastmasters/core`). Move the reused
+      components (`DashboardHeader`, `MemberTable`, `LevelAccordion`, `ProjectRow`,
+      `DiffSection`, `ui/*`, `providers`) and any shared client types out of `apps/web`.
+      Repoint the desktop renderer's `@`/`@/components` alias at the new package
+      (`apps/desktop/electron.vite.config.ts`, `apps/desktop/tsconfig.json`). Keep the
+      renderer's own `lib/api.ts` IPC layer.
+- [ ] **Delete `apps/web/`** entirely — Next.js app, `app/api/*` routes, `next.config.ts`,
+      web-only unit tests (`apps/web/tests/api`), the Playwright E2E suite
+      (`apps/web/tests/e2e`), and `playwright.config.ts`. The `workspaces` array stays
+      `["apps/*", "packages/*"]` (desktop + packages remain).
+- [ ] **Prune root scripts:** remove `dev`, `build`, `start`, `test:e2e` (all web-only).
+      Keep `fetch`, `membership`, `cli`, `test`, `desktop:dev`, `desktop:build`. `npm test`
+      now covers core + ui + desktop.
+- [ ] **Update CI (`.github/workflows/ci.yml`):** drop the Playwright / `test:e2e` step
+      (web-only) and any `apps/web` build step; keep the core + desktop test job. `release.yml`
+      (desktop installer) is unaffected.
+- [ ] **Documentation sweep** — remove or mark historical every reference to the running web
+      app: `README.md` (project-structure tree, Commands table, any "run the dashboard on
+      localhost:3000" text), `specs/tech-stack.md` (Next.js/React-web layer),
+      `specs/architecture-react.md`, `specs/feature-react-migration.md`,
+      `specs/ui-design-react.md`. These ADRs/specs are historical records — prefer a
+      "**Superseded — the web app was removed in Phase 14; components now live in
+      `packages/ui`**" banner over silent deletion.
+- [ ] **Version bump:** set every workspace `package.json` `version` to `1.1.0` (root,
+      `packages/core`, `packages/ui`, `apps/desktop`). After validation, tag the build
+      `v1.1.0` (electron-builder's product version follows, so the installer becomes
+      `Toastmasters Tools Setup 1.1.0.exe`).
+
+**Validation:**
+1. `test ! -d apps/web` and `test ! -f playwright.config.ts` — web app fully removed
+2. `test -d packages/ui` and `grep -q "@toastmasters/ui" apps/desktop/package.json` — shared UI extracted and consumed
+3. `grep -rE "apps/web|@toastmasters/web|next" apps/desktop package.json .github/workflows` — no live references (only historical mentions in `specs/` allowed)
+4. `npm test` passes (core + ui + desktop; no E2E)
+5. `npm run desktop:build` produces `apps/desktop/release/Toastmasters Tools Setup 1.1.0.exe`
+6. `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.1.0`
+
+---
+
+## Phase 15 — Production-grade refactor (minor version → 1.2.0)
+
+_With the repo collapsed to a single app plus shared packages (Phase 14), do a repo-wide
+cleanup pass to make it maintainable and production-grade: consistent structure, enforced
+lint/format, strict typing, no dead code, uniform error handling and logging. This is a
+behaviour-preserving refactor — no new user-facing feature and no user-facing change to the
+shipped `.exe` — so **tag the resulting build with a minor bump — `1.2.0`.** Do this only
+after Phase 14; refactoring the web app we're about to delete is wasted work._
+
+- [ ] **Tooling baseline:** a single shared ESLint (flat config) + Prettier setup at the repo
+      root applied to every workspace; add `lint` / `format` scripts and wire `lint` into `npm test`
+      and CI. Resolve every warning it surfaces (unused vars/imports, floating promises, etc.).
+- [ ] **Strict TypeScript:** enable `strict` (+ `noUncheckedIndexedAccess`,
+      `noImplicitOverride`) in a shared base `tsconfig` that each workspace extends; eliminate
+      resulting errors and stray `any`s (replace with real types from `packages/core/types.ts`).
+- [ ] **Module boundaries & dead code:** remove any code orphaned by Phases 6/10/14; ensure
+      `@toastmasters/core` and `@toastmasters/ui` only expose intended `exports` subpaths;
+      keep the "core imports nothing framework-specific" invariant
+      (`packages/core/tests/workspace.test.ts`) and add the equivalent guard for `packages/ui`.
+- [ ] **Error handling & logging:** replace scattered `console.log`/`console.error` with a
+      small shared logger (levels + structured context), keeping the `ProgressReporter` callback
+      seam (`packages/core/services/fetch.ts:15`) intact so the Electron live-log still works.
+      Consistent error types for the auth/HTTP failure paths (`helpers/api.ts`).
+- [ ] **Naming & consistency:** uniform file/naming conventions, import ordering, and
+      barrel/`index.ts` conventions across `packages/*` and `apps/desktop`.
+- [ ] **No behaviour change / no coverage loss:** the full test suite stays green and coverage
+      does not drop; refactors that touch logic get a test asserting the preserved behaviour.
+- [ ] **Version bump:** set every workspace `package.json` `version` to `1.2.0`; after
+      validation, tag the build `v1.2.0`.
+
+**Validation:**
+1. `npm run lint` exits 0 with zero warnings; `npm run format -- --check` (or equivalent) is clean
+2. `npm test` passes with coverage ≥ the Phase 14 baseline (no regression)
+3. `npm run desktop:build` produces `Toastmasters Tools Setup 1.2.0.exe`
+4. `grep -rc "any" packages/core/*.ts packages/core/helpers` shows no new bare `any`s vs. baseline; strict flags present in the shared tsconfig
+5. `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.2.0`
+
+---
+
+## Phase 16 — Parallelise progress-page fetching (minor version → 1.3.0)
+
+_Phase 7 already parallelised **Step 2** (per-member lesson detail). **Step 1** —
+`fetchAllProgress` in `packages/core/helpers/api.ts` — is still strictly sequential: it fetches
+`page=1`, reads `page.next`, fetches `page=2`, and so on, one page at a time, because each
+page's `next` URL is only known after the previous page returns. Parallelising the page
+fetches cuts Step 1 wall time from O(pages) to O(pages/concurrency). This is a performance
+improvement with no API-shape change, so **bump the minor version → `1.3.0`** when taken up._
+
+> **Clue from the website's response (the enabling fact):** the endpoint returns a standard
+> Django-REST paginated payload — `{ count, next, previous, results }` (`packages/core/types.ts:23-28`).
+> **`count` (total members) arrives on page 1**, and the page size equals `results.length` of
+> page 1. So after the *first* request we can compute `totalPages = ceil(count / pageSize)`
+> and issue pages `2..totalPages` **in parallel** by constructing their URLs directly
+> (`?club=<CLUB_ID>&page=N`) instead of walking the `next` chain serially.
+
+- [ ] Rework `fetchAllProgress`: fetch page 1 first (learn `count` + `pageSize`), then fetch
+      pages `2..totalPages` with a **concurrency-limited** parallel runner — reuse the exact
+      Phase 7 pattern (`Promise.allSettled` over chunks, a `PROGRESS_CONCURRENCY` constant at
+      the top of the module, default 5). No new dependency.
+- [ ] **Preserve member ordering:** assemble `allResults` by page index, not by completion
+      order, so the output is identical to the sequential version.
+- [ ] **Safe fallback:** if page 1 returns no `count`, an empty `results`, or a `next` URL that
+      doesn't match the `page=N` scheme, fall back to the current sequential `next`-following
+      loop. Never fabricate page URLs the server didn't imply.
+- [ ] **Error handling per page:** a single failed page logs a warning and the run continues
+      (matching the per-member tolerance in Step 2); the progress reporter still logs
+      `Page N: X of <count> downloaded.`
+- [ ] Concurrency cap is a tunable constant, mirroring `DETAIL_CONCURRENCY`
+      (`packages/core/services/fetch.ts:7`).
+- [ ] **Version bump:** minor bump to `1.3.0` across workspaces; tag `v1.3.0`.
+
+**Validation:**
+1. `grep "PROGRESS_CONCURRENCY" packages/core/helpers/api.ts` — constant defined and set to a number
+2. `grep "Promise.allSettled" packages/core/helpers/api.ts` — parallel runner present in the progress path
+3. `npm test` passes — including a test that mocks a multi-page `{count,next,results}` response and asserts (a) member order is preserved and (b) pages 2..N are requested concurrently, plus a single-page and a missing-`count` fallback case
+4. `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.3.0`
 
 ---
 
