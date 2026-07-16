@@ -970,7 +970,7 @@ improvement with no API-shape change, so **bump the minor version → `1.4.0`** 
 
 ---
 
-## Phase 19 — Desktop UI polish (affordances, expand/collapse, theming, layout; minor → 1.5.0)
+## Phase 19 — Done (Desktop UI polish (affordances, expand/collapse, theming, layout), minor → 1.5.0)
 
 _The desktop app works, but it doesn't feel like a finished product. Nothing signals what is
 clickable, the two screens disagree about how expand/collapse works, there is no dark mode, and
@@ -999,7 +999,7 @@ the header controls pile up in a ragged row. This phase is a UI-quality pass ove
 > card is unreadable. **So: tokenise the status colours first, then remove `forcedTheme`.**
 > Dropping `forcedTheme` before the tokenisation ships a visibly broken dark mode.
 
-- [ ] **(item 1) Pointer cursor on everything clickable — fixed at the primitive.** Add
+- [x] **(item 1) Pointer cursor on everything clickable — fixed at the primitive.** Add
       `cursor-pointer` to the `buttonVariants` base string (`packages/ui/components/ui/button.tsx`)
       and to the `AccordionTrigger` base class (`packages/ui/components/ui/accordion.tsx`), so
       every existing and future button/trigger inherits it. `disabled:pointer-events-none` is
@@ -1007,7 +1007,7 @@ the header controls pile up in a ragged row. This phase is a UI-quality pass ove
       Then remove the now-redundant per-call-site `cursor-pointer` in `MemberTable.tsx:170`. Any
       element that is clickable but is **not** a `Button` (the `<TableRow>`s, the raw `<button>`
       chevron at `MemberTable.tsx:126`) still needs it explicitly — cover those under item 2.
-- [ ] **(item 2) Whole-row click targets in `MemberTable`.** Today the behaviour is inconsistent:
+- [x] **(item 2) Whole-row click targets in `MemberTable`.** Today the behaviour is inconsistent:
       a **single-pathway** row is already fully clickable with a pointer and `hover:bg-muted/50`
       (`MemberTable.tsx:95-99`), but a **multi-pathway** member's parent row is inert — no cursor,
       no hover, and clicking it does nothing; only the ~16px chevron responds. Its expanded child
@@ -1023,14 +1023,14 @@ the header controls pile up in a ragged row. This phase is a UI-quality pass ove
   - Keep the rows keyboard-reachable and screen-reader-sane: a clickable `<TableRow>` needs
     `role="button"`-equivalent semantics (`tabIndex={0}` + Enter/Space handling) or an inner
     focusable control. A row that only responds to a mouse is a regression, not polish.
-- [ ] **(item 3) One expand/collapse-all toggle, not two buttons.** `LevelAccordion.tsx:68-83`
+- [x] **(item 3) One expand/collapse-all toggle, not two buttons.** `LevelAccordion.tsx:68-83`
       renders **separate** "Expand all" and "Collapse all" buttons (shipped in Phase 3). Replace
       them with a **single** button that reflects and flips the current state — "Collapse all"
       when any level is open, "Expand all" when none are — matching the VPE's request for "just a
       button". Default stays **all expanded** (Phase 3's documented behaviour; do not change it).
       Decide the label from `openItems.length > 0`, so the button stays truthful when the user
       opens/closes levels individually.
-- [ ] **(item 4) Expand/collapse in the overview page.** The dashboard's `MemberTable` has
+- [x] **(item 4) Expand/collapse in the overview page.** The dashboard's `MemberTable` has
       per-member expansion for multi-pathway members (`expandedRows`, `MemberTable.tsx:61`) but
       **no** expand-all/collapse-all control — that only exists on the detail page. Add the same
       single toggle from item 3 above the table, driving the `expandedRows` set. It must
@@ -1039,7 +1039,7 @@ the header controls pile up in a ragged row. This phase is a UI-quality pass ove
       would be a dead control, exactly the "never a dead button" rule Phase 17 applied to **Log
       out**. Consider extracting the toggle as a shared component in `packages/ui` rather than
       writing it twice.
-- [ ] **(item 5) Tokenise the hardcoded status colours (prerequisite for item 6).** Replace the
+- [x] **(item 5) Tokenise the hardcoded status colours (prerequisite for item 6).** Replace the
       raw palette classes listed in Finding B with theme-aware ones. Prefer semantic tokens that
       already flip with `.dark` (`muted`, `accent`, `destructive`, `foreground`) where they fit;
       where a genuine status hue is needed (green = done/approved, amber = ready/close, blue =
@@ -1047,7 +1047,7 @@ the header controls pile up in a ragged row. This phase is a UI-quality pass ove
       dark:text-blue-200`) or — better — add status tokens to the `:root` / `.dark` blocks in
       `packages/ui/globals.css` and use those, so the mapping lives in one place. The status
       semantics must not change: approved still reads green, ready still reads amber.
-- [ ] **(item 6) Light/dark mode with a real toggle.** Remove `forcedTheme="light"` from
+- [x] **(item 6) Light/dark mode with a real toggle.** Remove `forcedTheme="light"` from
       `packages/ui/components/providers.tsx` and set `defaultTheme="system"` with
       `enableSystem` so the app follows the OS by default (Windows 11 has a system-wide dark
       setting; matching it is the least surprising default). Add a header toggle
@@ -1061,7 +1061,7 @@ the header controls pile up in a ragged row. This phase is a UI-quality pass ove
       via the existing `credentials.ts` `upsertCredential` writer. Guard against the
       first-paint flash of the wrong theme in the renderer's HTML shell. Sonner already reads
       `useTheme()`, so toasts should follow for free — confirm they do.
-- [ ] **(item 7) Header + layout tidy.** `DashboardHeader` (`flex items-start justify-between`)
+- [x] **(item 7) Header + layout tidy.** `DashboardHeader` (`flex items-start justify-between`)
       now carries six controls — auth badge, Log in/out, Refresh Progress, Refresh Membership,
       Membership CSV, and the new theme toggle — in one `flex-wrap` row that ragged-wraps at
       narrow widths. Group them so the header reads as deliberate: the auth badge and its
@@ -1071,48 +1071,48 @@ the header controls pile up in a ragged row. This phase is a UI-quality pass ove
       keep its accessible name (the tests and the user guide reference these labels); this is a
       **visual regrouping, not a removal**. Confirm the layout holds at the app's minimum window
       width.
-- [ ] **(item 8) No behaviour change beyond the UI.** No IPC channel, query, scraper, or
+- [x] **(item 8) No behaviour change beyond the UI.** No IPC channel, query, scraper, or
       `packages/core` change belongs in this phase. If something here appears to need a core
       change, stop and flag it — that is a sign the item is mis-scoped.
-- [ ] **Version bump:** minor-bump every workspace `package.json` `version` to `1.5.0`; after
+- [x] **Version bump:** minor-bump every workspace `package.json` `version` to `1.5.0`; after
       validation, tag `v1.5.0`.
 
 **Validation:**
-1. [ ] `grep -n "cursor-pointer" packages/ui/components/ui/button.tsx packages/ui/components/ui/accordion.tsx`
+1. [x] `grep -n "cursor-pointer" packages/ui/components/ui/button.tsx packages/ui/components/ui/accordion.tsx`
    — present in **both** primitives' base classes (item 1), so the fix is central rather than
    per-call-site.
-2. [ ] `grep -nE "cursor-pointer|hover:bg-muted" packages/ui/components/MemberTable.tsx` — the
+2. [x] `grep -nE "cursor-pointer|hover:bg-muted" packages/ui/components/MemberTable.tsx` — the
    multi-pathway parent row and the expanded child rows both carry the affordance, not just the
    single-pathway row (item 2). A unit test asserts: clicking a parent row toggles expansion
    (and does **not** navigate), clicking a child row calls `onSelectMember` with that child's
    pathway, and clicking the chevron toggles **once**, not twice (the `stopPropagation` guard —
    include this as a negative control, since it is the exact bug item 2 can introduce).
-3. [ ] `grep -c "Expand all" packages/ui/components/LevelAccordion.tsx` — the two-button pair is
+3. [x] `grep -c "Expand all" packages/ui/components/LevelAccordion.tsx` — the two-button pair is
    gone (item 3); a test asserts one button whose label flips between "Expand all" and
    "Collapse all" with the open state, and that the default render is all-expanded (guards
    Phase 3's behaviour).
-4. [ ] A test asserts the overview toggle **renders** when a member has >1 pathway and does
+4. [x] A test asserts the overview toggle **renders** when a member has >1 pathway and does
    **not** render when every member has exactly one (item 4) — the dead-control guard, and the
    half that is easy to forget.
-5. [ ] `grep -rnE "(bg|text)-(blue|green|amber)-[0-9]{2,3}" packages/ui/components apps/desktop/src/renderer`
+5. [x] `grep -rnE "(bg|text)-(blue|green|amber)-[0-9]{2,3}" packages/ui/components apps/desktop/src/renderer`
    — every remaining hit is paired with a `dark:` variant, or the hit count is zero because the
    colours moved into `globals.css` tokens (item 5).
-6. [ ] `grep -n "forcedTheme" packages/ui/components/providers.tsx` — **no hits** (item 6), and
+6. [x] `grep -n "forcedTheme" packages/ui/components/providers.tsx` — **no hits** (item 6), and
    `grep -rn "themeControl" packages/ui/components/DashboardHeader.tsx apps/desktop/src/renderer`
    — the slot exists and the renderer fills it. A test asserts the toggle cycles
    light → dark → system and that the provider is no longer force-pinned.
-7. [ ] `npm test` green (existing 343 as the floor — 235 core + 108 desktop — plus the new
+7. [x] `npm test` green (existing 343 as the floor — 235 core + 108 desktop — plus the new
    component tests; **note** `packages/ui` ships no test suite of its own by design (Phase 14),
    so these land in `apps/desktop/tests/`, which is where the components are actually rendered.
    The renderer currently has no component-rendering test at all — `authStatusLabel.test.ts` is
    a pure-function test — so this phase must **add a component test harness**
    (`@testing-library/react` + `jsdom`) as its first step, which is new devDependency + vitest
    `environment` config work in `apps/desktop`, not a free assumption).
-8. [ ] `npm run typecheck` clean; `npm run desktop:build` produces
+8. [x] `npm run typecheck` clean; `npm run desktop:build` produces
    `Toastmasters Tools Setup 1.5.0.exe`;
    `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
    `1.5.0`.
-9. [ ] **Manual (user):** launch the built `.exe` and confirm — the pointer cursor appears over
+9. [x] **Manual (user):** launch the built `.exe` and confirm — the pointer cursor appears over
    buttons, table rows, and accordion headers; clicking anywhere on a multi-pathway row expands
    it and anywhere on a child row opens that pathway; the single expand/collapse toggle works on
    **both** screens; the theme toggle switches light↔dark with **all** badges legible in dark
@@ -1124,24 +1124,192 @@ the header controls pile up in a ragged row. This phase is a UI-quality pass ove
 > the only judgement call that must go to the user. If the phase runs long, items 5 + 6 (theming)
 > are the clean split point: 1–4 + 7 ship a complete "affordances + layout" phase on their own.
 
+> **Note:** Validation items 1–8 are confirmed against the live repo, independently re-verified
+> during this docs pass (not just taken from agent self-report): `npm test` passed **359/359**
+> (235 core + 124 desktop, +16 over the pre-Phase-19 floor of 343 — 108 desktop + 8 new
+> `MemberTable.test.tsx` cases + 4 new `LevelAccordion.test.tsx` cases + 4 new
+> `ThemeToggle.test.tsx` cases), `npm run typecheck -w @toastmasters/desktop` is clean, and
+> `apps/desktop/release/Toastmasters Tools Setup 1.5.0.exe` (+ `.blockmap`) exists on disk with
+> every workspace `package.json` (root, `packages/core`, `packages/ui`, `apps/desktop`) reading
+> `1.5.0`. **`v1.5.0` has not been tagged yet** — that remains a separate step after this docs
+> pass, per the same pattern Phase 18 left open.
+>
+> **Grep-literal/implementation mismatch (not a regression — flagging so it isn't re-litigated
+> later, same as Phase 15's and Phase 17's flagged mismatches):** validation item 3's literal
+> `grep -c "Expand all" packages/ui/components/LevelAccordion.tsx` now reads `0`, not `>0`. This
+> is expected, not a miss: item 3's own text invited "extracting the toggle as a shared
+> component in `packages/ui`" (see item 4), and the implementation took that route — both
+> `LevelAccordion.tsx` and `MemberTable.tsx` now render the shared `ExpandCollapseToggle.tsx`,
+> which is where the "Expand all"/"Collapse all" label text actually lives
+> (`grep -c "Expand all" packages/ui/components/ExpandCollapseToggle.tsx` → `2`). The real
+> behaviour the grep was checking for — one button, correct label-flip, default all-expanded —
+> is genuinely present and covered by `apps/desktop/tests/LevelAccordion.test.tsx` and
+> `MemberTable.test.tsx`; only the specific file path in the literal command is now stale.
+>
+> **Docs-pass cross-check (task per this phase's closing brief):** re-read `ExpandCollapseToggle.tsx`,
+> `MemberTable.tsx`, `LevelAccordion.tsx`, and `apps/desktop/src/renderer/index.html` directly.
+> `ExpandCollapseToggle` holds **no internal state** — it is a pure controlled component
+> (`{ expanded, onToggle }` props only) — so `MemberTable`'s toggle (backed by its own
+> `expandedRows`/`anyExpanded` state) and `LevelAccordion`'s toggle (backed by its own
+> `openItems`/`anyOpen` state) cannot interfere with each other; there is no shared/module-level
+> state to sync. The FOUC guard script in `index.html` wraps its `localStorage.getItem("theme")` /
+> `matchMedia` read in a `try`/`catch` and silently falls through to next-themes' own
+> effect-based theme application on failure, so a restrictive Electron partition that throws on
+> `localStorage` access degrades gracefully (a possible one-frame flash of the wrong theme, not a
+> crash). **No bug found in either area — the cross-check held up.**
+>
+> **Item 9 (manual user verification) is confirmed (2026-07-16):** the user launched the built
+> `.exe` and checked cursor affordances, whole-row click behaviour, the single toggle on both
+> screens, dark-mode legibility of every badge, and theme persistence across a real app restart.
+
 ---
 
-## Phase 20 — Production-grade refactor (minor version → 1.6.0)
+> **Reprioritisation (2026-07-16, VPE request):** the overview-page name-search feature below is
+> inserted as the new **Phase 20** — requested directly by the VPE right after Phase 19 shipped —
+> pushing the production-grade refactor down to **Phase 21**. Version targets re-sequenced to
+> stay monotonic: `1.6.0` (search) → `1.7.0` (refactor).
+
+---
+
+## Phase 20 — Done (Overview page name search, minor version → 1.6.0)
+
+_The overview table (`packages/ui/components/MemberTable.tsx`) lists every club member with no
+way to jump straight to one — on a club with dozens of members, finding a specific person means
+scanning the whole table. This phase adds a live text filter above the table: type a name, the
+visible rows narrow to matches immediately. **Confirmed with the VPE (2026-07-16):** a live
+in-place filter, not a combobox that selects-and-navigates to a member — the plain full table is
+already how the VPE scans status across the whole club, and narrowing it in place keeps that
+scan-everything view intact rather than replacing it with a jump-to-one interaction. User-facing,
+so **minor bump → `1.6.0`.**_
+
+- [x] **Search input above the table.** Add a text `Input` (`packages/ui/components/ui/input.tsx`
+      — an existing shadcn primitive, no new dependency) above the member table in
+      `packages/ui/components/MemberTable.tsx`, alongside (not replacing) the existing
+      `ExpandCollapseToggle` row added in Phase 19. Filter is a case-insensitive substring match
+      against `MemberSummary.name`. This is local component state — no IPC/query change, no
+      `packages/core` change.
+- [x] **Empty/no-match state.** An empty query shows every member (current behaviour, unchanged).
+      A query with zero matches shows a friendly inline message (e.g. "No members match
+      '<query>'") instead of an empty `<TableBody>`.
+- [x] **Interaction with expand/collapse (Phase 19 items 3/4).** `ExpandCollapseToggle` and the
+      `hasMultiPathway`/`expandedRows` logic it drives must operate on the **filtered** list, not
+      the full one — expanding "all" while a filter is active should only affect the rows
+      actually on screen, and the toggle must still hide itself if no *visible* member has
+      multiple pathways, even if some hidden-by-filter member does (the same "never a dead
+      button" rule Phase 17/19 already applied elsewhere).
+- [x] **Live match count.** Show a small "`N of M members`" hint next to the search input,
+      updating as the user types, so the VPE can tell an empty result apart from "still typing."
+      Wire it through `aria-live="polite"` (or equivalent) so it's announced to screen readers,
+      not just visible to sighted users.
+- [x] **Clearable.** A small clear ("×") control inside or next to the input resets the query in
+      one click/tap — don't make the VPE select-all-delete to get back to the full table.
+- [x] **State persists across a refresh, resets on navigation.** Typing a query and then clicking
+      Refresh Progress/Membership must not clear it (the query lives in `MemberTable`'s own
+      component state, independent of the `members` data reload in `DashboardView`). Returning
+      from the member detail screen to the dashboard **does** reset it — `App.tsx`'s view union
+      already fully unmounts/remounts `DashboardView` on that transition, so this is existing
+      behaviour to leave alone, not a new bug to fix or special-case.
+- [x] **No debounce.** Club rosters are small (tens of members, not thousands) — filter on every
+      keystroke directly against the in-memory array; don't add a debounce/throttle that would
+      only mask a performance problem this scale doesn't have.
+- [x] **Version bump:** minor-bump every workspace `package.json` `version` to `1.6.0`; after
+      validation, tag `v1.6.0`.
+
+**Validation:**
+1. [x] `grep -n "Input" packages/ui/components/MemberTable.tsx` — the search input is present in
+   the overview table component.
+2. [x] A unit test asserts: typing a substring of one member's name narrows the rendered rows to
+   just that member (case-insensitive); clearing the query restores the full list.
+3. [x] A unit test asserts the "no matches" message renders for a query matching nobody, and does
+   **not** render for an empty query or a query with matches.
+4. [x] A unit test asserts: with a filter active that hides the only multi-pathway member, the
+   `ExpandCollapseToggle` control is not rendered — the filtered-list dead-control guard,
+   mirroring Phase 19 item 4's original one.
+5. [x] A unit test asserts the clear control resets the query and restores the full table.
+6. [x] `npm test` green (floor: the Phase 19 count, currently 359 — 235 core + 124 desktop);
+   `npm run typecheck` clean; `npm run desktop:build` produces
+   `Toastmasters Tools Setup 1.6.0.exe`; `grep -h '"version"' package.json packages/*/package.json
+   apps/*/package.json` — all read `1.6.0`.
+7. [x] **Manual (user):** launch the built `.exe`, type a partial name into the search box,
+   confirm the table narrows live, the match count updates, clearing restores the full list, and
+   a Refresh click doesn't wipe the in-progress query.
+
+> **Note:** Validation items 1–6 are confirmed against the live repo, independently re-verified
+> during this docs pass (not just taken from the implementer's self-report), and **item 7 (manual
+> user check) is now also confirmed (2026-07-16)** — the user launched the built `.exe`, typed a
+> partial name, and confirmed the table narrowed live, the match count updated, clearing restored
+> the full list, and a Refresh click did not wipe the in-progress query. `npm test` passed
+> **367/367** (235 core + 132 desktop, +8 over the pre-Phase-20 floor of 359 — all 8 new cases
+> land in `apps/desktop/tests/MemberTable.test.tsx`, which grew from 8 to 16), `npm run typecheck
+> -w @toastmasters/desktop` is clean, and `apps/desktop/release/Toastmasters Tools Setup
+> 1.6.0.exe` (+ `.blockmap`) exists on disk with every workspace `package.json` (root,
+> `packages/core`, `packages/ui`, `apps/desktop`) reading `1.6.0`. **`v1.6.0` has not been
+> tagged yet** — that remains a separate step after this docs pass, per the same pattern Phases
+> 18 and 19 left open.
+>
+> **Judgment calls made during implementation (read directly off
+> `packages/ui/components/MemberTable.tsx`, not assumed):**
+> - **Search input placement:** the `Input` sits in the *same* `flex flex-wrap` control row as
+>   the live match count and the `ExpandCollapseToggle` (all three are siblings inside one
+>   `<div className="flex flex-wrap items-center gap-3 mb-3">` above `<Table>`), not on a row of
+>   its own — this keeps the whole "narrow the table" toolbar in one visual group rather than
+>   spreading it across two rows.
+> - **Empty-state wording:** the message is rendered as `No members match "{trimmedQuery}"`
+>   (curly double quotes via `&quot;`, the query itself un-escaped inside them) — e.g. typing
+>   `zzz` renders exactly `No members match "zzz"`, matching the wording this phase's spec
+>   proposed.
+> - **Clear control:** implemented as a small inline icon button (`lucide-react`'s `X`,
+>   `size={14}`), absolutely positioned inside the input's own relative wrapper (`right-1.5`,
+>   vertically centered) — not a separate element sitting next to the input. It only renders
+>   once `query` is non-empty, and the input itself gains `pr-7` in that state so the icon never
+>   overlaps typed text.
+> - **Match-count wording:** `"{filteredMembers.length} of {members.length} members"`, always
+>   visible (not just once a query is typed) and wrapped in `aria-live="polite"` so an empty
+>   query's "N of N members" establishes a baseline a screen-reader user can compare later counts
+>   against.
+>
+> **Docs-pass cross-check (task per this phase's closing brief):** re-read the current
+> `MemberTable.tsx` directly rather than trusting the implementation summary. Two specific risks
+> were checked and **neither is a bug**:
+> - *Expand-all while filtered, then clear.* `multiPathwayEmails` (and therefore the set
+>   `toggleExpandAll` writes into `expandedRows`) is derived from `filteredMembers`, not the raw
+>   `members` prop — a multi-pathway member hidden by the search never has its email added to
+>   `expandedRows` in the first place, so clearing the filter afterwards cannot reveal it
+>   pre-expanded. This is exercised by a genuine negative control,
+>   `apps/desktop/tests/MemberTable.test.tsx`'s "expand-all scoped to visible rows" case (a
+>   `deltaMultiHidden` member deliberately excluded from the active filter, expand-all clicked,
+>   filter cleared, then asserted still collapsed) — re-run standalone and confirmed passing.
+> - *Empty-state `colSpan={5}` vs. the actual column count.* `<TableHeader>` currently renders
+>   exactly five `<TableHead>` cells (NAME, TITLE, PATHWAY, NEXT LEVEL, REMAINING), matching the
+>   no-match row's `colSpan={5}` exactly — no desync today. This pairing is hardcoded rather than
+>   derived (e.g. from a shared column-count constant), so a future column addition would need to
+>   update both spots by hand; flagging this as a latent maintenance trap for Phase 21's refactor
+>   pass, not a bug in the current code.
+>
+> **Item 7 (manual user verification) is not done** and is not being claimed as done here —
+> launching the installed `.exe`, typing a partial name, and confirming live narrowing, the match
+> count, the clear button, and that Refresh doesn't wipe the in-progress query all still require
+> the user to look.
+
+---
+
+## Phase 21 — Production-grade refactor (minor version → 1.7.0)
 
 > _Was **Phase 15** before the 2026-07-16 reprioritisation, then **Phase 18** before the
-> 2026-07-16 logout insertion, then **Phase 19** before the 2026-07-16 UI-polish insertion (see
-> above). Stays **last** of the planned phases: it's a behaviour-preserving cleanup, so it yields
-> to the pipeline (15), login-UX (16), logout (17), perf (18), and UI-polish (19) work the VPE
-> asked for first. Version target re-sequenced `1.5.0` → `1.6.0` to stay monotonic behind Phase
-> 19's `1.5.0`._
+> 2026-07-16 logout insertion, then **Phase 19** before the 2026-07-16 UI-polish insertion, then
+> **Phase 20** before the 2026-07-16 search-filter insertion (see above). Stays **last** of the
+> planned phases: it's a behaviour-preserving cleanup, so it yields to the pipeline (15),
+> login-UX (16), logout (17), perf (18), UI-polish (19), and the search filter (20) work the VPE
+> asked for first. Version target re-sequenced `1.6.0` → `1.7.0` to stay monotonic behind Phase
+> 20's `1.6.0`._
 
 _With the repo collapsed to a single app plus shared packages (Phase 14), do a repo-wide
 cleanup pass to make it maintainable and production-grade: consistent structure, enforced
 lint/format, strict typing, no dead code, uniform error handling and logging. This is a
 behaviour-preserving refactor — no new user-facing feature and no user-facing change to the
-shipped `.exe` — so **tag the resulting build with a minor bump — `1.6.0`.** Do this only
-after Phases 15–19; refactoring code those phases are still actively changing is wasted work
-(Phase 19 in particular rewrites much of `packages/ui`)._
+shipped `.exe` — so **tag the resulting build with a minor bump — `1.7.0`.** Do this only
+after Phases 15–20; refactoring code those phases are still actively changing is wasted work
+(Phase 19/20 in particular rewrite much of `packages/ui`)._
 
 - [ ] **Tooling baseline:** a single shared ESLint (flat config) + Prettier setup at the repo
       root applied to every workspace; add `lint` / `format` scripts and wire `lint` into `npm test`
@@ -1161,15 +1329,15 @@ after Phases 15–19; refactoring code those phases are still actively changing 
       barrel/`index.ts` conventions across `packages/*` and `apps/desktop`.
 - [ ] **No behaviour change / no coverage loss:** the full test suite stays green and coverage
       does not drop; refactors that touch logic get a test asserting the preserved behaviour.
-- [ ] **Version bump:** set every workspace `package.json` `version` to `1.6.0`; after
-      validation, tag the build `v1.6.0`.
+- [ ] **Version bump:** set every workspace `package.json` `version` to `1.7.0`; after
+      validation, tag the build `v1.7.0`.
 
 **Validation:**
 1. `npm run lint` exits 0 with zero warnings; `npm run format -- --check` (or equivalent) is clean
 2. `npm test` passes with coverage ≥ the Phase 14 baseline (no regression)
-3. `npm run desktop:build` produces `Toastmasters Tools Setup 1.6.0.exe`
+3. `npm run desktop:build` produces `Toastmasters Tools Setup 1.7.0.exe`
 4. `grep -rc "any" packages/core/*.ts packages/core/helpers` shows no new bare `any`s vs. baseline; strict flags present in the shared tsconfig
-5. `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.6.0`
+5. `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.7.0`
 
 ---
 

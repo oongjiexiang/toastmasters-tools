@@ -102,6 +102,20 @@ command instead of two processes. See ADR for full comparison.
 | Coverage | `@vitest/coverage-v8` | Built-in, no extra config |
 | Scope | `helpers/` pure logic + API endpoint mappers | Highest value, lowest mocking cost |
 
+**Component testing (`apps/desktop`, Phase 19).** `apps/desktop/vitest.config.ts`'s global
+`test.environment` stays `"node"` — the existing main-process/pure-function tests have no DOM —
+but it now also carries the `@vitejs/plugin-react` plugin, a `resolve.alias` for `@` →
+`packages/ui` (mirroring `electron.vite.config.ts`'s renderer alias), and a
+`setupFiles: ["./vitest.setup.ts"]` entry (`@testing-library/jest-dom` matchers, RTL's
+`afterEach(cleanup)`, and a `window.matchMedia` polyfill that `next-themes`' `useTheme()` needs
+under jsdom). Individual component-test files opt into a DOM per-file with a
+`// @vitest-environment jsdom` docblock rather than flipping the suite-wide default. This
+required pinning `jsdom` to `24.1.0` (root `overrides` + `apps/desktop`'s own devDependency)
+because this environment's Node 20 can't load newer `jsdom`'s ESM-only transitive deps. First
+consumers: `apps/desktop/tests/MemberTable.test.tsx`, `LevelAccordion.test.tsx`, and
+`ThemeToggle.test.tsx` — `packages/ui` itself still ships no test suite of its own (Phase 14);
+its components are rendered and exercised from `apps/desktop/tests/`.
+
 ### Layer 6 — E2E browser testing (Phase 9; superseded, removed Phase 14 — see banner above)
 
 | Concern | Choice | Why |
@@ -148,6 +162,23 @@ startup self-heal re-harvests from the still-live partition on the very next lau
 rewrites them back in). `logOut()` (`apps/desktop/src/main/auth.ts`) clears the partition's cookies
 scoped to the Basecamp and TI origins individually — never the whole partition — then clears
 `process.env` and blanks `config.env` to match.
+
+**Theming (Phase 19).** The app has a real light/dark/system toggle, not a forced light theme.
+`packages/ui/components/providers.tsx` sets `<ThemeProvider attribute="class"
+defaultTheme="system" enableSystem>` (a prior `forcedTheme="light"` pinned the app to light and
+made theme changes a no-op — removed once every hardcoded status-colour class in `MemberTable`,
+`LevelAccordion`, `ProjectRow`, and `MemberDetailView` gained a paired `dark:` variant, so dark
+mode wouldn't ship with unreadable badges). A header `ThemeToggle`
+(`packages/ui/components/ThemeToggle.tsx`) cycles light → dark → system through `next-themes`'
+`useTheme()`, filled into a new optional `themeControl` slot on `DashboardHeader` — the same
+slot pattern Phase 12's `authControl` established. `next-themes` persists the choice to
+`localStorage` in Electron's default (persistent) session partition, so it survives app
+restarts. A synchronous inline script in `apps/desktop/src/renderer/index.html`'s `<head>` reads
+that same `localStorage` key before `<div id="root">` paints, applying the `.dark` class early
+to avoid a flash of the wrong theme; it wraps the read in `try`/`catch` so a `localStorage`
+access failure (e.g. a restrictive session partition) falls back silently to `next-themes`' own
+mount-time effect instead of throwing. Sonner toasts already read `useTheme()`
+(`packages/ui/components/ui/sonner.tsx`), so they follow the theme with no extra code.
 
 **Supersedes Docker (Phase 0 baseline), retired in Phase 10.** Docker solved "run this without a
 global Node install" for a developer; the `.exe` solves it for the actual end user, and does so

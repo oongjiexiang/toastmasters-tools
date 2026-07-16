@@ -4,6 +4,7 @@ import { CircleCheck, CircleDashed, Download, LogIn, LogOut } from "lucide-react
 import { DashboardHeader } from "@/components/DashboardHeader";
 import { MemberTable } from "@/components/MemberTable";
 import { DiffSection } from "@/components/DiffSection";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -269,6 +270,7 @@ export function DashboardView({ onSelectMember }: DashboardViewProps) {
             Membership CSV
           </Button>
         }
+        themeControl={<ThemeToggle />}
       />
       {(refreshing || log.length > 0) && (
         <RefreshConsole lines={log} active={refreshing} />
@@ -322,7 +324,7 @@ function RefreshConsole({ lines, active }: { lines: string[]; active: boolean })
         <span
           className={
             "h-2 w-2 rounded-full " +
-            (active ? "bg-green-500 animate-pulse" : "bg-muted-foreground/40")
+            (active ? "bg-green-500 dark:bg-green-400 animate-pulse" : "bg-muted-foreground/40")
           }
           aria-hidden
         />

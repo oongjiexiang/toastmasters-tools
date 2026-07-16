@@ -11,6 +11,27 @@
       loads local assets.
     -->
     <title>Toastmasters Dashboard</title>
+    <script>
+      // Flash-of-wrong-theme guard: next-themes applies the `.dark` class in
+      // a `useEffect` (after first paint), so without this the app briefly
+      // shows the light theme even when dark is selected. Read the same
+      // `localStorage` key next-themes uses ("theme", its default
+      // `storageKey`) and apply the class before anything paints. Kept as
+      // plain inline JS (no build step) so it runs synchronously before
+      // `<div id="root">` is populated.
+      (function () {
+        try {
+          var stored = localStorage.getItem("theme");
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var isDark = stored === "dark" || ((!stored || stored === "system") && prefersDark);
+          if (isDark) document.documentElement.classList.add("dark");
+        } catch (e) {
+          /* localStorage unavailable — fall back to next-themes' own effect */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
