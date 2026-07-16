@@ -19,25 +19,58 @@ import { join } from "path";
  */
 
 /**
- * The `BrowserWindow` fake used by the `runLoginFlow`/`openLoginWindow` wiring
- * tests below. It is deliberately a *behavioural* fake, not a stub: `close()`
- * synchronously invokes whatever `once("closed", cb)` registered — mirroring
- * how Electron itself fires "closed" once the native window is torn down —
- * and `isDestroyed()` reflects that. Every constructed instance is pushed onto
- * a static `instances` array so a test can inspect (and manually "close",
- * simulating the OS) whichever login window `runLoginFlow` opened, the same
- * pattern `tests/main-ipc.test.ts` uses for its `windowOptions` capture.
- *
- * Declared inside `vi.hoisted` because `vi.mock` factories are hoisted above
- * every other statement in the file (including plain `class` declarations),
- * so a class referenced by the factory must be hoisted along with it or the
- * factory would see it as not-yet-initialized.
+ * The `webContents` fake attached to every `FakeBrowserWindow` below, and also
+ * usable standalone for the `watchForNavigationCapture` unit tests. It is an
+ * `on`/`off`/fire event-emitter stub for exactly the two navigation events
+ * `watchForNavigationCapture` listens to — `did-navigate` (full navigations,
+ * including the initial load) and `did-navigate-in-page` (SPA-style
+ * same-document URL changes) — mirroring Electron's real argument shape
+ * `(event, url)` (a few Electron events carry more args; this module only
+ * reads `url`, so the fake only carries `url`).
  */
-const { FakeBrowserWindow } = vi.hoisted(() => {
+const { FakeBrowserWindow, FakeWebContents } = vi.hoisted(() => {
+  class FakeWebContents {
+    private listeners: Record<string, Array<(event: unknown, url: string) => void>> = {
+      "did-navigate": [],
+      "did-navigate-in-page": [],
+    };
+
+    on(event: string, listener: (event: unknown, url: string) => void): void {
+      this.listeners[event]?.push(listener);
+    }
+
+    off(event: string, listener: (event: unknown, url: string) => void): void {
+      const arr = this.listeners[event];
+      if (!arr) return;
+      const i = arr.indexOf(listener);
+      if (i !== -1) arr.splice(i, 1);
+    }
+
+    fireDidNavigate(url: string): void {
+      for (const l of [...this.listeners["did-navigate"]]) l(undefined, url);
+    }
+
+    fireDidNavigateInPage(url: string): void {
+      for (const l of [...this.listeners["did-navigate-in-page"]]) l(undefined, url);
+    }
+  }
+
+  /**
+   * The `BrowserWindow` fake used by the `runLoginFlow`/`openLoginWindow` wiring
+   * tests below. It is deliberately a *behavioural* fake, not a stub: `close()`
+   * synchronously invokes whatever `once("closed", cb)` registered — mirroring
+   * how Electron itself fires "closed" once the native window is torn down —
+   * and `isDestroyed()` reflects that. Every constructed instance is pushed onto
+   * a static `instances` array so a test can inspect (and manually "close",
+   * simulating the OS, or fire navigation events on `.webContents`) whichever
+   * login window `runLoginFlow` opened, the same pattern `tests/main-ipc.test.ts`
+   * uses for its `windowOptions` capture.
+   */
   class FakeBrowserWindow {
     static instances: FakeBrowserWindow[] = [];
     closedCallback: (() => void) | null = null;
     destroyed = false;
+    webContents = new FakeWebContents();
 
     constructor(_options?: unknown) {
       FakeBrowserWindow.instances.push(this);
@@ -62,7 +95,11 @@ const { FakeBrowserWindow } = vi.hoisted(() => {
       return Promise.resolve();
     }
   }
-  return { FakeBrowserWindow };
+  // Declared inside `vi.hoisted` because `vi.mock` factories are hoisted above
+  // every other statement in the file (including plain `class` declarations),
+  // so a class referenced by the factory must be hoisted along with it or the
+  // factory would see it as not-yet-initialized.
+  return { FakeBrowserWindow, FakeWebContents };
 });
 
 vi.mock("electron", () => ({
@@ -75,11 +112,15 @@ import {
   applyCookies,
   currentAuthStatus,
   harvestCookies,
+  logOut,
+  looksLikeLoginPage,
   runLoginFlow,
   watchForCapture,
+  watchForNavigationCapture,
   type CookieSource,
   type CookieWatcher,
   type HarvestedCookies,
+  type NavigationSource,
 } from "../src/main/auth";
 
 /** A cookie source whose `.get({url})` returns a canned list keyed by URL. */
@@ -110,6 +151,37 @@ function cookieWatcher(
     },
     fireChanged: () => {
       for (const l of [...listeners]) l();
+    },
+  };
+}
+
+/**
+ * A standalone `NavigationSource` fake for the `watchForNavigationCapture`
+ * unit tests below — the same shape as `FakeWebContents` above, but usable
+ * without going through a `FakeBrowserWindow`/`openLoginWindow`.
+ */
+function fakeWebContents(): NavigationSource & {
+  fireDidNavigate: (url: string) => void;
+  fireDidNavigateInPage: (url: string) => void;
+} {
+  const listeners: Record<string, Array<(event: unknown, url: string) => void>> = {
+    "did-navigate": [],
+    "did-navigate-in-page": [],
+  };
+  return {
+    on: (event, listener) => {
+      listeners[event].push(listener);
+    },
+    off: (event, listener) => {
+      const arr = listeners[event];
+      const i = arr.indexOf(listener);
+      if (i !== -1) arr.splice(i, 1);
+    },
+    fireDidNavigate: (url) => {
+      for (const l of [...listeners["did-navigate"]]) l(undefined, url);
+    },
+    fireDidNavigateInPage: (url) => {
+      for (const l of [...listeners["did-navigate-in-page"]]) l(undefined, url);
     },
   };
 }
@@ -327,6 +399,186 @@ describe("currentAuthStatus reports which cookies are currently held", () => {
   });
 });
 
+/**
+ * A fake `Session` for `logOut` tests. `cookies.get`/`cookies.remove` are
+ * wired to the same `byUrl` store: `get` reads it directly (via the shared
+ * `cookieSource` helper), and `remove` records every call (so a test can
+ * assert the exact url/name arguments) and, by default, behaves like a
+ * genuine removal — deleting the named cookie from `byUrl` so a subsequent
+ * `currentAuthStatus` re-check sees the real post-clear state. Passing
+ * `removeReallyWorks: false` simulates Electron's `cookies.remove` resolving
+ * successfully while the underlying cookie store stays stale — the exact
+ * "silent no-op" failure mode `logOut` exists to fix (see auth.ts's doc
+ * comment on `logOut` and the bug report that motivated Phase 17).
+ */
+function fakeSession(
+  byUrl: Record<string, Array<{ name: string; value: string }>>,
+  { removeReallyWorks = true }: { removeReallyWorks?: boolean } = {},
+): { cookies: CookieSource & { remove: ReturnType<typeof vi.fn> } } {
+  return {
+    cookies: {
+      ...cookieSource(byUrl),
+      remove: vi.fn(async (url: string, name: string) => {
+        if (removeReallyWorks) {
+          byUrl[url] = (byUrl[url] ?? []).filter((c) => c.name !== name);
+        }
+      }),
+    },
+  };
+}
+
+describe("logOut clears the real session partition, not just config.env (Phase 17)", () => {
+  it("removes each cookie individually, scoped to its own url — never a bare whole-partition clear", async () => {
+    const byUrl = {
+      [BASECAMP_URL]: [{ name: "sessionid", value: "sid" }],
+      [TI_URL]: [{ name: "a", value: "1" }],
+    };
+    const sess = fakeSession(byUrl);
+
+    await logOut(credsFile, sess as unknown as Parameters<typeof logOut>[1]);
+
+    // Exact call arguments, not just "was called": logOut must enumerate via
+    // cookies.get and remove each cookie by name, scoped to its own url — the
+    // same per-origin scoping `harvestCookies` already reads with, so nothing
+    // outside these two origins is ever touched. If the source regressed to
+    // some blanket clear, `toHaveBeenCalledTimes(2)` below would go red (a
+    // different call count), and the per-argument assertions would go red too.
+    expect(sess.cookies.remove).toHaveBeenCalledTimes(2);
+    expect(sess.cookies.remove).toHaveBeenCalledWith(BASECAMP_URL, "sessionid");
+    expect(sess.cookies.remove).toHaveBeenCalledWith(TI_URL, "a");
+    expect(sess.cookies.remove).not.toHaveBeenCalledWith();
+    expect(sess.cookies.remove).not.toHaveBeenCalledWith(undefined);
+  });
+
+  it("removes EVERY cookie in a multi-cookie jar individually, not just the first one found", async () => {
+    // Mirrors harvestCookies's own multi-cookie TI test data above: a
+    // realistic TI cookie jar holds several cookies at once, so a `logOut`
+    // that (e.g.) only removed cookies[0] would still leave the session
+    // authenticated via the others.
+    const byUrl = {
+      [BASECAMP_URL]: [{ name: "sessionid", value: "sid" }],
+      [TI_URL]: [
+        { name: "ASP.NET_SessionId", value: "aaa" },
+        { name: "sc_analytics", value: "bbb" },
+        { name: "auth_token", value: "ccc" },
+      ],
+    };
+    const sess = fakeSession(byUrl);
+
+    const status = await logOut(credsFile, sess as unknown as Parameters<typeof logOut>[1]);
+
+    expect(sess.cookies.remove).toHaveBeenCalledTimes(4);
+    expect(sess.cookies.remove).toHaveBeenCalledWith(TI_URL, "ASP.NET_SessionId");
+    expect(sess.cookies.remove).toHaveBeenCalledWith(TI_URL, "sc_analytics");
+    expect(sess.cookies.remove).toHaveBeenCalledWith(TI_URL, "auth_token");
+    // The session is genuinely empty afterwards — not just "removed the
+    // first cookie and gave up", which harvestCookies's post-clear re-check
+    // would still see as a still-present TI cookie (joining the leftovers).
+    expect(status).toEqual({ basecamp: false, ti: false });
+  });
+
+  it("clears both live process.env cookie values", async () => {
+    process.env.BASECAMP_SESSIONID = "good-basecamp";
+    process.env.TI_COOKIE = "good-ti";
+    const byUrl = { [BASECAMP_URL]: [], [TI_URL]: [] };
+    const sess = fakeSession(byUrl);
+
+    await logOut(credsFile, sess as unknown as Parameters<typeof logOut>[1]);
+
+    expect(process.env.BASECAMP_SESSIONID).toBeUndefined();
+    expect(process.env.TI_COOKIE).toBeUndefined();
+  });
+
+  it("blanks the config.env cookie lines in place, leaving comments and unrelated keys untouched", async () => {
+    const original =
+      "# setup instructions\nBASECAMP_SESSIONID=real-sid\nTI_COOKIE=real-ti-cookie\nCLUB_ID=1234567\n";
+    writeFileSync(credsFile, original, "utf-8");
+    const byUrl = { [BASECAMP_URL]: [], [TI_URL]: [] };
+    const sess = fakeSession(byUrl);
+
+    await logOut(credsFile, sess as unknown as Parameters<typeof logOut>[1]);
+
+    const written = readFileSync(credsFile, "utf-8");
+    // Blanked (`KEY=`), not deleted: the key stays so a future login can
+    // upsert it again, and the file remains a valid template.
+    expect(written).toContain("BASECAMP_SESSIONID=\n");
+    expect(written).toContain("TI_COOKIE=\n");
+    expect(written).not.toContain("real-sid");
+    expect(written).not.toContain("real-ti-cookie");
+    // Unrelated lines survive verbatim — logOut must not touch anything it
+    // doesn't own.
+    expect(written).toContain("# setup instructions");
+    expect(written).toContain("CLUB_ID=1234567");
+  });
+
+  it("returns basecamp:false, ti:false derived from the session genuinely being empty after the clear", async () => {
+    const byUrl = {
+      [BASECAMP_URL]: [{ name: "sessionid", value: "sid" }],
+      [TI_URL]: [{ name: "a", value: "1" }],
+    };
+    const sess = fakeSession(byUrl, { removeReallyWorks: true });
+
+    const status = await logOut(credsFile, sess as unknown as Parameters<typeof logOut>[1]);
+
+    expect(status).toEqual({ basecamp: false, ti: false });
+  });
+
+  it("negative control: reports basecamp:true when cookies.remove silently fails to actually clear the cookie store — proving the return value is re-derived live, not hardcoded", async () => {
+    const byUrl = {
+      [BASECAMP_URL]: [{ name: "sessionid", value: "sid" }],
+      [TI_URL]: [],
+    };
+    // removeReallyWorks: false simulates Electron resolving cookies.remove
+    // successfully while the underlying cookie store stays stale — the exact
+    // silent-no-op bug this feature exists to fix (deleting cookies from
+    // config.env by hand didn't actually log the app out either).
+    const sess = fakeSession(byUrl, { removeReallyWorks: false });
+
+    const status = await logOut(credsFile, sess as unknown as Parameters<typeof logOut>[1]);
+
+    // Proves remove was genuinely attempted (not skipped) — without this,
+    // a `logOut` that forgot to call `cookies.remove` at all would land on
+    // this exact same byUrl state (cookie never removed either way) and
+    // would wrongly make the assertion below look like it "caught" the bug.
+    expect(sess.cookies.remove).toHaveBeenCalledWith(BASECAMP_URL, "sessionid");
+
+    // A `logOut` that hand-waved success by returning a hardcoded
+    // `{ basecamp: false, ti: false }` would make this assertion fail: the
+    // session here truthfully still holds the Basecamp cookie, so a
+    // genuinely-live re-check via currentAuthStatus(sess) must report
+    // basecamp:true — the opposite of what a hardcoded "success" value would
+    // claim. This is the actual regression test for the bug Phase 17 fixes.
+    expect(status).toEqual({ basecamp: true, ti: false });
+  });
+
+  it("propagates a rejection from cookies.remove rather than swallowing it", async () => {
+    const err = new Error("cookies.remove failed: partition locked");
+    const sess = {
+      cookies: {
+        get: vi.fn(async () => [{ name: "sessionid", value: "sid" }]),
+        remove: vi.fn().mockRejectedValueOnce(err),
+      },
+    };
+
+    // The IPC handler (main/index.ts) needs to see a failed logout as a
+    // genuine error, not a silent no-op that reports success anyway.
+    await expect(
+      logOut(credsFile, sess as unknown as Parameters<typeof logOut>[1]),
+    ).rejects.toThrow("cookies.remove failed: partition locked");
+  });
+
+  it("does not touch an unrelated credential (CLUB_ID) or write to the file when nothing needs clearing", async () => {
+    writeFileSync(credsFile, "CLUB_ID=9999999\n", "utf-8");
+    const byUrl = { [BASECAMP_URL]: [], [TI_URL]: [] };
+    const sess = fakeSession(byUrl);
+
+    await logOut(credsFile, sess as unknown as Parameters<typeof logOut>[1]);
+
+    const written = readFileSync(credsFile, "utf-8");
+    expect(written).toContain("CLUB_ID=9999999");
+  });
+});
+
 describe("watchForCapture resolves as soon as the target cookie is captured", () => {
   it("resolves immediately when the cookie is already present, with no 'changed' event needed", async () => {
     const src = cookieWatcher({ [BASECAMP_URL]: [{ name: "sessionid", value: "sid" }] });
@@ -538,39 +790,352 @@ describe("watchForCapture: the predicate must see the FULL current cookie state,
    */
 });
 
-describe("runLoginFlow wires watchForCapture into openLoginWindow, so a captured cookie programmatically closes the window", () => {
+describe("looksLikeLoginPage classifies URLs by a loose pathname substring match (Phase 17 Finding #2)", () => {
+  it("is true for login, signin, sso, and auth pathnames, case-insensitively", () => {
+    expect(looksLikeLoginPage("https://www.toastmasters.org/login")).toBe(true);
+    expect(looksLikeLoginPage("https://www.toastmasters.org/LOGIN")).toBe(true);
+    expect(looksLikeLoginPage("https://app.basecamp.toastmasters.org/signin")).toBe(true);
+    expect(looksLikeLoginPage("https://id.toastmasters.org/sso/authorize")).toBe(true);
+    expect(looksLikeLoginPage("https://www.toastmasters.org/auth/callback")).toBe(true);
+  });
+
+  it("is true for a login-shaped URL carrying an error query string (failed-login redisplay)", () => {
+    expect(
+      looksLikeLoginPage("https://www.toastmasters.org/login?error=invalid_credentials"),
+    ).toBe(true);
+  });
+
+  it("is false for a genuine post-login destination", () => {
+    expect(looksLikeLoginPage("https://www.toastmasters.org/dashboard")).toBe(false);
+    expect(looksLikeLoginPage("https://app.basecamp.toastmasters.org/dashboard")).toBe(false);
+  });
+
+  it("is false (not throwing) for an unparsable URL", () => {
+    expect(looksLikeLoginPage("not-a-url")).toBe(false);
+  });
+});
+
+describe("watchForNavigationCapture gates capture on leaving a login-shaped URL, not on cookie presence (Phase 17 Finding #2 fix)", () => {
+  it("(a) does NOT resolve on a plain load of the login URL alone, even once a cookie appears — the regression test for the false-positive bug", async () => {
+    const byUrl: Record<string, Array<{ name: string; value: string }>> = {
+      [TI_URL]: [],
+    };
+    const src = cookieSource(byUrl);
+    const wc = fakeWebContents();
+
+    const { promise } = watchForNavigationCapture(wc, src, (h) => Boolean(h.tiCookie));
+
+    let resolved = false;
+    void promise.then(() => {
+      resolved = true;
+    });
+
+    // The login page finishes its initial load — still login-shaped — and, as
+    // in the real bug, an anonymous session/CSRF cookie shows up anyway.
+    byUrl[TI_URL] = [{ name: "csrftoken", value: "anon-cookie" }];
+    wc.fireDidNavigate("https://www.toastmasters.org/login");
+
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // This is exactly the scenario the OLD cookie-presence-only watchForCapture
+    // would have wrongly resolved on (the cookie is present) — proving the fix:
+    // navigation never left the login page, so capture must not fire.
+    expect(resolved).toBe(false);
+  });
+
+  it("(b) resolves once navigation lands on a non-login-shaped URL and the target cookie is present", async () => {
+    const byUrl: Record<string, Array<{ name: string; value: string }>> = {
+      [TI_URL]: [],
+    };
+    const src = cookieSource(byUrl);
+    const wc = fakeWebContents();
+
+    const { promise } = watchForNavigationCapture(wc, src, (h) => Boolean(h.tiCookie));
+
+    // Login page loads first (login-shaped) — no capture yet, same as case (a).
+    wc.fireDidNavigate("https://www.toastmasters.org/login");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // The user submits real credentials; the site accepts them and redirects
+    // to a non-login-shaped destination, and the real session cookie lands.
+    byUrl[TI_URL] = [{ name: "auth_token", value: "real-session" }];
+    wc.fireDidNavigate("https://www.toastmasters.org/dashboard");
+
+    await expect(promise).resolves.toBeUndefined();
+  });
+
+  it("(c) captures immediately on an 'already logged in' instant redirect away from the login URL — preserves the fast path", async () => {
+    const byUrl: Record<string, Array<{ name: string; value: string }>> = {
+      [TI_URL]: [{ name: "auth_token", value: "already-logged-in" }],
+    };
+    const src = cookieSource(byUrl);
+    const wc = fakeWebContents();
+
+    const { promise } = watchForNavigationCapture(wc, src, (h) => Boolean(h.tiCookie));
+
+    // The very first navigation this window ever fires already lands
+    // somewhere non-login-shaped (a prior valid session), so capture must not
+    // wait for a second navigation.
+    wc.fireDidNavigate("https://www.toastmasters.org/dashboard");
+
+    await expect(promise).resolves.toBeUndefined();
+  });
+
+  it("(d) does not falsely capture a failed-login redisplay of the same login-shaped URL (e.g. an error query string)", async () => {
+    const byUrl: Record<string, Array<{ name: string; value: string }>> = {
+      [TI_URL]: [{ name: "csrftoken", value: "anon-cookie" }],
+    };
+    const src = cookieSource(byUrl);
+    const wc = fakeWebContents();
+
+    const { promise } = watchForNavigationCapture(wc, src, (h) => Boolean(h.tiCookie));
+
+    let resolved = false;
+    void promise.then(() => {
+      resolved = true;
+    });
+
+    wc.fireDidNavigate("https://www.toastmasters.org/login");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+
+    // A failed login attempt redisplays the login page with an error query
+    // string — still login-shaped by the substring match, so this must not
+    // falsely capture even though the (anonymous) cookie is already present
+    // and would satisfy `isCaptured` on its own.
+    wc.fireDidNavigate("https://www.toastmasters.org/login?error=invalid_credentials");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(resolved).toBe(false);
+  });
+
+  it("cancel() unsubscribes both navigation listeners — a post-cancel navigation never resolves the promise", async () => {
+    const byUrl: Record<string, Array<{ name: string; value: string }>> = {
+      [TI_URL]: [],
+    };
+    const src = cookieSource(byUrl);
+    const wc = fakeWebContents();
+
+    const { promise, cancel } = watchForNavigationCapture(wc, src, (h) => Boolean(h.tiCookie));
+
+    const thenSpy = vi.fn();
+    void promise.then(thenSpy);
+
+    cancel();
+
+    byUrl[TI_URL] = [{ name: "auth_token", value: "real-session" }];
+    wc.fireDidNavigate("https://www.toastmasters.org/dashboard");
+    wc.fireDidNavigateInPage("https://www.toastmasters.org/dashboard");
+
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(thenSpy).not.toHaveBeenCalled();
+  });
+
+  it("(adversarial) did-navigate and did-navigate-in-page firing back-to-back for the SAME successful navigation, before either's cookie harvest has settled, still resolves exactly once and unsubscribes exactly once", async () => {
+    // Plausible in the real app: a full navigation that also triggers an
+    // in-page URL update (or a client-side redirect that fires both events).
+    // Both `onNavigate` calls happen synchronously, so BOTH pass the
+    // `if (settled || looksLikeLoginPage(url)) return;` guard — `settled` is
+    // still false for both, since it is only ever set inside the async
+    // `harvestCookies(...).then(...)` callback, not by the guard itself. The
+    // correctness of "exactly once" therefore rests entirely on the SECOND
+    // `if (settled || !isCaptured(h)) return;` recheck inside that `.then`,
+    // which must observe `settled === true` by the time it runs (because the
+    // first callback's synchronous `settled = true` already ran first).
+    const byUrl: Record<string, Array<{ name: string; value: string }>> = {
+      [TI_URL]: [{ name: "auth_token", value: "real-session" }],
+    };
+    const src = cookieSource(byUrl);
+    const wc = fakeWebContents();
+    const offSpy = vi.spyOn(wc, "off");
+
+    const { promise } = watchForNavigationCapture(wc, src, (h) => Boolean(h.tiCookie));
+
+    const thenSpy = vi.fn();
+    void promise.then(thenSpy);
+
+    // Fire both events synchronously, in the same tick — neither event's
+    // internal `harvestCookies(...)` promise has had a chance to settle yet.
+    wc.fireDidNavigate("https://www.toastmasters.org/dashboard");
+    wc.fireDidNavigateInPage("https://www.toastmasters.org/dashboard");
+
+    // Flush enough microtasks for both concurrent harvestCookies() calls
+    // (each itself awaiting cookieSource.get(), an async fn) to settle and
+    // both `.then` callbacks to run.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(thenSpy).toHaveBeenCalledTimes(1);
+    // unsubscribe() removes BOTH listener types (did-navigate AND
+    // did-navigate-in-page) — so exactly ONE call to unsubscribe() means
+    // exactly 2 off() calls. If the inner `settled` recheck were missing (or
+    // misplaced before the `await`), the second event's harvest would ALSO
+    // pass its own guard and call unsubscribe() a second time, producing 4
+    // off() calls instead of 2 — see the negative control below.
+    expect(offSpy).toHaveBeenCalledTimes(2);
+
+    /*
+     * NEGATIVE CONTROL (verified by hand against a temporarily-broken
+     * src/main/auth.ts, then reverted — do not leave any such edit in
+     * place): with the `.then` callback inside `onNavigate` changed from
+     *
+     *   .then((h) => {
+     *     if (settled || !isCaptured(h)) return;
+     *     settled = true;
+     *     unsubscribe();
+     *     resolveFn();
+     *   });
+     *
+     * to drop the re-check of `settled` (i.e. only the OUTER guard remains):
+     *
+     *   .then((h) => {
+     *     if (!isCaptured(h)) return;
+     *     settled = true;
+     *     unsubscribe();
+     *     resolveFn();
+     *   });
+     *
+     * this test goes RED on `expect(offSpy).toHaveBeenCalledTimes(2)`: BOTH
+     * events' harvests pass their `.then` guard (isCaptured is true for
+     * both, and neither observes the other's `settled = true` because the
+     * inner check was removed), so unsubscribe() runs twice — 4 off() calls.
+     * This confirms the test would catch a race where the `settled` flag is
+     * checked only before the async gap, not after it.
+     */
+  });
+});
+
+describe("watchForNavigationCapture: a non-login navigation that does NOT yet satisfy isCaptured must keep waiting, not settle early (adversarial)", () => {
+  it("does not resolve (or unsubscribe) when navigation leaves the login-shaped URL but the target cookie has not landed yet, and correctly captures on a LATER navigation once it does", async () => {
+    const byUrl: Record<string, Array<{ name: string; value: string }>> = {
+      [TI_URL]: [],
+    };
+    const src = cookieSource(byUrl);
+    const wc = fakeWebContents();
+    const offSpy = vi.spyOn(wc, "off");
+
+    const { promise } = watchForNavigationCapture(wc, src, (h) => Boolean(h.tiCookie));
+
+    let resolved = false;
+    void promise.then(() => {
+      resolved = true;
+    });
+
+    // Navigation leaves the login-shaped URL for some intermediate,
+    // non-login-shaped page (e.g. an interstitial "please wait" redirect
+    // hop) — but the target cookie has not landed yet.
+    wc.fireDidNavigate("https://www.toastmasters.org/interstitial");
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Must still be waiting, not stuck-unsubscribed: this is the deadlock
+    // risk the task calls out — if `unsubscribe()`/`settled` were set as
+    // soon as navigation left a login-shaped URL (regardless of
+    // isCaptured), the watch would be permanently dead here, and the
+    // later navigation below would never be able to resolve it.
+    expect(resolved).toBe(false);
+    expect(offSpy).not.toHaveBeenCalled();
+
+    // A LATER navigation — still non-login-shaped — finally carries the
+    // real cookie.
+    byUrl[TI_URL] = [{ name: "auth_token", value: "real-session" }];
+    wc.fireDidNavigate("https://www.toastmasters.org/dashboard");
+
+    await expect(promise).resolves.toBeUndefined();
+    // unsubscribe() removes BOTH listener types in one call, so exactly one
+    // (successful) unsubscribe means exactly 2 off() calls.
+    expect(offSpy).toHaveBeenCalledTimes(2);
+  });
+
+  /*
+   * NEGATIVE CONTROL (verified by hand against a temporarily-broken
+   * src/main/auth.ts, then reverted — do not leave any such edit in place):
+   * with `onNavigate` changed from
+   *
+   *   function onNavigate(_event, url) {
+   *     if (settled || looksLikeLoginPage(url)) return;
+   *     void harvestCookies(cookieSource).then((h) => {
+   *       if (settled || !isCaptured(h)) return;
+   *       settled = true;
+   *       unsubscribe();
+   *       resolveFn();
+   *     });
+   *   }
+   *
+   * to settle/unsubscribe as soon as navigation leaves a login-shaped URL,
+   * regardless of isCaptured:
+   *
+   *   function onNavigate(_event, url) {
+   *     if (settled || looksLikeLoginPage(url)) return;
+   *     settled = true;
+   *     unsubscribe();
+   *     void harvestCookies(cookieSource).then((h) => {
+   *       if (!isCaptured(h)) return;
+   *       resolveFn();
+   *     });
+   *   }
+   *
+   * this test goes RED at the final `await expect(promise).resolves...`,
+   * which times out: the FIRST (uncaptured) navigation already unsubscribed
+   * both listeners, so the second `fireDidNavigate` call above reaches no
+   * listener at all and the promise never settles. This confirms the test
+   * would catch a watcher that gives up permanently instead of continuing
+   * to wait for a later, actually-captured navigation.
+   */
+});
+
+describe("runLoginFlow wires watchForNavigationCapture into openLoginWindow, so leaving the login page (with cookies confirmed) programmatically closes the window", () => {
   beforeEach(() => {
     FakeBrowserWindow.instances.length = 0;
   });
 
-  it("closes the TI login window as soon as the 'changed' event reveals the target cookie, and resolves with the correct AuthStatus", async () => {
+  it("closes the TI login window once navigation leaves the login page and the cookie has landed, and resolves with the correct AuthStatus", async () => {
     const byUrl: Record<string, Array<{ name: string; value: string }>> = {
       [BASECAMP_URL]: [],
       [TI_URL]: [],
     };
-    const watcher = cookieWatcher(byUrl);
+    const cookies = cookieSource(byUrl);
     vi.mocked(electron.session.fromPartition).mockReturnValue({
-      cookies: watcher,
+      cookies,
     } as unknown as ReturnType<typeof electron.session.fromPartition>);
 
     const flow = runLoginFlow(credsFile);
 
-    // Let the TI BrowserWindow get constructed and watchForCapture's immediate
-    // check() run (it sees no cookies yet).
+    // Let the TI BrowserWindow get constructed.
     await new Promise((r) => setTimeout(r, 0));
 
     expect(FakeBrowserWindow.instances).toHaveLength(1);
     const tiWindow = FakeBrowserWindow.instances[0];
     expect(tiWindow.isDestroyed()).toBe(false);
 
+    // The login page's own initial load is login-shaped and must NOT close
+    // the window on its own — the Finding #2 regression scenario, inline in
+    // the wiring test too.
+    tiWindow.webContents.fireDidNavigate("https://www.toastmasters.org/login");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(tiWindow.isDestroyed()).toBe(false);
+
     // The TI login also grants Basecamp SSO in this run (both cookies land at
-    // once), so runLoginFlow never needs to open the second window.
+    // once), so runLoginFlow never needs to open the second window. The site
+    // then redirects away from the login-shaped URL.
     byUrl[BASECAMP_URL] = [{ name: "sessionid", value: "SID-1" }];
     byUrl[TI_URL] = [{ name: "auth", value: "abc" }];
-    watcher.fireChanged();
+    tiWindow.webContents.fireDidNavigate("https://www.toastmasters.org/dashboard");
 
-    // Flush the chain: harvestCookies -> isCaptured -> resolveFn ->
-    // captureSignal.then -> win.close().
+    // Flush the chain: onNavigate -> harvestCookies -> isCaptured -> resolveFn
+    // -> capture.promise.then -> win.close().
     await new Promise((r) => setTimeout(r, 0));
     await new Promise((r) => setTimeout(r, 0));
 
@@ -588,9 +1153,9 @@ describe("runLoginFlow wires watchForCapture into openLoginWindow, so a captured
       [BASECAMP_URL]: [],
       [TI_URL]: [],
     };
-    const watcher = cookieWatcher(byUrl);
+    const cookies = cookieSource(byUrl);
     vi.mocked(electron.session.fromPartition).mockReturnValue({
-      cookies: watcher,
+      cookies,
     } as unknown as ReturnType<typeof electron.session.fromPartition>);
 
     const flow = runLoginFlow(credsFile);
@@ -599,7 +1164,9 @@ describe("runLoginFlow wires watchForCapture into openLoginWindow, so a captured
 
     // TI login captures only the TI cookie — no SSO into Basecamp this time.
     byUrl[TI_URL] = [{ name: "auth", value: "abc" }];
-    watcher.fireChanged();
+    FakeBrowserWindow.instances[0].webContents.fireDidNavigate(
+      "https://www.toastmasters.org/dashboard",
+    );
     await new Promise((r) => setTimeout(r, 0));
     await new Promise((r) => setTimeout(r, 0));
 
@@ -612,7 +1179,7 @@ describe("runLoginFlow wires watchForCapture into openLoginWindow, so a captured
     expect(bcWindow.isDestroyed()).toBe(false);
 
     byUrl[BASECAMP_URL] = [{ name: "sessionid", value: "SID-2" }];
-    watcher.fireChanged();
+    bcWindow.webContents.fireDidNavigate("https://app.basecamp.toastmasters.org/dashboard");
     await new Promise((r) => setTimeout(r, 0));
     await new Promise((r) => setTimeout(r, 0));
 
@@ -622,14 +1189,14 @@ describe("runLoginFlow wires watchForCapture into openLoginWindow, so a captured
     expect(applied).toEqual({ basecamp: true, ti: true });
   });
 
-  it("finding: a manual close of the TI window (before any cookie is captured) does not hang runLoginFlow — it falls through to the Basecamp window and resolves with a partial/empty AuthStatus", async () => {
+  it("finding: a manual close of the TI window (before any navigation-gated capture) does not hang runLoginFlow — it falls through to the Basecamp window and resolves with a partial/empty AuthStatus", async () => {
     const byUrl: Record<string, Array<{ name: string; value: string }>> = {
       [BASECAMP_URL]: [],
       [TI_URL]: [],
     };
-    const watcher = cookieWatcher(byUrl);
+    const cookies = cookieSource(byUrl);
     vi.mocked(electron.session.fromPartition).mockReturnValue({
-      cookies: watcher,
+      cookies,
     } as unknown as ReturnType<typeof electron.session.fromPartition>);
 
     const flow = runLoginFlow(credsFile);
@@ -638,13 +1205,13 @@ describe("runLoginFlow wires watchForCapture into openLoginWindow, so a captured
 
     // The user closes the TI window manually (simulating the OS firing
     // "closed" directly) — bypassing the programmatic close() path entirely.
-    // No cookie was ever captured.
+    // No navigation away from the login page ever happened.
     FakeBrowserWindow.instances[0].closedCallback?.();
     await new Promise((r) => setTimeout(r, 0));
 
     // runLoginFlow must fall through to the Basecamp window rather than hang:
-    // tiWatch.cancel() runs unconditionally right after openLoginWindow
-    // resolves, regardless of which path resolved it.
+    // openLoginWindow's "closed" handler resolves (and cancels the capture
+    // watcher) unconditionally, regardless of which path resolved it.
     expect(FakeBrowserWindow.instances).toHaveLength(2);
     expect(FakeBrowserWindow.instances[1].isDestroyed()).toBe(false);
 
@@ -653,5 +1220,193 @@ describe("runLoginFlow wires watchForCapture into openLoginWindow, so a captured
 
     const applied = await flow;
     expect(applied).toEqual({ basecamp: false, ti: false });
+  });
+
+  it("(adversarial) cancel() being invoked via BOTH the capture-resolved path and the window's 'closed' handler is safe — it is idempotent, not double-effectful", async () => {
+    // openLoginWindow calls capture.cancel() from two places: once inside
+    // `capture.promise.then(...)` right before `win.close()`, and again
+    // unconditionally inside `win.once("closed", ...)` once that close
+    // actually fires. Both calls happen for every successful capture — this
+    // proves the second one is a genuine no-op, not just "didn't happen to
+    // throw in this fake".
+    const byUrl: Record<string, Array<{ name: string; value: string }>> = {
+      [BASECAMP_URL]: [],
+      [TI_URL]: [],
+    };
+    const cookies = cookieSource(byUrl);
+    vi.mocked(electron.session.fromPartition).mockReturnValue({
+      cookies,
+    } as unknown as ReturnType<typeof electron.session.fromPartition>);
+
+    const flow = runLoginFlow(credsFile);
+    await new Promise((r) => setTimeout(r, 0));
+
+    const tiWindow = FakeBrowserWindow.instances[0];
+    const offSpy = vi.spyOn(tiWindow.webContents, "off");
+
+    byUrl[BASECAMP_URL] = [{ name: "sessionid", value: "SID-1" }];
+    byUrl[TI_URL] = [{ name: "auth", value: "abc" }];
+    tiWindow.webContents.fireDidNavigate("https://www.toastmasters.org/dashboard");
+
+    // Flush the full chain: onNavigate -> harvestCookies -> resolveFn ->
+    // capture.promise.then -> capture.cancel() (1st call, real unsubscribe)
+    // -> win.close() -> "closed" handler -> capture?.cancel() (2nd call,
+    // must be a no-op).
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(tiWindow.isDestroyed()).toBe(true);
+    // unsubscribe() removes both listener types — exactly one EFFECTIVE
+    // cancel() means exactly 2 off() calls, not 4.
+    expect(offSpy).toHaveBeenCalledTimes(2);
+
+    const applied = await flow;
+    expect(applied).toEqual({ basecamp: true, ti: true });
+  });
+
+  it("(adversarial) a stray navigation event fired on a window's webContents AFTER it was manually closed (capture never resolved) is a harmless no-op — cancel() from the 'closed' handler already unsubscribed", async () => {
+    const byUrl: Record<string, Array<{ name: string; value: string }>> = {
+      [BASECAMP_URL]: [],
+      [TI_URL]: [],
+    };
+    const cookies = cookieSource(byUrl);
+    vi.mocked(electron.session.fromPartition).mockReturnValue({
+      cookies,
+    } as unknown as ReturnType<typeof electron.session.fromPartition>);
+
+    const flow = runLoginFlow(credsFile);
+    await new Promise((r) => setTimeout(r, 0));
+    const tiWindow = FakeBrowserWindow.instances[0];
+
+    // The user closes the TI window manually — no navigation-gated capture
+    // has fired yet, so this exercises openLoginWindow's "closed" handler
+    // calling capture.cancel() directly (not via the capture.promise.then
+    // path).
+    tiWindow.closedCallback?.();
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Snapshot how many times the underlying cookie store has been queried
+    // so far (runLoginFlow's own "after TI login" harvestCookies call, plus
+    // whatever the watcher itself already did, both already happened by
+    // this point). If the stray navigation below reaches `onNavigate` at
+    // all, it would trigger a fresh `harvestCookies(...)` call — i.e. two
+    // more `cookies.get` calls (Basecamp + TI) — even though it can no
+    // longer resolve anything (isCaptured wasn't satisfied and `settled` is
+    // already true). Using the call count rather than the final `applied`
+    // result avoids the confound of also asserting on `harvestCookies`
+    // calls made independently, later, as part of runLoginFlow's own
+    // (post-window-close) re-harvest — which reads the LIVE cookie store
+    // regardless of whether any navigation event ever fired.
+    const getCallsBeforeStray = vi.mocked(cookies.get).mock.calls.length;
+
+    // A stray navigation event still lands on the now-destroyed window's
+    // webContents afterwards (e.g. a slow in-flight navigation the OS
+    // teardown didn't fully suppress). Must not throw, and — because
+    // cancel() already unsubscribed both listeners — must trigger no cookie
+    // query at all (the listener is simply gone).
+    expect(() =>
+      tiWindow.webContents.fireDidNavigate("https://www.toastmasters.org/dashboard"),
+    ).not.toThrow();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(vi.mocked(cookies.get).mock.calls.length).toBe(getCallsBeforeStray);
+
+    // runLoginFlow still fell through to the Basecamp window as normal.
+    expect(FakeBrowserWindow.instances).toHaveLength(2);
+    FakeBrowserWindow.instances[1].closedCallback?.();
+
+    const applied = await flow;
+    expect(applied).toEqual({ basecamp: false, ti: false });
+  });
+
+  it("(adversarial) the Basecamp window's capture is wired to its OWN webContents — a stray navigation on the already-closed TI window afterwards does not affect it, and only the Basecamp window's own navigation captures it", async () => {
+    const byUrl: Record<string, Array<{ name: string; value: string }>> = {
+      [BASECAMP_URL]: [],
+      [TI_URL]: [],
+    };
+    const cookies = cookieSource(byUrl);
+    vi.mocked(electron.session.fromPartition).mockReturnValue({
+      cookies,
+    } as unknown as ReturnType<typeof electron.session.fromPartition>);
+
+    const flow = runLoginFlow(credsFile);
+    await new Promise((r) => setTimeout(r, 0));
+
+    // TI login captures only the TI cookie — no SSO into Basecamp.
+    byUrl[TI_URL] = [{ name: "auth", value: "abc" }];
+    const tiWindow = FakeBrowserWindow.instances[0];
+    tiWindow.webContents.fireDidNavigate("https://www.toastmasters.org/dashboard");
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(tiWindow.isDestroyed()).toBe(true);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(FakeBrowserWindow.instances).toHaveLength(2);
+    const bcWindow = FakeBrowserWindow.instances[1];
+    expect(bcWindow.isDestroyed()).toBe(false);
+
+    // Fire an unrelated, "capturing-looking" navigation on the ALREADY
+    // CLOSED TI window's webContents — a completely separate object from
+    // bcWindow.webContents, and its listeners were already removed on
+    // close. This must have zero effect on the still-open Basecamp watcher.
+    tiWindow.webContents.fireDidNavigate("https://www.toastmasters.org/some-other-page");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(bcWindow.isDestroyed()).toBe(false);
+
+    // Only the Basecamp window's OWN navigation captures it.
+    byUrl[BASECAMP_URL] = [{ name: "sessionid", value: "SID-2" }];
+    bcWindow.webContents.fireDidNavigate("https://app.basecamp.toastmasters.org/dashboard");
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(bcWindow.isDestroyed()).toBe(true);
+
+    const applied = await flow;
+    expect(applied).toEqual({ basecamp: true, ti: true });
+  });
+});
+
+describe("looksLikeLoginPage: known heuristic limitation — the loose substring match can also false-POSITIVE on a genuine, unrelated destination (Phase 17 Finding #2 caveat)", () => {
+  // The JSDoc on looksLikeLoginPage already flags it as "Deliberately
+  // loose... a heuristic, not an exact match" — these tests characterize
+  // exactly HOW loose: a genuine post-login destination whose path merely
+  // CONTAINS "login"/"signin"/"sso"/"auth" as a substring (not a distinct
+  // path segment) is misclassified as login-shaped. This is not something
+  // these tests fix (that's a source-code tradeoff for the developer to
+  // weigh, e.g. anchoring the match to a path segment boundary instead of a
+  // bare substring) — they exist to make the risk concrete and regression-
+  // visible rather than left as an abstract caveat in a comment.
+  it("misclassifies a genuine '/author/...' destination as login-shaped, because 'author' contains 'auth' as a substring", () => {
+    expect(looksLikeLoginPage("https://www.toastmasters.org/author/profile")).toBe(true);
+  });
+
+  it("misclassifies a genuine '/oauth-settings' destination as login-shaped, for the same reason", () => {
+    expect(looksLikeLoginPage("https://www.toastmasters.org/oauth-settings")).toBe(true);
+  });
+
+  it("consequently: a watcher waiting on such a destination never captures — from its perspective navigation never 'leaves' a login-shaped URL, even once the real session cookie is already present", async () => {
+    const byUrl: Record<string, Array<{ name: string; value: string }>> = {
+      [TI_URL]: [{ name: "auth_token", value: "real-session" }],
+    };
+    const src = cookieSource(byUrl);
+    const wc = fakeWebContents();
+
+    const { promise } = watchForNavigationCapture(wc, src, (h) => Boolean(h.tiCookie));
+
+    let resolved = false;
+    void promise.then(() => {
+      resolved = true;
+    });
+
+    // The user's genuine post-login destination happens to be an author
+    // page — by this heuristic it looks exactly like a login-shaped URL, so
+    // the gate never opens even though the real session cookie already
+    // landed.
+    wc.fireDidNavigate("https://www.toastmasters.org/author/profile");
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(resolved).toBe(false);
   });
 });

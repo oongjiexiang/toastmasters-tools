@@ -141,6 +141,11 @@ the same `@toastmasters/core` scraping/SQLite logic and the shared React compone
   window closes itself as soon as sign-in succeeds, and a status badge next to **Log in** always
   shows whether you're currently logged in. A full end-user walkthrough is in
   [`apps/desktop/USER_GUIDE.md`](apps/desktop/USER_GUIDE.md).
+- **Log out, for real:** click **Log out** (it replaces **Log in** in the same spot once a
+  session is held — the two are mutually exclusive) or use **File → Log out**. This clears the
+  session cookies from the persistent Electron partition itself, not just their copy in
+  `config.env` — hand-editing `config.env` alone does **not** sign you out, since the app
+  re-derives it from the partition on every launch.
 - The SQLite database and credentials live in Electron's user-data directory (via the
   `TOASTMASTERS_DATA_DIR` anchor described under [Data storage](#data-storage)), not in the repo.
 

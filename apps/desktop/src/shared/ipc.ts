@@ -22,6 +22,7 @@ export const IPC = {
   DOWNLOAD_MEMBERSHIP_CSV: "toastmasters:membership:download",
   AUTH_LOGIN: "toastmasters:auth:login",
   AUTH_STATUS: "toastmasters:auth:status",
+  AUTH_LOGOUT: "toastmasters:auth:logout",
   // Main → renderer stream (one-way): a progress line emitted during a refresh.
   REFRESH_LOG: "toastmasters:refresh:log",
 } as const;
@@ -54,6 +55,8 @@ export interface ToastmastersBridge {
   login(): Promise<IpcResult<AuthStatus>>;
   /** Reports which session cookies are currently held (non-empty). */
   authStatus(): Promise<IpcResult<AuthStatus>>;
+  /** Clears the Toastmasters session; resolves to the (now-cleared) status. */
+  logout(): Promise<IpcResult<AuthStatus>>;
   /**
    * Subscribes to the live progress lines emitted during a refresh. Returns an
    * unsubscribe function. One-way (main → renderer), so it is not an IpcResult.

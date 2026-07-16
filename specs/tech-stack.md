@@ -141,6 +141,14 @@ cross-origin cookie isolation makes in-app login Electron-only; the CLI (and the
 own fallback) still use the manual paste. (`apps/web`, which also kept the manual paste, was
 removed in Phase 14.)
 
+**Logout (Phase 17).** Because `config.env` is only ever a durable *copy* of whatever cookies
+`persist:toastmasters` holds — never the source of truth — a real logout has to clear the
+partition itself, not just blank the two lines in `config.env` (that alone is cosmetic: the
+startup self-heal re-harvests from the still-live partition on the very next launch and silently
+rewrites them back in). `logOut()` (`apps/desktop/src/main/auth.ts`) clears the partition's cookies
+scoped to the Basecamp and TI origins individually — never the whole partition — then clears
+`process.env` and blanks `config.env` to match.
+
 **Supersedes Docker (Phase 0 baseline), retired in Phase 10.** Docker solved "run this without a
 global Node install" for a developer; the `.exe` solves it for the actual end user, and does so
 without a terminal. See `roadmap.md` Phase 10 for the removal rationale.

@@ -4,7 +4,7 @@ A simple Windows app that shows each club member's Pathways progress in one plac
 
 ## Install the app
 
-1. Double-click **`Toastmasters Tools Setup 1.2.0.exe`**.
+1. Double-click **`Toastmasters Tools Setup 1.3.0.exe`**.
 2. Windows may show a blue **"Windows protected your PC"** warning about an
    unknown publisher. This is expected — the app is safe but not signed by a
    paid certificate. Click **More info**, then **Run anyway**.
@@ -56,6 +56,21 @@ reopening the app — this is also why there is no separate "remember my
 password" feature to set up: the session already remembers you, so you
 rarely need to sign in again until it actually expires. When the session
 does expire, the app will tell you — see [Troubleshooting](#troubleshooting).
+
+## Log out
+
+If you need to sign out of Toastmasters — for example, someone else will use
+the app next — click the **Log out** button, top right (it replaces the
+**Log in** button once you're signed in — only one of the two is ever shown).
+You can also use the menu: **File → Log out**. A moment later the badge
+switches back to **"Not logged in"**, and you'll need to click **Log in**
+again before the next refresh.
+
+**Important:** editing `config.env` by hand and blanking out the cookie values
+does **not** sign you out. The app keeps your login separately from that file,
+and it will quietly restore the values into `config.env` the next time it
+starts. Always use the **Log out** button or **File → Log out** to actually
+end your session.
 
 ## If login doesn't work: enter cookies manually (fallback)
 

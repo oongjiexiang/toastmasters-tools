@@ -717,10 +717,196 @@ changes to the `.exe`, so **minor bump → `1.2.0`.**_
 
 ---
 
-## Phase 17 — Parallelise progress-page fetching (minor version → 1.3.0)
+> **Reprioritisation (2026-07-16, VPE request):** the desktop logout flow below is inserted as
+> the new **Phase 17** — the next highest-priority work, requested directly by the VPE — pushing
+> the previously-planned Phase 17 (parallelise progress fetching) down to **Phase 18** and Phase 18
+> (production-grade refactor) down to **Phase 19**. Version targets re-sequenced to stay
+> monotonic: `1.3.0` (logout) → `1.4.0` (parallelise) → `1.5.0` (refactor).
 
-> _Was **Phase 16** before the 2026-07-16 reprioritisation; the `1.3.0` version target is
-> unchanged (the two new phases land at `1.1.1` and `1.2.0`, so this stays monotonic)._
+---
+
+## Phase 17 — Done (Desktop logout (clear session cookies), minor → 1.3.0)
+
+_The VPE discovered that deleting the cookie values from `config.env` by hand does **not**
+actually log the app out: on the next launch the values reappear. Investigation traced this to
+the persistent Electron session partition (`persist:toastmasters`,
+`apps/desktop/src/main/auth.ts:29`) introduced in Phase 12 — it still holds the live Basecamp/TI
+cookies on disk, and the **startup self-heal** (`apps/desktop/src/main/index.ts`, inside
+`app.whenReady()`) re-harvests them into `config.env` on every launch, silently undoing the manual
+edit. This phase adds a real **Log out** action that clears the partition itself, not just its
+mirror in `config.env`. User-facing change to the `.exe`, so **minor bump → `1.3.0`.**_
+
+> **Finding (grounds this phase):** `config.env` is only ever a durable *copy* of whatever cookies
+> the persistent partition holds (`applyCookies`, `apps/desktop/src/main/auth.ts`) — it is never
+> the source of truth. Any logout must clear the partition's cookie jar; clearing `config.env`
+> alone is cosmetic and gets overwritten by the very next self-heal.
+
+- [x] **`auth.ts`: `logOut(credsFile, session)`.** Clears cookies scoped to the Basecamp
+      (`https://basecamp.toastmasters.org/`) and TI (`https://www.toastmasters.org/`) origins only
+      — not the whole partition, so nothing else stored there is disturbed — via `sess.cookies.get`
+      to enumerate each origin's cookies and `sess.cookies.remove(url, name)` to delete them one at a
+      time, mirroring exactly how `harvestCookies` already reads them — then deletes
+      `BASECAMP_SESSIONID` / `TI_COOKIE` from `process.env` (so a live scraper call sees them as
+      unset immediately, matching the Phase 12 "dynamic cookie reads" behaviour) and blanks both
+      lines in `config.env` by reusing the `credentials.ts` `upsertCredential` writer (write `""`,
+      same as the template's empty placeholder). Returns the resulting `AuthStatus` so the caller
+      can confirm the session is genuinely cleared, not just assume it.
+- [x] **IPC: `AUTH_LOGOUT` channel.** New channel alongside `AUTH_LOGIN` / `AUTH_STATUS` in
+      `apps/desktop/src/shared/ipc.ts`, wired through the preload `contextBridge` and the renderer's
+      `lib/api.ts`, following the exact pattern the other two auth channels already use
+      (`handleAuth`, no `loadCore()`).
+- [x] **Menu: File → Log out.** Mirrors the existing **Log in to Toastmasters…** item
+      (`apps/desktop/src/main/index.ts`) — runs the logout, then reloads the focused window so the
+      header badge immediately reflects the cleared state.
+- [x] **Renderer UX.** A **Log out** control in the same `authControl` slot as **Log in**
+      (`DashboardHeader`, `packages/ui/components/DashboardHeader.tsx`), shown only while a session
+      is actually held (`authStatus.basecamp || authStatus.ti`) so it isn't a dead button on first
+      launch. **Log in** and **Log out** are mutually exclusive — the slot renders exactly one of
+      them at a time, never both — per user UX feedback during manual testing. Loading →
+      success/error toast, matching the existing **Log in** control's pattern.
+- [x] **Update `apps/desktop/USER_GUIDE.md`** with a short "Log out" step, and correct the
+      Troubleshooting section if it currently implies editing `config.env` is sufficient to sign
+      out.
+- [x] **Version bump:** minor-bump every workspace `package.json` `version` to `1.3.0`; after
+      validation, tag `v1.3.0`.
+
+**Validation:**
+1. [x] `grep -n "AUTH_LOGOUT" apps/desktop/src/shared/ipc.ts` — channel declared
+2. [x] `grep -n "logOut" apps/desktop/src/main/auth.ts` — logout helper present, and it clears cookies
+   scoped to the Basecamp/TI origins individually via `sess.cookies.get`/`sess.cookies.remove` (not
+   e.g. a bare `session.clearStorageData()` with no `origin`, which would over-clear the partition
+   — and which was found in manual testing to silently fail to remove cookies at all)
+3. [x] `grep -i "Log out" apps/desktop/src/main/index.ts` — menu item present
+4. [x] `grep -r "AUTH_LOGOUT\|logOut" apps/desktop/src/renderer` — renderer wires the control
+5. [x] `npm test` green, including a unit test with a mocked session proving: (a) a logout clears the
+   mocked partition's cookies, `process.env`, and `config.env`, and (b) a subsequent
+   `currentAuthStatus`/self-heal-style re-harvest on that same mocked session reports both cookies
+   absent (the regression this phase exists to fix)
+6. [x] `npm run desktop:build` produces `Toastmasters Tools Setup 1.3.0.exe`;
+   `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
+   `1.3.0`
+7. [ ] **Manual (pending user, mirrors Phase 12/16's manual items):** log in, click **Log out**,
+   restart the app — the header shows "Not logged in" and **Log in** is required again, proving a
+   `config.env` edit alone is no longer the only thing standing between "looks logged out" and
+   "is logged out."
+
+> **Note:** Validation items 1–6 are confirmed against the live repo: `logOut` (`apps/desktop/src/main/auth.ts`)
+> clears cookies scoped to the Basecamp and TI origins individually via `sess.cookies.get({ url })` to
+> enumerate each origin's cookies and `sess.cookies.remove(url, name)` to delete them one at a time —
+> the same per-origin scoping `harvestCookies` already reads with, never a bare unscoped call — then
+> clears `process.env.BASECAMP_SESSIONID` / `TI_COOKIE` and blanks both lines in `config.env`,
+> returning a live-re-derived `AuthStatus`. The
+> `AUTH_LOGOUT` channel is wired end-to-end (`shared/ipc.ts` → `preload/index.ts` → `main/index.ts`'s
+> `handleAuth` handler and its own **File → Log out** menu item, calling `logOut` directly, not a
+> copy of the login handler → `renderer/lib/api.ts`'s `logOut()` wrapper → the **Log out** button in
+> `DashboardView.tsx`). The renderer button renders only when `authStatus?.basecamp || authStatus?.ti`
+> is truthy, so it is never a dead control before first login — and it is mutually exclusive with
+> **Log in** (the `authControl` slot renders one or the other, never both), a fix made in response to
+> user UX feedback during manual testing. `npm test` passed 316/316 (225 core +
+> 91 desktop, including the `logOut` unit tests — origin-scoped clear, `process.env` clear,
+> `config.env` blanking, a live re-derived-status check, a multi-cookie-jar case, and a negative
+> control proving the return value isn't hardcoded), `npm run typecheck` is clean, and every workspace `package.json` reads
+> `1.3.0`. `apps/desktop/USER_GUIDE.md` gained a "Log out" section that also corrects the
+> misconception that started this phase — hand-editing `config.env` does not sign you out. Item 7,
+> the manual end-to-end click-through against the installed `.exe`, remains unchecked by design — it
+> requires launching the real installer, which is not headlessly verifiable, mirroring the equivalent
+> pending-manual items in Phases 11/12/15/16.
+
+> **Finding #2 (discovered during the user's manual validation of item 7 — a second, pre-existing bug
+> logout exposed):** with logout now genuinely clearing the session partition, the user hit item 7 for
+> real for the first time — and found that clicking **Log in** against a truly empty partition closes
+> the popup **instantly, before any credentials are typed**, then reports "Signed in," then Refresh
+> fails with **403** on both Basecamp and TI. Root cause, confirmed by reading `harvestCookies`
+> (`apps/desktop/src/main/auth.ts`): the "login captured" check treats **any cookie at all** as proof
+> of authentication — TI's branch joins whatever cookies exist for `www.toastmasters.org` with no
+> filter, and Basecamp's branch keys off a cookie literally named `sessionid`, which (like TI's) is
+> commonly set for an **anonymous** visitor too, not only after real authentication. Merely loading the
+> login page sets such a cookie within about a second, which the auto-close logic (Phase 16 item 6)
+> then misreads as a completed login and writes into `config.env` as if it were real. This bug has
+> existed since Phase 12/16 but was invisible until now: Phase 17's logout was previously a no-op
+> (see Finding #1 above), so the partition always still held a genuinely-authenticated cookie from the
+> last real login, and reopening **Log in** would correctly (if coincidentally) detect that real
+> session instantly. **User-confirmed: both Refresh Progress (Basecamp) and Refresh Membership (TI)
+> 403 as a result — both checks are affected, not just one.**
+>
+> **Fix (user-selected, of two options offered):** stop keying "login captured" off cookie presence at
+> all. Instead, watch the login window's `webContents` navigation — `did-navigate` /
+> `did-navigate-in-page` — and treat the login as captured only once the page has navigated **away**
+> from a login-shaped URL (path containing `login`/`signin`/`sso`/`auth`, case-insensitive) to one that
+> isn't, which can only happen after the server actually accepts the credentials (or grants access via
+> an already-valid session — the legitimate "already logged in" fast path). Still harvest cookies at
+> that point as the actual payload to apply — the navigation event is the *gate*, not a replacement for
+> cookie harvesting. This is more robust than matching a specific cookie name (doesn't depend on
+> guessing TI/Basecamp's cookie scheme, won't break if they rename cookies) but carries a known,
+> flagged risk: a multi-step login (e.g. an MFA page hosted at a URL that doesn't match the
+> login/signin/sso/auth pattern) could still cause a premature capture, and Basecamp's redirect chain
+> (`BASECAMP_LOGIN_URL` is the destination `/dashboard` page itself, not a `/login` path — the login
+> detection there depends on Basecamp actually redirecting through a login-shaped URL first) is
+> unverified against the real site. Both risks require the user's real-world testing to confirm or
+> refute; this is not headlessly verifiable, same as item 7.
+
+- [x] **`auth.ts`: replace cookie-presence capture with navigation-gated capture.** Add a
+      navigation-aware watcher (parallel to the existing `watchForCapture`, which stays for its
+      current cookie-reading role) that resolves only once the login window's `webContents` has
+      navigated to a non-login-shaped URL, then harvests cookies as before. Wire it into
+      `openLoginWindow`/`runLoginFlow` in place of the pure-cookie `watchForCapture` predicate
+      currently used for the "captured" signal (the periodic cookie read inside stays useful as the
+      actual harvest, just not as the sole gate for closing the window).
+- [x] **Unit tests** with a fake `webContents`-like `EventEmitter` (mirroring the existing
+      `CookieWatcher` fake pattern in `apps/desktop/tests/auth.test.ts`), proving: (a) a plain page
+      load of the login URL alone does **not** trigger capture even once a cookie appears; (b) capture
+      fires once navigation lands on a non-login-shaped URL; (c) an "already logged in" instant
+      redirect away from the login URL still captures immediately (preserves the fast path); (d) a
+      failed-login redisplay of the same login-shaped URL (e.g. with an error query string) does not
+      falsely capture.
+- [x] **Clear the bogus cookies already written from the false-positive bug** — not a code fix, but
+      call out in the PR/manual-test notes that a user who already hit this bug should click **Log
+      out** (now genuinely working per Finding #1) before retesting **Log in**, so stale garbage
+      cookies from an anonymous page visit aren't sitting in `config.env`.
+
+**Validation (Finding #2):**
+1. [x] `grep -nE "did-navigate" apps/desktop/src/main/auth.ts` — navigation-gated capture present
+2. [x] `npm test` green, including the four navigation-capture cases listed above (with at least one
+   proven as a negative control — a plain page load with a cookie present must NOT satisfy the new
+   capture condition, unlike the old one)
+3. [x] `npm run desktop:build` produces the (still `1.3.0`, no new version bump — this is a bug fix
+   within the still-unreleased phase) installer
+4. [ ] **Manual (pending user, blocking — this is the item that found the bug):** click **Log out**
+   to clear the stale cookies, then **Log in**, actually type Toastmasters credentials, confirm the
+   popup does **not** close before you finish, and confirm **Refresh Progress** / **Refresh
+   Membership** both succeed afterward (no 403). If a multi-step login (MFA) or the Basecamp redirect
+   chain still misfires, report exactly what URL/step it closed on so the login-shaped-URL pattern can
+   be corrected.
+
+> **Note:** Items 1–3 above and the code/test items are confirmed against the live repo. `auth.ts`
+> now gates login capture on navigation, not cookie presence: `looksLikeLoginPage` classifies a URL as
+> login-shaped by a loose, case-insensitive `login`/`signin`/`sso`/`auth` pathname substring match, and
+> the new `watchForNavigationCapture` (built on a `NavigationSource` listening to `did-navigate` and
+> `did-navigate-in-page`) resolves only once the window's `webContents` has navigated **away** from a
+> login-shaped URL AND the target cookie has landed — cookies remain the payload `applyCookies` needs,
+> but navigation is now the gate, never cookie presence alone. `openLoginWindow`/`runLoginFlow` are
+> rewired to build this watcher (via a `buildCaptureSignal` factory bound to the real window's
+> `webContents`) instead of the old cookie-only `watchForCapture`, which stays in the module only as an
+> independently-tested, no-longer-load-bearing primitive. `apps/desktop/tests/auth.test.ts` covers all
+> four roadmap-required cases (a)–(d) — including the exact false-positive regression scenario from
+> Finding #2 — plus adversarial coverage: two navigation events racing before either's cookie harvest
+> settles still resolves and unsubscribes exactly once; `cancel()` invoked from both the capture-resolved
+> path and the window's `"closed"` handler is idempotent; and the TI and Basecamp windows' watchers are
+> proven isolated from each other, so a stray navigation on an already-closed window cannot affect the
+> other window's capture. `npm test` passed 333/333 (225 core + 108 desktop) and `npm run typecheck`
+> (desktop) is clean. `apps/desktop/release/Toastmasters Tools Setup 1.3.0.exe` was rebuilt with a fresh
+> timestamp, still `1.3.0` (no version bump — this fix lands within the still-unreleased phase). Item 4,
+> the manual login click-through against the real installer confirming no false-positive close and no
+> 403s, remains unchecked by design — it requires the user's real-world testing, same as the other
+> pending-manual items across this roadmap.
+
+---
+
+## Phase 18 — Parallelise progress-page fetching (minor version → 1.4.0)
+
+> _Was **Phase 16** before the 2026-07-16 reprioritisation, then **Phase 17** before the
+> 2026-07-16 logout insertion (see above). Version target moved `1.3.0` → `1.4.0` to stay
+> monotonic behind the new logout phase._
 
 _Phase 7 already parallelised **Step 2** (per-member lesson detail). **Step 1** —
 `fetchAllProgress` in `packages/core/helpers/api.ts` — is still strictly sequential: it fetches
@@ -750,29 +936,30 @@ improvement with no API-shape change, so **bump the minor version → `1.3.0`** 
       `Page N: X of <count> downloaded.`
 - [ ] Concurrency cap is a tunable constant, mirroring `DETAIL_CONCURRENCY`
       (`packages/core/services/fetch.ts:7`).
-- [ ] **Version bump:** minor bump to `1.3.0` across workspaces; tag `v1.3.0`.
+- [ ] **Version bump:** minor bump to `1.4.0` across workspaces; tag `v1.4.0`.
 
 **Validation:**
 1. `grep "PROGRESS_CONCURRENCY" packages/core/helpers/api.ts` — constant defined and set to a number
 2. `grep "Promise.allSettled" packages/core/helpers/api.ts` — parallel runner present in the progress path
 3. `npm test` passes — including a test that mocks a multi-page `{count,next,results}` response and asserts (a) member order is preserved and (b) pages 2..N are requested concurrently, plus a single-page and a missing-`count` fallback case
-4. `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.3.0`
+4. `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.4.0`
 
 ---
 
-## Phase 18 — Production-grade refactor (minor version → 1.4.0)
+## Phase 19 — Production-grade refactor (minor version → 1.5.0)
 
-> _Was **Phase 15** before the 2026-07-16 reprioritisation, and moved to **last** of the planned
-> phases: it's a behaviour-preserving cleanup, so it yields to the pipeline (15), login-UX (16),
-> and perf (17) work the VPE asked for first. Version target re-sequenced `1.2.0` → `1.4.0` to
-> stay monotonic behind Phase 17's `1.3.0`._
+> _Was **Phase 15** before the 2026-07-16 reprioritisation, then **Phase 18** before the
+> 2026-07-16 logout insertion (see above). Stays **last** of the planned phases: it's a
+> behaviour-preserving cleanup, so it yields to the pipeline (15), login-UX (16), logout (17),
+> and perf (18) work the VPE asked for first. Version target re-sequenced `1.4.0` → `1.5.0` to
+> stay monotonic behind Phase 18's `1.4.0`._
 
 _With the repo collapsed to a single app plus shared packages (Phase 14), do a repo-wide
 cleanup pass to make it maintainable and production-grade: consistent structure, enforced
 lint/format, strict typing, no dead code, uniform error handling and logging. This is a
 behaviour-preserving refactor — no new user-facing feature and no user-facing change to the
-shipped `.exe` — so **tag the resulting build with a minor bump — `1.4.0`.** Do this only
-after Phases 15–17; refactoring code those phases are still actively changing is wasted work._
+shipped `.exe` — so **tag the resulting build with a minor bump — `1.5.0`.** Do this only
+after Phases 15–18; refactoring code those phases are still actively changing is wasted work._
 
 - [ ] **Tooling baseline:** a single shared ESLint (flat config) + Prettier setup at the repo
       root applied to every workspace; add `lint` / `format` scripts and wire `lint` into `npm test`
@@ -792,15 +979,15 @@ after Phases 15–17; refactoring code those phases are still actively changing 
       barrel/`index.ts` conventions across `packages/*` and `apps/desktop`.
 - [ ] **No behaviour change / no coverage loss:** the full test suite stays green and coverage
       does not drop; refactors that touch logic get a test asserting the preserved behaviour.
-- [ ] **Version bump:** set every workspace `package.json` `version` to `1.4.0`; after
-      validation, tag the build `v1.4.0`.
+- [ ] **Version bump:** set every workspace `package.json` `version` to `1.5.0`; after
+      validation, tag the build `v1.5.0`.
 
 **Validation:**
 1. `npm run lint` exits 0 with zero warnings; `npm run format -- --check` (or equivalent) is clean
 2. `npm test` passes with coverage ≥ the Phase 14 baseline (no regression)
-3. `npm run desktop:build` produces `Toastmasters Tools Setup 1.4.0.exe`
+3. `npm run desktop:build` produces `Toastmasters Tools Setup 1.5.0.exe`
 4. `grep -rc "any" packages/core/*.ts packages/core/helpers` shows no new bare `any`s vs. baseline; strict flags present in the shared tsconfig
-5. `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.4.0`
+5. `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.5.0`
 
 ---
 

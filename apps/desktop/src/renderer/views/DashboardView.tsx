@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { CircleCheck, CircleDashed, Download, LogIn } from "lucide-react";
+import { CircleCheck, CircleDashed, Download, LogIn, LogOut } from "lucide-react";
 import { DashboardHeader } from "@/components/DashboardHeader";
 import { MemberTable } from "@/components/MemberTable";
 import { DiffSection } from "@/components/DiffSection";
@@ -15,6 +15,7 @@ import {
   getMembers,
   IpcError,
   logIn,
+  logOut,
   onRefreshLog,
   refreshMembership,
   refreshProgress,
@@ -108,6 +109,21 @@ export function DashboardView({ onSelectMember }: DashboardViewProps) {
         id,
       });
       return false;
+    }
+  }
+
+  /** Clears the Toastmasters session with a loading→result toast, refreshing
+   *  the auth badge on completion (success or failure). */
+  async function handleLogout() {
+    const id = toast.loading("Signing out...");
+    try {
+      const status = await logOut();
+      setAuthStatus(status);
+      toast.success("Logged out", { id });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message.split("\n")[0] : "Logout failed", {
+        id,
+      });
     }
   }
 
@@ -234,10 +250,17 @@ export function DashboardView({ onSelectMember }: DashboardViewProps) {
         authControl={
           <>
             <AuthStatusBadge status={authStatus} />
-            <Button variant="outline" size="sm" onClick={() => void handleLogin()}>
-              <LogIn className="h-4 w-4" />
-              Log in
-            </Button>
+            {authStatus?.basecamp || authStatus?.ti ? (
+              <Button variant="outline" size="sm" onClick={() => void handleLogout()}>
+                <LogOut className="h-4 w-4" />
+                Log out
+              </Button>
+            ) : (
+              <Button variant="outline" size="sm" onClick={() => void handleLogin()}>
+                <LogIn className="h-4 w-4" />
+                Log in
+              </Button>
+            )}
           </>
         }
         membershipCsvControl={
