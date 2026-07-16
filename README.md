@@ -4,6 +4,9 @@
 
 Personal VPE tooling for one Toastmasters club. Scrapes Basecamp (pathway progress) and toastmasters.org (membership roster), stores snapshots in SQLite, and ships as a double-clickable Windows desktop app (see [Desktop app](#desktop-app)) for weekly/monthly reporting.
 
+> **Contributing:** every feature/phase lands on its own branch and reaches `main` only
+> through a reviewed PR gated on CI — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) v20 LTS or later (matches CI)
@@ -146,8 +149,12 @@ GitHub Actions (`.github/workflows/`) keep `main` releasable:
 - **`ci.yml`** runs the full test suite (`npm test` — core + desktop) on every branch push and
   PR into `main`. It needs no Toastmasters cookies — the tests mock the network.
 - **`release.yml`** builds the Windows installer on `windows-2022` when you push a **version
-  tag** (e.g. `1.0`) or trigger it manually. On a tag it creates a **GitHub Release** with the
-  `.exe` attached; a manual run uploads the installer as a workflow artifact.
+  tag** (e.g. `1.0`), push/merge to **`main`**, or trigger it manually. On a version tag it
+  creates a stable **GitHub Release** with the `.exe` attached. On a push to `main` it instead
+  publishes/refreshes a single **rolling pre-release** (tag `latest-main`) with the `.exe`
+  attached, so there's always one obvious download link for the newest build between version
+  tags — see [`CONTRIBUTING.md`](CONTRIBUTING.md). A manual `workflow_dispatch` run just
+  uploads the installer as a workflow artifact, without publishing a Release.
 
 ## Title logic
 

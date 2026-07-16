@@ -11,6 +11,11 @@ on:
     tags:
       - "v[0-9]+.[0-9]+*" # v1.0, v1.2.3
       - "[0-9]+.[0-9]+*" #  1.0,  1.2.3  (the 1.0 release used this form)
+    # Phase 15: build on every merge to main too, so there's always one obvious
+    # rolling download link between version tags (published below as a
+    # pre-release, kept distinct from the tag-triggered Release).
+    branches:
+      - main
   workflow_dispatch:
 
 # Needed by the release step to create the Release and upload assets.
@@ -63,3 +68,28 @@ jobs:
             apps/desktop/release/*.blockmap
           fail_on_unmatched_files: true
           generate_release_notes: true
+
+      # Only on a push to main — publishes/refreshes a single rolling
+      # pre-release so users always have one obvious download link for the
+      # newest build without waiting for a formal version tag (Phase 15).
+      # softprops/action-gh-release creates the "latest-main" tag on first run
+      # and updates the existing release (replacing same-named assets) on
+      # every subsequent run for the same tag_name — no manual git tag needed.
+      - name: Publish rolling main pre-release
+        # event_name guard matters: workflow_dispatch runs also report
+        # github.ref == 'refs/heads/main' when launched from the default
+        # branch, which would otherwise publish this release on every manual
+        # test run too — contradicting the documented "manual runs only
+        # upload an artifact" behaviour (README.md / CONTRIBUTING.md).
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest-main
+          name: "Latest build from main"
+          prerelease: true
+          make_latest: false
+          body: "Automatic build from the latest `main` commit (${{ github.sha }})."
+          files: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.blockmap
+          fail_on_unmatched_files: true

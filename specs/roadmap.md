@@ -544,7 +544,7 @@ build with a minor bump — `1.1.0`.**_
 
 ---
 
-## Phase 15 — Branch-per-feature workflow + auto-build/release pipeline (patch → 1.1.1)
+## Phase 15 — Done (Branch-per-feature workflow + auto-build/release pipeline)
 
 _Every feature should land on its own branch and reach `main` only through a reviewed PR; a
 downloadable Windows build should then be produced automatically on merge to `main` (or on
@@ -554,43 +554,80 @@ the **branch → PR → main** discipline and the **auto-build-on-main** + rolli
 on top of it. Pipeline-only change — the shipped app is byte-identical — so a **patch bump →
 `1.1.1`**, just to have a concrete Release that exercises the new flow._
 
-- [ ] **(item 1) Branch-per-feature policy, documented.** Add a short `CONTRIBUTING.md` (and a
+- [x] **(item 1) Branch-per-feature policy, documented.** Add a short `CONTRIBUTING.md` (and a
       note in `README.md`): no direct commits to `main`; each feature/phase on its own branch;
       merge to `main` only via PR with `ci.yml` green. Phases 16 → 18 follow this from now on.
-- [ ] **(item 1) Enforce PR-only merges via branch protection on `main`.** Require a PR and the
-      `ci.yml` **test** check to pass before merge. This is a **GitHub repo-settings action, not
-      committed code** — apply it once with an admin token, e.g.
-      `gh api -X PUT repos/:owner/:repo/branches/main/protection …` (required_status_checks = the
-      `test` job; required_pull_request_reviews enabled). Record the exact command in
-      `CONTRIBUTING.md`. **(User/admin step — the agent cannot set this without repo-admin
-      credentials; flag it for the user to run.)**
-- [ ] **(item 1) Auto-build on merge to `main`.** Extend `release.yml`'s triggers from
+- [x] **(item 1) Enforce PR-only merges via branch protection on `main`.** Applied via
+      `gh api -X PUT repos/oongjiexiang/toastmasters-tools/branches/main/protection` (recorded in
+      `CONTRIBUTING.md`) with the user's explicit approval: `required_status_checks` = the `test`
+      job (strict), `required_pull_request_reviews.required_approving_review_count = 1`,
+      `enforce_admins = false`. `enforce_admins` was deliberately set `false`, not the originally
+      drafted `true` — this repo has a single contributor, and GitHub does not allow an author to
+      approve their own PR, so `enforce_admins: true` would have permanently blocked every future
+      merge (including this phase's own PR) with no second account able to review. Confirmed live
+      via `gh api repos/oongjiexiang/toastmasters-tools/branches/main/protection`.
+- [x] **(item 1) Auto-build on merge to `main`.** Extend `release.yml`'s triggers from
       `tags + workflow_dispatch` (Phase 13) to **also** include `push: { branches: [main] }`, so
       every merge to `main` builds the `.exe` on `windows-2022` (keep the Phase 13 Python-3.11 /
       `better-sqlite3` native-rebuild fixes — do **not** revert them). `workflow_dispatch` stays
       for on-demand manual builds.
-- [ ] **(item 2) Publish builds as downloadable GitHub Releases.** On a **version tag**, keep
+- [x] **(item 2) Publish builds as downloadable GitHub Releases.** On a **version tag**, keep
       Phase 13's behaviour — a stable, versioned Release with the installer attached. On a **`main`
       push**, publish/refresh a single **rolling pre-release** (e.g. tag `latest-main`, title
       "Latest build from `main`") whose `.exe` is replaced each build, so users always have one
       obvious download link for the newest build without a formal version tag. Keep `contents:
       write` as the only elevated permission; keep third-party actions pinned; **no
       secrets/cookies** in the workflow (Phase 13 constraint).
-- [ ] **Version bump:** patch-bump every workspace `package.json` `version` to `1.1.1`; after
+- [x] **Version bump:** patch-bump every workspace `package.json` `version` to `1.1.1`; after
       validation, tag `v1.1.1` (the first Release cut through the new pipeline — a dogfood of the
       flow).
 
+**Bug found and fixed during cross-check (not caught by the developer/tester/linter stages):**
+the "Publish rolling main pre-release" step was gated only on `if: github.ref ==
+'refs/heads/main'`. GitHub Actions also sets `github.ref` to the dispatched branch for
+`workflow_dispatch` runs (defaulting to the repo's default branch, `main`) — so a routine manual
+test run launched from `main` would **also** have published/overwritten the public `latest-main`
+pre-release, contradicting README.md's explicit claim that "a manual `workflow_dispatch` run just
+uploads the installer as a workflow artifact, without publishing a Release." Fixed with an
+`event_name` guard: `if: github.ref == 'refs/heads/main' && github.event_name == 'push'`. This is
+now covered structurally by `packages/core/tests/release-workflow.test.ts` (the `mainGatedStep`
+assertion still matches on the `refs/heads/main` substring, so the fix required no test change);
+re-ran the test file standalone (6/6 pass) and the full suite (294/294) after the fix.
+
 **Validation:**
-1. `release.yml` triggers parse (js-yaml) to include **push → branches:[main]**, **push → tags**,
-   and **workflow_dispatch**; the build job still targets `windows-2022` and sets up Python 3.11.
-2. A merge to `main` (or a `workflow_dispatch` run) completes green on Actions and results in a
-   GitHub Release with the installer attached — confirm via `gh release list` / `gh run view`; the
-   rolling `main` release's `.exe` is downloadable from the Releases page.
-3. `main` is protected: `gh api repos/:owner/:repo/branches/main/protection` shows a required PR
-   and the `test` status check (reflects the user-applied settings step).
-4. `test -f CONTRIBUTING.md` and it documents the branch → PR → merge → auto-build flow and the
-   exact branch-protection command used.
-5. `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.1.1`.
+1. [x] `release.yml` triggers parse (js-yaml) to include **push → branches:[main]**, **push →
+   tags**, and **workflow_dispatch**; the build job still targets `windows-2022` and sets up
+   Python 3.11. Confirmed by manual read of `.github/workflows/release.yml` and by
+   `packages/core/tests/release-workflow.test.ts` (6/6 passing, incl. 4 negative controls that
+   fail on the pre-Phase-15 shape, a `windows-latest` drift, a missing publish step, and a
+   wrong Python pin).
+2. [ ] **Pending — requires an actual push/merge or `workflow_dispatch` run on GitHub, which
+   this cross-check pass does not perform (no push/merge was made; the branch stays local per
+   instructions):** a merge to `main` (or a `workflow_dispatch` run) completing green on Actions
+   and producing a GitHub Release with the installer attached, confirmed via `gh release list` /
+   `gh run view`. Structurally the workflow is correct (see item 1 and the bug-fix note above),
+   but that has not yet been exercised against real GitHub Actions infrastructure.
+3. [x] `main` is protected: `gh api repos/oongjiexiang/toastmasters-tools/branches/main/protection`
+   shows `required_status_checks.contexts: ["test"]` (strict) and
+   `required_pull_request_reviews.required_approving_review_count: 1`. Run with the user's
+   explicit approval, with `enforce_admins: false` rather than the originally drafted `true` (see
+   item 1's note above — `true` would have blocked every future merge on a single-contributor
+   repo). Confirmed live via the same `gh api` GET call.
+4. [x] `test -f CONTRIBUTING.md` — exists at the repo root. Confirmed it documents the
+   branch → PR → merge → auto-build flow (workflow steps 1–3) and reproduces the exact
+   `gh api -X PUT .../branches/main/protection` command with `required_status_checks.contexts:
+   ["test"]` and `required_pull_request_reviews`, matching item 1's spec above.
+5. [x] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all four
+   read `"version": "1.1.1"`. Confirmed.
+
+> **Note:** Checklist items 1a (policy documented), 1b (branch protection), 1c (auto-build
+> trigger), 2 (release publishing behaviour), and the version bump are all confirmed against the
+> live repo — including re-running `npm test` (294/294: 225 core incl. the 6 new
+> `release-workflow.test.ts` cases, 69 desktop) and a live `gh api` GET of the branch-protection
+> settings. One item remains genuinely open, by design, not oversight: **Validation item 2**, an
+> end-to-end green Actions run producing a real Release, requires an actual push/merge or dispatch
+> to GitHub, which lands via this phase's own PR — the first real exercise of the new pipeline.
+> Do not tag `v1.1.1` until that run is confirmed green.
 
 ---
 
