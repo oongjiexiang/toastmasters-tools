@@ -4,7 +4,7 @@ A simple Windows app that shows each club member's Pathways progress in one plac
 
 ## Install the app
 
-1. Double-click **`Toastmasters Tools Setup 1.0.0.exe`**.
+1. Double-click **`Toastmasters Tools Setup 1.2.0.exe`**.
 2. Windows may show a blue **"Windows protected your PC"** warning about an
    unknown publisher. This is expected — the app is safe but not signed by a
    paid certificate. Click **More info**, then **Run anyway**.
@@ -39,13 +39,23 @@ already cover Basecamp — often it does, and no second window opens.
 
 ### 4. Done
 
-When the login window (or windows) close, you are logged in and the dashboard
-refreshes on its own. That is it — no files, no restart.
+The login window (or windows) **close by themselves** the moment you finish
+signing in — you do not need to close them. A message then appears saying
+"Signed in to Toastmasters — now use the Refresh buttons to load data." That
+is it — no files, no restart.
+
+You can always tell your current status at a glance: next to the **Log in**
+button, top right, a small badge reads **"Logged in"** (green) once both
+Basecamp and Toastmasters.org sessions are active. If only one side is
+signed in, it reads **"Basecamp only"** or **"TI only"**; before you sign in
+at all, it reads **"Not logged in"**.
 
 Your login **stays active until the session expires** (Toastmasters ends
 sessions after a while, just like a browser). It also survives closing and
-reopening the app. When the session does expire, the app will tell you — see
-[Troubleshooting](#troubleshooting).
+reopening the app — this is also why there is no separate "remember my
+password" feature to set up: the session already remembers you, so you
+rarely need to sign in again until it actually expires. When the session
+does expire, the app will tell you — see [Troubleshooting](#troubleshooting).
 
 ## If login doesn't work: enter cookies manually (fallback)
 
@@ -142,6 +152,6 @@ ever want to back up or reset the app's data.
 | --- | --- |
 | A refresh says my session expired (or fails with a "not authorized" error) | Your login timed out. Click **Log in again** in the message that appears — after you sign in, the app retries the refresh for you. You can also just click **Log in** at the top right again. |
 | A refresh worked before but now fails | Same as above — sessions expire after a while. Click **Log in** (top right) and sign in again. |
-| I clicked Log in but nothing loaded | Make sure you finished signing in on the Toastmasters window(s) before they closed. Click **Log in** and try again. If it still won't work, use the manual fallback in [If login doesn't work](#if-login-doesnt-work-enter-cookies-manually-fallback). |
+| I clicked Log in but nothing loaded | The login window closes itself only once sign-in actually succeeds — if the badge next to **Log in** still reads "Not logged in" (or only "Basecamp only" / "TI only"), the login did not fully complete. Click **Log in** and try again, making sure to finish every step (including any MFA code or the second Basecamp window). If it still won't work, use the manual fallback in [If login doesn't work](#if-login-doesnt-work-enter-cookies-manually-fallback). |
 | SmartScreen blocked the installer | Click **More info**, then **Run anyway**. The app is safe but unsigned. |
 | The dashboard is empty | You have not loaded data yet — click **Refresh Progress** and **Refresh Membership**. |

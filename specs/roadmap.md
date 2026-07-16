@@ -631,7 +631,7 @@ re-ran the test file standalone (6/6 pass) and the full suite (294/294) after th
 
 ---
 
-## Phase 16 — Desktop login clarity & credential convenience (minor → 1.2.0)
+## Phase 16 — Done (Desktop login clarity & credential convenience, minor → 1.2.0)
 
 _Four UX papercuts on the desktop login/auth surface (Phase 12). Together they make it obvious
 whether you're signed in and remove the "I clicked Log in — now what?" confusion. User-facing
@@ -643,19 +643,19 @@ changes to the `.exe`, so **minor bump → `1.2.0`.**_
 > a **confirm-and-clean**, not the removal of a live control: verify nothing stale remains, then
 > close it. Do **not** invent a button to delete.
 
-- [ ] **(item 3) Confirm no dead "What's New" control remains.** Grep the desktop menu
+- [x] **(item 3) Confirm no dead "What's New" control remains.** Grep the desktop menu
       (`apps/desktop/src/main/index.ts`), the shared header
       (`packages/ui/components/DashboardHeader.tsx`), the renderer views, and any About dialog for
       `what.?s.?new` / `changelog` / `release.?notes`. Remove anything found; otherwise record
       "none present" and close the item.
-- [ ] **(item 4) Show login state in the UI.** The backend already exists — `AUTH_STATUS` IPC +
+- [x] **(item 4) Show login state in the UI.** The backend already exists — `AUTH_STATUS` IPC +
       `currentAuthStatus()` (`apps/desktop/src/main/auth.ts:162`) report which of Basecamp / TI
       cookies are present. Surface it: the renderer calls `AUTH_STATUS` on mount (and after any
       login or refresh) and renders a status indicator in the `authControl` slot of
       `DashboardHeader` (`packages/ui/components/DashboardHeader.tsx:26`) — e.g. a green "Logged in"
       badge vs a muted "Not logged in", degrading to "Basecamp only" / "TI only" when just one
       cookie set is present. The **Log in** button stays in the same slot.
-- [ ] **(item 6) Auto-close the login popup on success + notify.** Today `openLoginWindow`
+- [x] **(item 6) Auto-close the login popup on success + notify.** Today `openLoginWindow`
       resolves only when the user manually closes the window (`win.once("closed")`,
       `apps/desktop/src/main/auth.ts:126`) — with no on-page instructions, the user doesn't know
       when they're done. Change the flow to detect a successful capture (watch the partition's
@@ -665,7 +665,7 @@ changes to the `.exe`, so **minor bump → `1.2.0`.**_
       `runLoginFlow`'s SSO two-window sequence (TI → Basecamp only if `sessionid` still missing) and
       keep manual close as the fallback (closing still harvests). Keep the window's hardened
       settings (`sandbox: true`, no preload).
-- [ ] **(item 5, "if feasible") Credential autofill / caching.** The login already uses a
+- [x] **(item 5, "if feasible") Credential autofill / caching.** The login already uses a
       **persistent** session partition (`persist:toastmasters`, `apps/desktop/src/main/auth.ts:26`),
       so cookies survive restarts — the user usually won't re-enter anything until the session
       expires. Investigate enabling Chromium **form/password autofill** in that partition so the TI
@@ -674,30 +674,46 @@ changes to the `.exe`, so **minor bump → `1.2.0`.**_
       native autofill isn't reliable, fall back to app-managed convenience — store the **last-used
       TI username** (never the password) in `config.env` and prefill it — or simply document that
       the persistent session already caches the login. **Never persist the password in plaintext.**
-- [ ] **Version bump:** minor-bump every workspace `package.json` `version` to `1.2.0`; after
+- [x] **Version bump:** minor-bump every workspace `package.json` `version` to `1.2.0`; after
       validation, tag `v1.2.0`.
 
 **Validation:**
-1. **Login state visible:** `grep -r "AUTH_STATUS" apps/desktop/src/renderer` — the renderer
+1. [x] **Login state visible:** `grep -r "AUTH_STATUS" apps/desktop/src/renderer` — the renderer
    consumes it and renders a status element; a component/unit test asserts the indicator text
    switches with the `{ basecamp, ti }` status.
-2. **Auto-close works:**
+2. [x] **Auto-close works:**
    `grep -nE "cookies.*changed|did-navigate|\.close\(\)" apps/desktop/src/main/auth.ts` — a capture
    listener closes the window; a unit test with a mocked cookie source asserts a captured cookie
    triggers close and returns the applied status; the renderer receives a login-success
    notification.
-3. **No stale What's-New control:**
+3. [x] **No stale What's-New control:**
    `grep -riE "what.?s.?new|changelog|release.?notes" apps/desktop/src packages/ui` — no hits
    (confirms item 3).
-4. **Credential convenience present, password never stored:** either autofill in the persistent
+4. [x] **Credential convenience present, password never stored:** either autofill in the persistent
    partition is demonstrated/documented, or the fallback (prefilled username / documented cookie
    caching) is in place; `grep -riE "password" apps/desktop/src` shows no plaintext password
    persisted to disk.
-5. `npm test` green; `npm run desktop:build` produces `Toastmasters Tools Setup 1.2.0.exe`;
+5. [x] `npm test` green; `npm run desktop:build` produces `Toastmasters Tools Setup 1.2.0.exe`;
    `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.2.0`.
-6. **Manual (pending user, mirrors Phase 12 step 9):** click **Log in**, complete the real
+6. [ ] **Manual (pending user, mirrors Phase 12 step 9):** click **Log in**, complete the real
    Toastmasters login once — the window closes by itself, a "Signed in" toast appears, and the
    header shows "Logged in".
+
+> **Note:** Validation items 1–5 are confirmed against the live repo: `npm test` passed
+> 307/307 (225 core + 82 desktop, including new unit tests for `watchForCapture`'s auto-close
+> behavior and `describeAuthStatus`'s label mapping), `npm run desktop:build` produced
+> `apps/desktop/release/Toastmasters Tools Setup 1.2.0.exe` (91.6 MB), and every workspace
+> `package.json` reads `1.2.0`. **Item 5 (credential convenience) was closed via the documented
+> fallback, not a coded feature:** no autofill or username-prefill was implemented. Electron does
+> not bundle Chromium's password-manager/autofill service, and prefilling by scraping the real TI
+> login form's field selectors was ruled out as too fragile to maintain (an unversioned,
+> third-party page whose markup can change without notice). The existing persistent session
+> partition (`persist:toastmasters`, shipped in Phase 12) already covers the actual pain point —
+> cookies survive app restarts, so the user only has to sign in again when the session genuinely
+> expires — and that behaviour is now called out explicitly in `apps/desktop/USER_GUIDE.md` rather
+> than left as an implicit side effect. Item 6, the manual end-to-end click-through, remains
+> unchecked by design — it requires launching the real installed `.exe`, which is not
+> headlessly verifiable, mirroring the equivalent pending-manual items in Phases 11/12/15.
 
 ---
 

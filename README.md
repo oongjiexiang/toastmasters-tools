@@ -137,8 +137,10 @@ the same `@toastmasters/core` scraping/SQLite logic and the shared React compone
 
 - **Log in, no cookie pasting:** click **Log in** and sign in on the embedded Toastmasters
   pages — the app harvests your `BASECAMP_SESSIONID` / `TI_COOKIE` session cookies itself (into
-  its own `config.env`), and stays logged in across restarts until the session expires. A full
-  end-user walkthrough is in [`apps/desktop/USER_GUIDE.md`](apps/desktop/USER_GUIDE.md).
+  its own `config.env`), and stays logged in across restarts until the session expires. The login
+  window closes itself as soon as sign-in succeeds, and a status badge next to **Log in** always
+  shows whether you're currently logged in. A full end-user walkthrough is in
+  [`apps/desktop/USER_GUIDE.md`](apps/desktop/USER_GUIDE.md).
 - The SQLite database and credentials live in Electron's user-data directory (via the
   `TOASTMASTERS_DATA_DIR` anchor described under [Data storage](#data-storage)), not in the repo.
 

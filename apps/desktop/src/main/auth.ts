@@ -21,7 +21,10 @@ import { upsertCredential } from "./credentials";
 
 /**
  * A persistent partition so a login survives app restarts: Chromium writes the
- * cookie jar for this partition to disk under userData.
+ * cookie jar for this partition to disk under userData. This is also the whole
+ * "credential convenience" story for Phase 16 item 5: because the partition
+ * (and its cookies) already survive an app restart, the user rarely needs to
+ * re-enter credentials at all — no autofill/prefill is needed on top of it.
  */
 export const LOGIN_PARTITION = "persist:toastmasters";
 
@@ -102,13 +105,64 @@ export function applyCookies(
 }
 
 /**
+ * The subset of Electron's `Session["cookies"]` needed to watch for a captured
+ * login live, on top of the point-in-time `get` harvestCookies already uses.
+ * Electron's real `Cookies` object (an EventEmitter) satisfies this structurally
+ * with no cast needed at the real call site in `runLoginFlow`.
+ */
+export interface CookieWatcher extends CookieSource {
+  on(event: "changed", listener: () => void): void;
+  off(event: "changed", listener: () => void): void;
+}
+
+/**
+ * Resolves as soon as `isCaptured` is true for the live cookie state: checked
+ * immediately (covers "already logged in from a prior session") and again on
+ * every Chromium `"changed"` cookie event. `cancel()` stops listening — call it
+ * once the caller no longer needs the watch (e.g. the window closed some other
+ * way first), so no listener is ever leaked onto the long-lived partition
+ * session across repeated login attempts.
+ */
+export function watchForCapture(
+  cookieSource: CookieWatcher,
+  isCaptured: (h: HarvestedCookies) => boolean,
+): { promise: Promise<void>; cancel: () => void } {
+  let settled = false;
+  const check = () => {
+    void harvestCookies(cookieSource).then((h) => {
+      if (settled || !isCaptured(h)) return;
+      settled = true;
+      cookieSource.off("changed", check);
+      resolveFn();
+    });
+  };
+  let resolveFn!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    resolveFn = resolve;
+    cookieSource.on("changed", check);
+    check();
+  });
+  return {
+    promise,
+    cancel: () => {
+      if (settled) return;
+      settled = true;
+      cookieSource.off("changed", check);
+    },
+  };
+}
+
+/**
  * Opens a login window bound to the persistent partition and resolves once the
- * user closes it. Security: the window shows a third-party page, so it runs with
- * `nodeIntegration: false`, `contextIsolation: true`, `sandbox: true` and NO
+ * user closes it — or, when `captureSignal` resolves first (the expected path:
+ * `runLoginFlow` wires it to {@link watchForCapture}), once the window is closed
+ * programmatically so the user isn't left staring at a login page after they've
+ * already finished. Security: the window shows a third-party page, so it runs
+ * with `nodeIntegration: false`, `contextIsolation: true`, `sandbox: true` and NO
  * preload — it must never reach our IPC bridge. We inject no scripts into it.
  * Needs Electron; kept thin and not unit-tested.
  */
-export function openLoginWindow(url: string): Promise<void> {
+export function openLoginWindow(url: string, captureSignal?: Promise<void>): Promise<void> {
   return new Promise((resolve) => {
     const win = new BrowserWindow({
       width: 1024,
@@ -124,6 +178,13 @@ export function openLoginWindow(url: string): Promise<void> {
     });
 
     win.once("closed", () => resolve());
+
+    if (captureSignal) {
+      void captureSignal.then(() => {
+        if (!win.isDestroyed()) win.close();
+      });
+    }
+
     void win.loadURL(url);
   });
 }
@@ -132,19 +193,29 @@ export function openLoginWindow(url: string): Promise<void> {
  * Orchestrates the full login without prior knowledge of whether TI's login also
  * covers Basecamp via SSO: open the TI login window → harvest → if the Basecamp
  * `sessionid` was not captured, open the Basecamp login window and harvest again
- * → apply. The per-step logs are how the user's manual validation determines the
- * SSO-vs-two-login question.
+ * → apply. Each window auto-closes as soon as {@link watchForCapture} sees the
+ * relevant cookie land, so the user gets immediate feedback that the login
+ * completed instead of having to close the window themselves. The per-step logs
+ * are how the user's manual validation determines the SSO-vs-two-login question.
  */
 export async function runLoginFlow(credsFile: string): Promise<AuthStatus> {
   const loginSession = session.fromPartition(LOGIN_PARTITION);
+  const cookies = loginSession.cookies;
 
-  await openLoginWindow(TI_LOGIN_URL);
-  let harvested = await harvestCookies(loginSession.cookies);
+  const tiWatch = watchForCapture(
+    cookies,
+    (h) => Boolean(h.tiCookie) || Boolean(h.basecampSessionId),
+  );
+  await openLoginWindow(TI_LOGIN_URL, tiWatch.promise);
+  tiWatch.cancel();
+  let harvested = await harvestCookies(cookies);
   logHarvest("after TI login", harvested);
 
   if (!harvested.basecampSessionId) {
-    await openLoginWindow(BASECAMP_LOGIN_URL);
-    harvested = await harvestCookies(loginSession.cookies);
+    const bcWatch = watchForCapture(cookies, (h) => Boolean(h.basecampSessionId));
+    await openLoginWindow(BASECAMP_LOGIN_URL, bcWatch.promise);
+    bcWatch.cancel();
+    harvested = await harvestCookies(cookies);
     logHarvest("after Basecamp login", harvested);
   }
 
