@@ -1,13 +1,20 @@
 {
   "name": "toastmasters-tools",
   "private": true,
-  "version": "1.4.0",
+  "version": "1.6.0",
   "description": "Fetch Toastmasters Basecamp member progress and serve a local dashboard",
   "type": "module",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
+  "overrides": {
+    "jsdom": "24.1.0",
+    "cssstyle": "4.1.0"
+  },
+  "devDependencies": {
+    "jsdom": "24.1.0"
+  },
   "scripts": {
     "desktop:dev": "npm run dev -w @toastmasters/desktop",
     "desktop:build": "npm run build -w @toastmasters/desktop",

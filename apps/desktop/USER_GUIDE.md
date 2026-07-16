@@ -4,7 +4,7 @@ A simple Windows app that shows each club member's Pathways progress in one plac
 
 ## Install the app
 
-1. Double-click **`Toastmasters Tools Setup 1.3.0.exe`**.
+1. Double-click **`Toastmasters Tools Setup 1.6.0.exe`**.
 2. Windows may show a blue **"Windows protected your PC"** warning about an
    unknown publisher. This is expected — the app is safe but not signed by a
    paid certificate. Click **More info**, then **Run anyway**.
@@ -141,11 +141,20 @@ The table lists every member with these columns:
 | **Next level** | The level they are currently in |
 | **Remaining** | Projects left in that level (or **Ready** / **Completed**) |
 
-- Members on more than one path show a small arrow — click it to expand and see
-  each path.
-- Click any member row to open their **detail screen**, which lists every level
-  with what is done and what is still outstanding.
-- On the detail screen, click **← Back to dashboard** to return to the table.
+- To find one person quickly, type into the **Search by name…** box above the table — the list
+  narrows as you type (no need to press Enter), and a small "N of M members" note next to it
+  shows how many matched. Click the **×** inside the box to clear the search and see everyone
+  again.
+- Members on more than one path are grouped under one row with a small arrow — click
+  anywhere on that row (not just the arrow) to expand it and see each path.
+- Click any other row — a single-path member, or one of the paths under an expanded
+  multi-path member — to open their **detail screen**, which lists every level with
+  what is done and what is still outstanding.
+- If any member is on more than one path, an **Expand all** / **Collapse all** button
+  appears above the table to open or close every multi-path row at once.
+- On the detail screen, click **← Back to dashboard** to return to the table. Use the
+  **Expand all** / **Collapse all** button there to open or close every level at once
+  (levels start expanded).
 
 ## Export the roster
 
@@ -154,6 +163,13 @@ To save the membership list as a spreadsheet file:
 1. On the dashboard, click the **Membership CSV** button (top right).
 2. A save window opens, already pointing at your **Downloads** folder.
 3. Choose a location and click **Save**.
+
+## Dark mode
+
+The app can follow your Windows light/dark setting, or you can pick one yourself. Click the
+sun/moon button, top right, to cycle through **Light → Dark → System** (System matches whatever
+your Windows theme is set to). Your choice is remembered, so you won't need to set it again the
+next time you open the app.
 
 ## Where your data is kept
 

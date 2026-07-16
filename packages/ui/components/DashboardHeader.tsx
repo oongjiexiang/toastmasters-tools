@@ -2,6 +2,7 @@
 
 import { Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 
 interface DashboardHeaderProps {
   /** null while the member list is still loading. */
@@ -24,6 +25,12 @@ interface DashboardHeaderProps {
    * here. The desktop renderer always supplies it.
    */
   authControl?: React.ReactNode;
+  /**
+   * Optional slot for the light/dark/system theme toggle (Phase 19, item 6).
+   * Mirrors `authControl` above: undefined for any consumer that has no
+   * theme control to inject.
+   */
+  themeControl?: React.ReactNode;
 }
 
 export function DashboardHeader({
@@ -34,6 +41,7 @@ export function DashboardHeader({
   onRefreshMembership,
   membershipCsvControl,
   authControl,
+  themeControl,
 }: DashboardHeaderProps) {
   const isRefreshing = refreshingProgress || refreshingMembership;
 
@@ -47,35 +55,47 @@ export function DashboardHeader({
           </p>
         )}
       </div>
-      <div className="flex gap-2 flex-wrap justify-end">
-        {authControl}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onRefreshProgress}
-          disabled={isRefreshing}
-        >
-          {refreshingProgress ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4" />
-          )}
-          Refresh Progress
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onRefreshMembership}
-          disabled={isRefreshing}
-        >
-          {refreshingMembership ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4" />
-          )}
-          Refresh Membership
-        </Button>
-        {membershipCsvControl}
+      <div className="flex items-center gap-3 flex-wrap justify-end">
+        {authControl && (
+          <div className="flex items-center gap-2">{authControl}</div>
+        )}
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onRefreshProgress}
+            disabled={isRefreshing}
+          >
+            {refreshingProgress ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            Refresh Progress
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onRefreshMembership}
+            disabled={isRefreshing}
+          >
+            {refreshingMembership ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            Refresh Membership
+          </Button>
+        </div>
+        {(membershipCsvControl || themeControl) && (
+          <>
+            <Separator className="hidden sm:block" />
+            <div className="flex items-center gap-2">
+              {membershipCsvControl}
+              {themeControl}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

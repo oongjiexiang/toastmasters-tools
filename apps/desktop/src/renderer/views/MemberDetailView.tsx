@@ -72,7 +72,7 @@ export function MemberDetailView({
         <div className="flex items-center gap-3 mb-1">
           <h1 className="text-2xl font-semibold">{detail.name}</h1>
           {detail.title && (
-            <Badge className="bg-blue-100 text-blue-800 font-mono">
+            <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200 font-mono">
               {detail.title}
             </Badge>
           )}

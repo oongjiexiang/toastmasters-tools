@@ -9,7 +9,7 @@ import {
   AccordionContent,
 } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { ExpandCollapseToggle } from "@/components/ExpandCollapseToggle";
 import { ProjectRow } from "@/components/ProjectRow";
 import type { LevelGroup } from "@toastmasters/core/queries";
 
@@ -26,21 +26,21 @@ function StatusBadge({ status }: { status: LevelStatus }) {
   switch (status) {
     case "approved":
       return (
-        <Badge className="bg-green-100 text-green-800 gap-1">
+        <Badge className="bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-200 gap-1">
           <CircleCheck size={12} />
           Approved
         </Badge>
       );
     case "ready":
       return (
-        <Badge className="bg-amber-100 text-amber-800 gap-1">
+        <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200 gap-1">
           <Flag size={12} />
           Ready to approve
         </Badge>
       );
     case "in-progress":
       return (
-        <Badge className="bg-amber-50 text-amber-700 gap-1">
+        <Badge className="bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 gap-1">
           <CircleDot size={12} />
           In progress
         </Badge>
@@ -62,24 +62,15 @@ interface LevelAccordionProps {
 export function LevelAccordion({ levels }: LevelAccordionProps) {
   const allIds = levels.map((l) => l.level);
   const [openItems, setOpenItems] = useState<string[]>(allIds);
+  const anyOpen = openItems.length > 0;
 
   return (
     <div>
       <div className="flex gap-2 mb-3">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setOpenItems(allIds)}
-        >
-          Expand all
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setOpenItems([])}
-        >
-          Collapse all
-        </Button>
+        <ExpandCollapseToggle
+          expanded={anyOpen}
+          onToggle={() => setOpenItems(anyOpen ? [] : allIds)}
+        />
       </div>
       <Accordion value={openItems} onValueChange={setOpenItems} multiple>
         {levels.map((level) => {
