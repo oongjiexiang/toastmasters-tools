@@ -22,6 +22,18 @@ const MEM = ":memory:";
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Returns the first element of `arr`, or throws if it's empty. Used in place
+ * of a bare `arr[0]` so noUncheckedIndexedAccess is satisfied with a real
+ * assertion (a helpful failure if the array turns out empty) rather than a
+ * silencing non-null assertion.
+ */
+function first<T>(arr: T[]): T {
+  const item = arr[0];
+  if (item === undefined) throw new Error("expected a non-empty array");
+  return item;
+}
+
 /** Minimal valid MemberProgress fixture */
 function makeMember(overrides: Partial<MemberProgress> = {}): MemberProgress {
   return {
@@ -214,7 +226,7 @@ describe("getLatestProgress", () => {
     withTempDb(dbPath => {
       snapshotProgress([makeMember()], dbPath, "2025-01-01T00:00:00.000Z");
       const rows = getLatestProgress(dbPath)!;
-      const row = rows[0];
+      const row = first(rows);
       expect(row.email).toBe("alice@example.com");
       expect(row.firstName).toBe("Alice");
       expect(row.lastName).toBe("Tan");
@@ -225,7 +237,7 @@ describe("getLatestProgress", () => {
   it("maps level_1 = 1 to level1 = true", () => {
     withTempDb(dbPath => {
       snapshotProgress([makeMember()], dbPath, "2025-01-01T00:00:00.000Z");
-      const row = getLatestProgress(dbPath)![0];
+      const row = first(getLatestProgress(dbPath)!);
       expect(row.level1).toBe(true);
     });
   });
@@ -233,7 +245,7 @@ describe("getLatestProgress", () => {
   it("maps level_2 = 0 to level2 = false", () => {
     withTempDb(dbPath => {
       snapshotProgress([makeMember()], dbPath, "2025-01-01T00:00:00.000Z");
-      const row = getLatestProgress(dbPath)![0];
+      const row = first(getLatestProgress(dbPath)!);
       expect(row.level2).toBe(false);
     });
   });
@@ -258,7 +270,7 @@ describe("getLatestProgress", () => {
 
       const rows = getLatestProgress(dbPath)!;
       expect(rows).toHaveLength(1);
-      expect(rows[0].level1).toBe(true); // newer snapshot
+      expect(first(rows).level1).toBe(true); // newer snapshot
     });
   });
 
@@ -275,7 +287,7 @@ describe("getLatestProgress", () => {
         },
       });
       snapshotProgress([m], dbPath, "2025-01-01T00:00:00.000Z");
-      const row = getLatestProgress(dbPath)![0];
+      const row = first(getLatestProgress(dbPath)!);
       expect(row.email).toBe("upper@example.com");
     });
   });
@@ -315,7 +327,7 @@ describe("getLatestMembership", () => {
         { email: "alice@example.com", name: "Alice Tan", status: "Active", credentials: "DTM" },
       ]);
       snapshotMembership(csv, dbPath, "2025-01-01T00:00:00.000Z");
-      const row = getLatestMembership(dbPath)![0];
+      const row = first(getLatestMembership(dbPath)!);
       expect(row.email).toBe("alice@example.com");
       expect(row.name).toBe("Alice Tan");
       expect(row.status).toBe("Active");
@@ -347,7 +359,7 @@ describe("getLatestMembership", () => {
         { email: "ALICE@EXAMPLE.COM", name: "Alice Tan", status: "Active" },
       ]);
       snapshotMembership(csv, dbPath, "2025-01-01T00:00:00.000Z");
-      const row = getLatestMembership(dbPath)![0];
+      const row = first(getLatestMembership(dbPath)!);
       expect(row.email).toBe("alice@example.com");
     });
   });
@@ -415,7 +427,7 @@ describe("getProgressDiff", () => {
 
       const diff = getProgressDiff(dbPath)!;
       expect(diff.changes).toHaveLength(1);
-      const change = diff.changes[0];
+      const change = first(diff.changes);
       expect(change.email).toBe("alice@example.com");
       expect(change.gained).toContain("Level 1");
     });
@@ -451,7 +463,7 @@ describe("getProgressDiff", () => {
 
       const diff = getProgressDiff(dbPath)!;
       expect(diff.changes).toHaveLength(1);
-      expect(diff.changes[0].gained).toEqual(["Level 1", "Level 2"]);
+      expect(first(diff.changes).gained).toEqual(["Level 1", "Level 2"]);
     });
   });
 
@@ -492,7 +504,7 @@ describe("getProgressDiff", () => {
 
       const diff = getProgressDiff(dbPath)!;
       expect(diff.changes).toHaveLength(1);
-      expect(diff.changes[0].email).toBe("bob@example.com");
+      expect(first(diff.changes).email).toBe("bob@example.com");
     });
   });
 
@@ -524,7 +536,7 @@ describe("getProgressDiff", () => {
 
       const diff = getProgressDiff(dbPath)!;
       expect(diff.changes).toHaveLength(1);
-      expect(diff.changes[0].gained).toContain("Path Completion");
+      expect(first(diff.changes).gained).toContain("Path Completion");
     });
   });
 });
@@ -580,8 +592,8 @@ describe("getMembershipDiff", () => {
 
       const diff = getMembershipDiff(dbPath)!;
       expect(diff.joined).toHaveLength(1);
-      expect(diff.joined[0].email).toBe("bob@example.com");
-      expect(diff.joined[0].name).toBe("Bob Lee");
+      expect(first(diff.joined).email).toBe("bob@example.com");
+      expect(first(diff.joined).name).toBe("Bob Lee");
     });
   });
 
@@ -600,7 +612,7 @@ describe("getMembershipDiff", () => {
 
       const diff = getMembershipDiff(dbPath)!;
       expect(diff.left).toHaveLength(1);
-      expect(diff.left[0].email).toBe("bob@example.com");
+      expect(first(diff.left).email).toBe("bob@example.com");
     });
   });
 
@@ -618,7 +630,7 @@ describe("getMembershipDiff", () => {
 
       const diff = getMembershipDiff(dbPath)!;
       expect(diff.statusChanged).toHaveLength(1);
-      const change = diff.statusChanged[0];
+      const change = first(diff.statusChanged);
       expect(change.email).toBe("alice@example.com");
       expect(change.oldStatus).toBe("Inactive");
       expect(change.newStatus).toBe("Active");
@@ -642,11 +654,11 @@ describe("getMembershipDiff", () => {
 
       const diff = getMembershipDiff(dbPath)!;
       expect(diff.joined).toHaveLength(1);
-      expect(diff.joined[0].email).toBe("new@example.com");
+      expect(first(diff.joined).email).toBe("new@example.com");
       expect(diff.left).toHaveLength(1);
-      expect(diff.left[0].email).toBe("leaving@example.com");
+      expect(first(diff.left).email).toBe("leaving@example.com");
       expect(diff.statusChanged).toHaveLength(1);
-      expect(diff.statusChanged[0].email).toBe("alice@example.com");
+      expect(first(diff.statusChanged).email).toBe("alice@example.com");
     });
   });
 });

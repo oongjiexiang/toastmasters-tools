@@ -7,11 +7,7 @@
  * into the preload or renderer bundle.
  */
 
-import type {
-  DiffResult,
-  MemberDetail,
-  MemberSummary,
-} from "@toastmasters/core/queries";
+import type { DiffResult, MemberDetail, MemberSummary } from "@toastmasters/core/queries";
 
 export const IPC = {
   LIST_MEMBERS: "toastmasters:members:list",
@@ -38,9 +34,7 @@ export interface AuthStatus {
  * `{ data } | { error: { code, message } }` HTTP envelope. `code` mirrors
  * `QueryResult`'s discriminant where one exists.
  */
-export type IpcResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; code: string; message: string };
+export type IpcResult<T> = { ok: true; data: T } | { ok: false; code: string; message: string };
 
 /** The typed surface exposed on `window.toastmasters` by the preload script. */
 export interface ToastmastersBridge {

@@ -197,6 +197,30 @@ without a terminal. See `roadmap.md` Phase 10 for the removal rationale.
 `apps/desktop` (Electron). Neither app forks the core logic. (`apps/web` was later removed in
 Phase 14, leaving `apps/desktop` as the sole consumer alongside the new `packages/ui`.)
 
+### Layer 8 — Repo-wide tooling: lint, format, strict typing, logging (Phase 21)
+
+_A behaviour-preserving production-grade pass over the repo Phase 14 collapsed to a single app
+plus shared packages: enforced lint/format, a stricter shared `tsconfig`, and a small structured
+logger in place of scattered `console.log`/`console.error` calls._
+
+| Concern | Choice | Why |
+|---|---|---|
+| Linting | **ESLint 9 flat config** (`eslint.config.js`, root) via `typescript-eslint` | One config for every workspace (`packages/core`, `packages/ui`, `apps/desktop`) — no per-workspace duplication. Type-aware linting (`recommendedTypeChecked`) for each workspace's real source via `projectService`, resolving against that workspace's own `tsconfig.json`; plain syntactic linting for tests/configs that sit outside every tsconfig's `include` |
+| React rules | `eslint-plugin-react-hooks` (only `rules-of-hooks` + `exhaustive-deps`) | Deliberately not the full v7 "React Compiler readiness" ruleset, which would flag this codebase's long-standing "fetch on mount" effects — adopting it is separate, out-of-scope work |
+| Formatting | **Prettier 3** (`.prettierrc.json`, `.prettierignore`) + `eslint-config-prettier` | `eslint-config-prettier` is applied last so ESLint owns correctness and Prettier owns formatting, with no rule conflicts |
+| Scripts | `npm run lint`, `npm run format`, `npm run format:check` (root `package.json`) | `lint` is also chained onto the root `test` script (`npm run test -w core && npm run test -w desktop && npm run lint`) and wired into CI, so a lint regression fails the same gate as a test regression |
+| Strict TypeScript | Shared `tsconfig.base.json` (repo root) — `strict: true` plus **`noUncheckedIndexedAccess`** and **`noImplicitOverride`** | `packages/core/tsconfig.json`, `apps/desktop/tsconfig.json`, and the **new** `packages/ui/tsconfig.json` (it had none before this phase) all `extend` it, so the stricter flags apply repo-wide from one place. `packages/ui` also gained a `typecheck` script, matching the pattern already used by `packages/core` and `apps/desktop` |
+| Logging | Two small, deliberately-separate structured loggers: `packages/core/logger.ts` and `apps/desktop/src/main/logger.ts` | Both expose the same `debug`/`info`/`warn`/`error` shape with an optional structured `context` object, routing to the matching `console.*` method. Kept as **two** modules, not one shared import, because every file under `apps/desktop/src/main` except `core.ts` must never statically import `@toastmasters/core` — `apps/desktop/tests/main-bundle.test.ts` enforces this on the built bundle, since a static import would evaluate core's env-derived consts before Electron's bootstrap sets `TOASTMASTERS_DATA_DIR` |
+| Module boundaries | New "packages/ui stays desktop-agnostic" guard in `packages/core/tests/workspace.test.ts` | Mirrors the pre-existing "core stays framework-agnostic" guard: asserts no file under `packages/ui/components`/`packages/ui/lib` imports `electron` or reaches into `apps/desktop`. Has a genuine negative control, `packages/core/tests/fixtures/ui-boundary-offender.tsx` (never imported by real code, `.tsx` so `tsc` never compiles it, scanned only as text), proving the guard fails closed |
+| HTTP errors | `HttpError extends Error` (`packages/core/helpers/api.ts`), with a `.status` field | Reused by `services/membership.ts`; its `.message` text is byte-identical to the old inline error string, so `apps/desktop/src/renderer/views/DashboardView.tsx`'s `/HTTP 40[13]/` auth-failure-detection regex still matches unchanged |
+
+**What this phase deliberately left alone:** the `ProgressReporter` callback seam
+(`packages/core/services/fetch.ts`, `services/membership.ts`, `helpers/api.ts`) — that is
+user-facing CLI/IPC _output_ whose exact shape earlier phases' tests assert, not diagnostic
+logging, and it still defaults to `console.log`. A repo-wide grep for `TODO`/`FIXME`/`@deprecated`
+came back empty, so no dead code was found or removed beyond what Phases 6/10/14 already cleaned
+up.
+
 ## Constraints
 
 - **No cloud dependencies** for runtime. Credentials are local; data never leaves the machine.

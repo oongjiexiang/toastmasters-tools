@@ -15,10 +15,7 @@ interface ExpandCollapseToggleProps {
  * per-level accordion) and `MemberTable` (the overview's per-member
  * multi-pathway rows) so the toggle label/logic isn't duplicated.
  */
-export function ExpandCollapseToggle({
-  expanded,
-  onToggle,
-}: ExpandCollapseToggleProps) {
+export function ExpandCollapseToggle({ expanded, onToggle }: ExpandCollapseToggleProps) {
   return (
     <Button variant="outline" size="sm" onClick={onToggle}>
       {expanded ? "Collapse all" : "Expand all"}

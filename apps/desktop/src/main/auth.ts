@@ -18,6 +18,9 @@
 
 import { BrowserWindow, session, type Session } from "electron";
 import { upsertCredential } from "./credentials";
+// logger.ts is core-free too (see its header comment) — safe to import
+// statically here for the same reason `credentials.ts` is.
+import { logger } from "./logger";
 
 /**
  * A persistent partition so a login survives app restarts: Chromium writes the
@@ -61,9 +64,7 @@ export interface AuthStatus {
  * A pure function of its `cookieSource` argument — no `BrowserWindow`, no
  * globals — so it is unit-testable with a mocked `session.cookies.get`.
  */
-export async function harvestCookies(
-  cookieSource: CookieSource,
-): Promise<HarvestedCookies> {
+export async function harvestCookies(cookieSource: CookieSource): Promise<HarvestedCookies> {
   const harvested: HarvestedCookies = {};
 
   const basecampCookies = await cookieSource.get({ url: BASECAMP_COOKIE_URL });
@@ -83,10 +84,7 @@ export async function harvestCookies(
  * Empty values are never written — an absent cookie must leave core free to raise
  * its "…is not set" guidance rather than overwriting a still-valid credential.
  */
-export function applyCookies(
-  credsFile: string,
-  harvested: HarvestedCookies,
-): AuthStatus {
+export function applyCookies(credsFile: string, harvested: HarvestedCookies): AuthStatus {
   const applied: AuthStatus = { basecamp: false, ti: false };
 
   if (harvested.basecampSessionId) {
@@ -341,9 +339,7 @@ export async function runLoginFlow(credsFile: string): Promise<AuthStatus> {
   }
 
   const applied = applyCookies(credsFile, harvested);
-  console.log(
-    `[toastmasters] login applied — basecamp: ${applied.basecamp}, ti: ${applied.ti}`,
-  );
+  logger.info("login applied", { basecamp: applied.basecamp, ti: applied.ti });
   return applied;
 }
 
@@ -405,9 +401,8 @@ export async function logOut(credsFile: string, sess: Session): Promise<AuthStat
 }
 
 function logHarvest(stage: string, harvested: HarvestedCookies): void {
-  console.log(
-    `[toastmasters] ${stage} — basecamp sessionid: ` +
-      `${harvested.basecampSessionId ? "captured" : "missing"}, ` +
-      `TI cookies: ${harvested.tiCookie ? "captured" : "missing"}`,
-  );
+  logger.info(`${stage} — cookie harvest`, {
+    basecampSessionId: harvested.basecampSessionId ? "captured" : "missing",
+    tiCookie: harvested.tiCookie ? "captured" : "missing",
+  });
 }

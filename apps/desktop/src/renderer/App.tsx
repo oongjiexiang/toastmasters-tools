@@ -11,9 +11,7 @@ import { MemberDetailView } from "./views/MemberDetailView";
  * Phase 14) — the components inside each screen are the same ones from
  * `packages/ui` that the web app used to render.
  */
-type View =
-  | { name: "dashboard" }
-  | { name: "member"; email: string; pathway: string };
+type View = { name: "dashboard" } | { name: "member"; email: string; pathway: string };
 
 export function App() {
   const [view, setView] = useState<View>({ name: "dashboard" });
@@ -22,9 +20,7 @@ export function App() {
     <Providers>
       {view.name === "dashboard" ? (
         <DashboardView
-          onSelectMember={(email, pathway) =>
-            setView({ name: "member", email, pathway })
-          }
+          onSelectMember={(email, pathway) => setView({ name: "member", email, pathway })}
         />
       ) : (
         <MemberDetailView

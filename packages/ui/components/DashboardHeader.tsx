@@ -50,22 +50,13 @@ export function DashboardHeader({
       <div>
         <h1 className="text-2xl font-semibold">Toastmasters Dashboard</h1>
         {memberCount !== null && (
-          <p className="text-muted-foreground text-sm mt-1">
-            {memberCount} members
-          </p>
+          <p className="text-muted-foreground text-sm mt-1">{memberCount} members</p>
         )}
       </div>
       <div className="flex items-center gap-3 flex-wrap justify-end">
-        {authControl && (
-          <div className="flex items-center gap-2">{authControl}</div>
-        )}
+        {authControl && <div className="flex items-center gap-2">{authControl}</div>}
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onRefreshProgress}
-            disabled={isRefreshing}
-          >
+          <Button variant="outline" size="sm" onClick={onRefreshProgress} disabled={isRefreshing}>
             {refreshingProgress ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
@@ -73,12 +64,7 @@ export function DashboardHeader({
             )}
             Refresh Progress
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onRefreshMembership}
-            disabled={isRefreshing}
-          >
+          <Button variant="outline" size="sm" onClick={onRefreshMembership} disabled={isRefreshing}>
             {refreshingMembership ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (

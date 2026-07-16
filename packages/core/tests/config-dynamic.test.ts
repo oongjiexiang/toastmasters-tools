@@ -136,12 +136,16 @@ describe("buildHeaders in helpers/api.ts reads the session cookie live", () => {
     const api = await import("../helpers/api");
 
     await api.fetchDetail("course-1", "user-1");
-    const firstHeaders = fetchMock.mock.calls[0][1].headers as Record<string, string>;
+    const firstCall = fetchMock.mock.calls[0];
+    if (!firstCall) throw new Error("expected fetchDetail to have called fetch once");
+    const firstHeaders = firstCall[1].headers as Record<string, string>;
     expect(firstHeaders.Cookie).toBe("sessionid=cookie-A;");
 
     process.env.BASECAMP_SESSIONID = "cookie-B";
     await api.fetchDetail("course-1", "user-1");
-    const secondHeaders = fetchMock.mock.calls[1][1].headers as Record<string, string>;
+    const secondCall = fetchMock.mock.calls[1];
+    if (!secondCall) throw new Error("expected fetchDetail to have called fetch twice");
+    const secondHeaders = secondCall[1].headers as Record<string, string>;
     expect(secondHeaders.Cookie).toBe("sessionid=cookie-B;");
   });
 
@@ -153,7 +157,9 @@ describe("buildHeaders in helpers/api.ts reads the session cookie live", () => {
     const api = await import("../helpers/api");
 
     await api.fetchDetail("course-1", "user-1");
-    const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;
+    const firstCall = fetchMock.mock.calls[0];
+    if (!firstCall) throw new Error("expected fetchDetail to have called fetch once");
+    const headers = firstCall[1].headers as Record<string, string>;
     expect(headers.Cookie).toBeUndefined();
   });
 });

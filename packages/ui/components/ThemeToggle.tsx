@@ -32,7 +32,9 @@ export function ThemeToggle() {
   const Icon = ICONS[current];
 
   function cycle() {
-    const next = CYCLE[(CYCLE.indexOf(current) + 1) % CYCLE.length];
+    // The modulo keeps the index in range, but TS can't prove that for a
+    // non-literal index into a tuple, so fall back to "system" defensively.
+    const next = CYCLE[(CYCLE.indexOf(current) + 1) % CYCLE.length] ?? "system";
     setTheme(next);
   }
 

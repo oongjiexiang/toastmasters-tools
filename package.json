@@ -1,7 +1,7 @@
 {
   "name": "toastmasters-tools",
   "private": true,
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Fetch Toastmasters Basecamp member progress and serve a local dashboard",
   "type": "module",
   "workspaces": [
@@ -13,7 +13,14 @@
     "cssstyle": "4.1.0"
   },
   "devDependencies": {
-    "jsdom": "24.1.0"
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.7.0",
+    "jsdom": "24.1.0",
+    "prettier": "^3.9.5",
+    "typescript-eslint": "^8.64.0"
   },
   "scripts": {
     "desktop:dev": "npm run dev -w @toastmasters/desktop",
@@ -21,6 +28,9 @@
     "cli": "npm run cli -w @toastmasters/core",
     "fetch": "npm run fetch -w @toastmasters/core",
     "membership": "npm run membership -w @toastmasters/core",
-    "test": "npm run test -w @toastmasters/core && npm run test -w @toastmasters/desktop"
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "npm run test -w @toastmasters/core && npm run test -w @toastmasters/desktop && npm run lint"
   }
 }

@@ -1293,7 +1293,7 @@ so **minor bump → `1.6.0`.**_
 
 ---
 
-## Phase 21 — Production-grade refactor (minor version → 1.7.0)
+## Phase 21 — Done (Production-grade refactor, minor version → 1.7.0)
 
 > _Was **Phase 15** before the 2026-07-16 reprioritisation, then **Phase 18** before the
 > 2026-07-16 logout insertion, then **Phase 19** before the 2026-07-16 UI-polish insertion, then
@@ -1311,33 +1311,85 @@ shipped `.exe` — so **tag the resulting build with a minor bump — `1.7.0`.**
 after Phases 15–20; refactoring code those phases are still actively changing is wasted work
 (Phase 19/20 in particular rewrite much of `packages/ui`)._
 
-- [ ] **Tooling baseline:** a single shared ESLint (flat config) + Prettier setup at the repo
+- [x] **Tooling baseline:** a single shared ESLint (flat config) + Prettier setup at the repo
       root applied to every workspace; add `lint` / `format` scripts and wire `lint` into `npm test`
       and CI. Resolve every warning it surfaces (unused vars/imports, floating promises, etc.).
-- [ ] **Strict TypeScript:** enable `strict` (+ `noUncheckedIndexedAccess`,
+- [x] **Strict TypeScript:** enable `strict` (+ `noUncheckedIndexedAccess`,
       `noImplicitOverride`) in a shared base `tsconfig` that each workspace extends; eliminate
       resulting errors and stray `any`s (replace with real types from `packages/core/types.ts`).
-- [ ] **Module boundaries & dead code:** remove any code orphaned by Phases 6/10/14; ensure
+- [x] **Module boundaries & dead code:** remove any code orphaned by Phases 6/10/14; ensure
       `@toastmasters/core` and `@toastmasters/ui` only expose intended `exports` subpaths;
       keep the "core imports nothing framework-specific" invariant
       (`packages/core/tests/workspace.test.ts`) and add the equivalent guard for `packages/ui`.
-- [ ] **Error handling & logging:** replace scattered `console.log`/`console.error` with a
+- [x] **Error handling & logging:** replace scattered `console.log`/`console.error` with a
       small shared logger (levels + structured context), keeping the `ProgressReporter` callback
       seam (`packages/core/services/fetch.ts:15`) intact so the Electron live-log still works.
       Consistent error types for the auth/HTTP failure paths (`helpers/api.ts`).
-- [ ] **Naming & consistency:** uniform file/naming conventions, import ordering, and
+- [x] **Naming & consistency:** uniform file/naming conventions, import ordering, and
       barrel/`index.ts` conventions across `packages/*` and `apps/desktop`.
-- [ ] **No behaviour change / no coverage loss:** the full test suite stays green and coverage
+- [x] **No behaviour change / no coverage loss:** the full test suite stays green and coverage
       does not drop; refactors that touch logic get a test asserting the preserved behaviour.
-- [ ] **Version bump:** set every workspace `package.json` `version` to `1.7.0`; after
+- [x] **Version bump:** set every workspace `package.json` `version` to `1.7.0`; after
       validation, tag the build `v1.7.0`.
 
 **Validation:**
-1. `npm run lint` exits 0 with zero warnings; `npm run format -- --check` (or equivalent) is clean
-2. `npm test` passes with coverage ≥ the Phase 14 baseline (no regression)
-3. `npm run desktop:build` produces `Toastmasters Tools Setup 1.7.0.exe`
-4. `grep -rc "any" packages/core/*.ts packages/core/helpers` shows no new bare `any`s vs. baseline; strict flags present in the shared tsconfig
-5. `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.7.0`
+1. [x] `npm run lint` exits 0 with zero warnings; `npm run format -- --check` (or equivalent) is
+   clean. Confirmed: `npm run lint` → exit 0, zero warnings; `npm run format:check` → clean.
+2. [x] `npm test` passes with coverage ≥ the Phase 14 baseline (no regression). Confirmed:
+   **394/394** (253 core + 141 desktop) — well above the Phase 14 baseline of 288 (219 core + 69
+   desktop). Re-run after `npm run desktop:build` (which rebuilds `better-sqlite3` for Electron's
+   Node-ABI) still passed 394/394, confirming `restore:node-abi` correctly restores the
+   vitest-compatible native build.
+3. [x] `npm run desktop:build` produces `Toastmasters Tools Setup 1.7.0.exe`. Confirmed on disk:
+   `apps/desktop/release/Toastmasters Tools Setup 1.7.0.exe` (91,660,365 bytes) + its `.blockmap`.
+4. [x] `grep -rc "any" packages/core/*.ts packages/core/helpers` shows no new bare `any`s vs.
+   baseline; strict flags present in the shared tsconfig. Confirmed: 2 substring hits, both false
+   positives inside comments ("any module importing it", "correct under any cwd") in
+   `packages/core/paths.ts` — zero actual bare `any` types, matching the 0 baseline.
+   `tsconfig.base.json` carries `strict: true` plus the two new flags, `noUncheckedIndexedAccess`
+   and `noImplicitOverride`; `packages/core`, `apps/desktop`, and the new `packages/ui/tsconfig.json`
+   all extend it, and `npm run typecheck` is clean in all three workspaces.
+5. [x] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
+   `1.7.0`. Confirmed.
+
+> **Note:** All 5 validation items were independently re-run and confirmed by the docs pass, not
+> taken from any agent's self-report — including re-reading the actual source rather than trusting
+> the summary. `eslint.config.js` (new root flat config, `typescript-eslint` +
+> `eslint-config-prettier` + `eslint-plugin-react-hooks`) and `.prettierrc.json`/`.prettierignore`
+> exist as described; root `package.json` gained `lint`/`format`/`format:check` and the root `test`
+> script now chains `npm run lint` after core+desktop tests. `tsconfig.base.json` is new at the
+> repo root; `packages/core/tsconfig.json` and `apps/desktop/tsconfig.json` extend it, and
+> `packages/ui` — which had **no** `tsconfig.json` before this phase — now has one (also extending
+> the base) plus a `typecheck` script in its `package.json`. The two structured loggers
+> (`packages/core/logger.ts`, used by `packages/core/index.ts`, `services/fetch.ts`, and
+> `services/membership.ts`; `apps/desktop/src/main/logger.ts`, used by `apps/desktop/src/main/index.ts`
+> and `auth.ts`) are deliberately separate, not shared — every file under `apps/desktop/src/main`
+> except `core.ts` must never statically import `@toastmasters/core` (an invariant
+> `apps/desktop/tests/main-bundle.test.ts` enforces on the built bundle, guarding against evaluating
+> core's env-derived consts before Electron's bootstrap sets `TOASTMASTERS_DATA_DIR`), and both
+> loggers deliberately leave the `ProgressReporter` callback seam (`services/fetch.ts`,
+> `services/membership.ts`, `helpers/api.ts`) untouched — it is user-facing CLI/IPC output, not
+> diagnostic logging, and still defaults to `console.log`. `packages/core/helpers/api.ts` gained an
+> `HttpError extends Error` class (with a `.status` field) reused by `services/membership.ts`; its
+> `.message` text (`HTTP ${status} ${statusText} for ${url}`) is unchanged from the old inline error,
+> so `apps/desktop/src/renderer/views/DashboardView.tsx`'s `/HTTP 40[13]/` auth-failure regex still
+> matches — confirmed by reading both files directly. The new "packages/ui stays desktop-agnostic"
+> guard in `packages/core/tests/workspace.test.ts` mirrors the pre-existing core guard, asserting no
+> file under `packages/ui/components`/`packages/ui/lib` imports `electron` or reaches into
+> `apps/desktop`, and has a genuine negative control —
+> `packages/core/tests/fixtures/ui-boundary-offender.tsx`, a deliberately broken `.tsx` fixture
+> (never imported by real code, so `tsc` never compiles it, scanned only as text) that proves the
+> guard fails closed by importing both `electron` and `apps/desktop/src/main/auth`. Both new logger
+> unit test files (`packages/core/tests/logger.test.ts`, `apps/desktop/tests/logger.test.ts`) exist
+> and pin level→console-method routing and empty-vs-non-empty-context call arity. A repo-wide grep
+> for `TODO`/`FIXME`/`@deprecated` across `packages/` and `apps/` (excluding tests) came back empty —
+> a legitimate "confirm and close," matching how Phase 16 closed its "What's New" item, not a
+> skipped check. `packages/core/tsconfig.json`'s `include` (`**/*.ts`) covers `tests/` again, so the
+> mid-phase exclusion mentioned in the implementation history is reverted, as claimed. **This is a
+> behind-the-scenes refactor with no user-facing `.exe` behaviour change**, so — unlike Phases 16,
+> 17, 19, and 20 — there is correctly no "manual, confirmed by user" checkbox in this phase's
+> Validation list; none was fabricated here. **`v1.7.0` has not been tagged yet** — that remains a
+> separate step after this docs pass, per the same pattern Phases 18, 19, and 20 left open.
 
 ---
 

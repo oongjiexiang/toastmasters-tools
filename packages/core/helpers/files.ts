@@ -10,9 +10,10 @@ export function findLatestMembershipFile(dir: string): string {
     .sort() // lexicographic sort works fine for YYYY-MM-DD
     .reverse();
 
-  if (files.length === 0) {
+  const [latest] = files;
+  if (!latest) {
     throw new Error(`No membership-YYYY-MM-DD.csv file found in: ${dir}`);
   }
 
-  return join(dir, files[0]);
+  return join(dir, latest);
 }

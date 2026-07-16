@@ -86,9 +86,7 @@ export function MemberTable({ members, onSelectMember }: MemberTableProps) {
 
   const trimmedQuery = query.trim();
   const filteredMembers = trimmedQuery
-    ? members.filter((m) =>
-        m.name.toLowerCase().includes(trimmedQuery.toLowerCase()),
-      )
+    ? members.filter((m) => m.name.toLowerCase().includes(trimmedQuery.toLowerCase()))
     : members;
 
   // Expand-all and the dead-control guard operate on the filtered list, not
@@ -147,10 +145,7 @@ export function MemberTable({ members, onSelectMember }: MemberTableProps) {
         <TableBody>
           {filteredMembers.length === 0 ? (
             <TableRow>
-              <TableCell
-                colSpan={5}
-                className="text-center text-muted-foreground py-6"
-              >
+              <TableCell colSpan={5} className="text-center text-muted-foreground py-6">
                 No members match &quot;{trimmedQuery}&quot;
               </TableCell>
             </TableRow>
@@ -160,7 +155,8 @@ export function MemberTable({ members, onSelectMember }: MemberTableProps) {
               const isExpanded = expandedRows.has(m.email);
 
               if (isSingle) {
-                const pw = m.pathways[0];
+                const [pw] = m.pathways;
+                if (!pw) return null; // isSingle guarantees exactly one entry; defensive only
                 return (
                   <TableRow
                     key={m.email}
@@ -222,11 +218,7 @@ export function MemberTable({ members, onSelectMember }: MemberTableProps) {
                         aria-label={isExpanded ? "Collapse" : "Expand"}
                         tabIndex={-1}
                       >
-                        {isExpanded ? (
-                          <ChevronDown size={16} />
-                        ) : (
-                          <ChevronRight size={16} />
-                        )}
+                        {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                       </button>
                       {m.name}
                     </div>
@@ -255,9 +247,7 @@ export function MemberTable({ members, onSelectMember }: MemberTableProps) {
                       tabIndex={0}
                       role="button"
                     >
-                      <TableCell className="pl-8 text-muted-foreground">
-                        └ {pw.pathway}
-                      </TableCell>
+                      <TableCell className="pl-8 text-muted-foreground">└ {pw.pathway}</TableCell>
                       <TableCell>
                         <TitleBadge title={pw.title} />
                       </TableCell>

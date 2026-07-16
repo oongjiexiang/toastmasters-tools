@@ -108,7 +108,13 @@ function extractImportSpecifiers(rawSrc: string): string[] {
 
   for (const re of [staticImport, bareImport, dynamicImport]) {
     let m: RegExpExecArray | null;
-    while ((m = re.exec(src)) !== null) specifiers.push(m[1]);
+    while ((m = re.exec(src)) !== null) {
+      // Capture group 1 is required by every pattern above (it is never
+      // optional), so it is always populated when the overall match succeeds;
+      // the guard exists only to satisfy noUncheckedIndexedAccess.
+      const spec = m[1];
+      if (spec) specifiers.push(spec);
+    }
   }
   return specifiers;
 }
@@ -191,7 +197,10 @@ describe("@toastmasters/core exports map", () => {
 
   it.each(EXPORT_SUBPATHS)("subpath %s resolves to a file that exists on disk", (subpath) => {
     const target = corePkg.exports[subpath];
-    expect(existsSync(resolve(CORE_DIR, target))).toBe(true);
+    // subpath is drawn from Object.keys(corePkg.exports), so target is always
+    // populated; the guard exists only to satisfy noUncheckedIndexedAccess.
+    expect(target).toBeDefined();
+    expect(existsSync(resolve(CORE_DIR, target as string))).toBe(true);
   });
 
   it.each(EXPORT_SUBPATHS)("subpath %s is importable at runtime", async (subpath) => {
@@ -304,7 +313,10 @@ describe("core stays framework-agnostic (Phase 11 Electron precondition)", () =>
   it("no core source file imports any web-only UI package", () => {
     const offenders = coreSources.flatMap((file) =>
       importSpecifiers(file)
-        .filter((spec) => FORBIDDEN_PACKAGES.includes(spec.split("/")[0]))
+        // String#split always returns a non-empty array, so [0] is always a
+        // string; the `?? spec` fallback exists only to satisfy
+        // noUncheckedIndexedAccess.
+        .filter((spec) => FORBIDDEN_PACKAGES.includes(spec.split("/")[0] ?? spec))
         .map((spec) => `${file} -> ${spec}`),
     );
     expect(offenders).toEqual([]);
@@ -326,8 +338,90 @@ describe("core stays framework-agnostic (Phase 11 Electron precondition)", () =>
       ...(raw.dependencies ?? {}),
       ...(raw.devDependencies ?? {}),
     });
-    const offenders = deps.filter((d) => FORBIDDEN_PACKAGES.includes(d.split("/")[0]));
+    const offenders = deps.filter((d) => FORBIDDEN_PACKAGES.includes(d.split("/")[0] ?? d));
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("packages/ui stays desktop-agnostic (Phase 21 module-boundaries guard)", () => {
+  // Mirrors "core stays framework-agnostic" above: packages/ui must be
+  // consumable by any future consumer (not just apps/desktop), so it must
+  // never import electron or reach into apps/desktop directly. This test
+  // lives in core's suite (not a packages/ui test of its own) because
+  // packages/ui ships no test runner/config of its own (Phase 14) and core's
+  // suite is the one that already runs first under the root `npm test`.
+  const UI_DIR = resolve(REPO_ROOT, "packages", "ui");
+  const uiGuardedSources = [
+    ...collectSourceFiles(join(UI_DIR, "components")),
+    ...collectSourceFiles(join(UI_DIR, "lib")),
+  ];
+
+  it("finds packages/ui source files to scan", () => {
+    expect(uiGuardedSources.length).toBeGreaterThan(0);
+  });
+
+  // Guards against a vacuous pass, same reasoning as the core equivalent above.
+  it("extracts real import specifiers from packages/ui sources", () => {
+    const allSpecs = uiGuardedSources.flatMap(importSpecifiers);
+    expect(allSpecs).toContain("react");
+    expect(allSpecs).toContain("@toastmasters/core/queries");
+  });
+
+  it("no packages/ui source file imports electron", () => {
+    const offenders = uiGuardedSources.flatMap((file) =>
+      importSpecifiers(file)
+        .filter((spec) => spec === "electron" || spec.startsWith("electron/"))
+        .map((spec) => `${file} -> ${spec}`),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it("no packages/ui source file reaches into apps/desktop", () => {
+    const desktopReach = /(^|\/)apps\/desktop(\/|$)/;
+    const offenders = uiGuardedSources.flatMap((file) =>
+      importSpecifiers(file)
+        .filter((spec) => desktopReach.test(spec))
+        .map((spec) => `${file} -> ${spec}`),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it("packages/ui's package.json declares no electron dependency", () => {
+    const raw = JSON.parse(readFileSync(join(UI_DIR, "package.json"), "utf8"));
+    const deps = Object.keys({
+      ...(raw.dependencies ?? {}),
+      ...(raw.devDependencies ?? {}),
+    });
+    expect(deps).not.toContain("electron");
+  });
+});
+
+describe("negative control: the packages/ui boundary guard fails closed", () => {
+  // Proves the guard above can actually fail, not just that it happens to
+  // pass against a codebase that is already clean — the same discipline
+  // paths.test.ts applies to the cwd-anchoring fix. This fixture is scanned
+  // as plain text; it is never compiled, executed, or imported by anything.
+  const OFFENDER_FIXTURE = join(__dirname, "fixtures", "ui-boundary-offender.tsx");
+
+  it("the fixture actually contains an electron import and an apps/desktop reach-in", () => {
+    // Sanity check on the fixture itself, so a typo in the fixture can't make
+    // the two assertions below pass vacuously.
+    const specs = importSpecifiers(OFFENDER_FIXTURE);
+    expect(specs).toContain("electron");
+    expect(specs.some((s) => /(^|\/)apps\/desktop(\/|$)/.test(s))).toBe(true);
+  });
+
+  it("the electron-import check flags the fixture", () => {
+    const offenders = importSpecifiers(OFFENDER_FIXTURE).filter(
+      (spec) => spec === "electron" || spec.startsWith("electron/"),
+    );
+    expect(offenders).not.toEqual([]);
+  });
+
+  it("the apps/desktop reach-in check flags the fixture", () => {
+    const desktopReach = /(^|\/)apps\/desktop(\/|$)/;
+    const offenders = importSpecifiers(OFFENDER_FIXTURE).filter((spec) => desktopReach.test(spec));
+    expect(offenders).not.toEqual([]);
   });
 });
 

@@ -44,8 +44,7 @@ import {
 export type QueryErrorCode = "SNAPSHOT_MISSING" | "NOT_FOUND";
 
 export type QueryResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; code: QueryErrorCode; message: string };
+  { ok: true; data: T } | { ok: false; code: QueryErrorCode; message: string };
 
 const SNAPSHOT_MISSING = {
   ok: false,
@@ -129,7 +128,7 @@ function pickOverallTitle(pathways: PathwaySummary[], credentials: string): stri
     return b.localeCompare(a);
   });
 
-  return nonEmpty[0];
+  return nonEmpty[0] ?? "";
 }
 
 // ── Queries ───────────────────────────────────────────────────────────────────
@@ -197,7 +196,10 @@ export function listMembers(dbPath?: string): QueryResult<MemberSummary[]> {
     // Skip members where ALL pathways were skipped (all UnpaidMember)
     if (pathways.length === 0) continue;
 
-    const firstRow = rows[0];
+    // rows is always non-empty here: byEmail only gains an entry when at least
+    // one progress row was grouped into it (see the loop above).
+    const [firstRow] = rows;
+    if (!firstRow) continue;
     const name = `${firstRow.firstName} ${firstRow.lastName}`;
     const overallTitle = pickOverallTitle(pathways, membership?.credentials ?? "");
 
@@ -220,9 +222,7 @@ export function getMemberDetail(
     return SNAPSHOT_MISSING;
   }
 
-  const progressRow = progressRows.find(
-    (p) => p.email === email && p.pathName === pathway,
-  );
+  const progressRow = progressRows.find((p) => p.email === email && p.pathName === pathway);
   if (!progressRow) {
     return NOT_FOUND;
   }
@@ -246,9 +246,7 @@ export function getMemberDetail(
   };
 
   const levels: LevelGroup[] = allLevels.map((level) => {
-    const filtered = projectRows.filter(
-      (r) => r.level === level && !isOverviewLesson(r.lesson),
-    );
+    const filtered = projectRows.filter((r) => r.level === level && !isOverviewLesson(r.lesson));
     const projectsDone = filtered.filter((r) => r.complete).length;
     const projectsTotal = filtered.length;
     const projects = filtered.map((r) => ({

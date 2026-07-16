@@ -94,10 +94,9 @@ export function DashboardView({ onSelectMember }: DashboardViewProps) {
     try {
       const status = await logIn();
       if (status.basecamp || status.ti) {
-        toast.success(
-          "Signed in to Toastmasters — now use the Refresh buttons to load data",
-          { id },
-        );
+        toast.success("Signed in to Toastmasters — now use the Refresh buttons to load data", {
+          id,
+        });
         await loadMembers();
         await loadAuthStatus();
         return true;
@@ -141,8 +140,10 @@ export function DashboardView({ onSelectMember }: DashboardViewProps) {
         id,
         action: {
           label: "Log in again",
-          onClick: async () => {
-            if (await handleLogin()) retry();
+          onClick: () => {
+            void (async () => {
+              if (await handleLogin()) retry();
+            })();
           },
         },
       });
@@ -188,9 +189,7 @@ export function DashboardView({ onSelectMember }: DashboardViewProps) {
       const savedTo = await downloadMembershipCsv();
       if (savedTo) toast.success(`Saved to ${savedTo}`);
     } catch (e) {
-      toast.error(
-        e instanceof Error ? e.message.split("\n")[0] : "Download failed",
-      );
+      toast.error(e instanceof Error ? e.message.split("\n")[0] : "Download failed");
     }
   }
 
@@ -246,8 +245,8 @@ export function DashboardView({ onSelectMember }: DashboardViewProps) {
         memberCount={members?.length ?? null}
         refreshingProgress={refreshingProgress}
         refreshingMembership={refreshingMembership}
-        onRefreshProgress={handleRefreshProgress}
-        onRefreshMembership={handleRefreshMembership}
+        onRefreshProgress={() => void handleRefreshProgress()}
+        onRefreshMembership={() => void handleRefreshMembership()}
         authControl={
           <>
             <AuthStatusBadge status={authStatus} />
@@ -265,16 +264,14 @@ export function DashboardView({ onSelectMember }: DashboardViewProps) {
           </>
         }
         membershipCsvControl={
-          <Button variant="outline" size="sm" onClick={handleDownloadCsv}>
+          <Button variant="outline" size="sm" onClick={() => void handleDownloadCsv()}>
             <Download className="h-4 w-4" />
             Membership CSV
           </Button>
         }
         themeControl={<ThemeToggle />}
       />
-      {(refreshing || log.length > 0) && (
-        <RefreshConsole lines={log} active={refreshing} />
-      )}
+      {(refreshing || log.length > 0) && <RefreshConsole lines={log} active={refreshing} />}
       {renderBody()}
     </main>
   );
@@ -287,11 +284,7 @@ export function DashboardView({ onSelectMember }: DashboardViewProps) {
 function AuthStatusBadge({ status }: { status: AuthStatus | null }) {
   const label = describeAuthStatus(status);
   const variant =
-    label === "Logged in"
-      ? "default"
-      : label === "Not logged in"
-        ? "outline"
-        : "secondary";
+    label === "Logged in" ? "default" : label === "Not logged in" ? "outline" : "secondary";
 
   return (
     <Badge variant={variant}>

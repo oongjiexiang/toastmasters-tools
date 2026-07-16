@@ -10,13 +10,7 @@ export function pathwayInitials(name: string): string {
     .join("");
 }
 
-export const STANDARD_LEVELS = [
-  "Level 1",
-  "Level 2",
-  "Level 3",
-  "Level 4",
-  "Level 5",
-] as const;
+export const STANDARD_LEVELS = ["Level 1", "Level 2", "Level 3", "Level 4", "Level 5"] as const;
 
 /**
  * Returns true when the given level is considered completed/approved for this
@@ -25,10 +19,7 @@ export const STANDARD_LEVELS = [
  * For Level 1–5: the "Level N Approved" column must equal "true".
  * For "Path Completion": Completed >= Total (and Total > 0).
  */
-export function isLevelDone(
-  prog: Record<string, string>,
-  level: string
-): boolean {
+export function isLevelDone(prog: Record<string, string>, level: string): boolean {
   if (level === "Path Completion") {
     const completed = parseInt(prog["Path Completion Completed"] ?? "0", 10);
     const total = parseInt(prog["Path Completion Total"] ?? "0", 10);
@@ -60,8 +51,12 @@ export function isOverviewLesson(lesson: string): boolean {
 }
 
 export function nextLevelFromFlags(p: {
-  level1: boolean; level2: boolean; level3: boolean;
-  level4: boolean; level5: boolean; pathDone: boolean;
+  level1: boolean;
+  level2: boolean;
+  level3: boolean;
+  level4: boolean;
+  level5: boolean;
+  pathDone: boolean;
 }): string {
   if (!p.level1) return "Level 1";
   if (!p.level2) return "Level 2";

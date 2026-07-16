@@ -79,12 +79,16 @@ All commands are run from the repository root.
 | `npm run cli` | core | Interactive launcher — choose which scripts to run |
 | `npm run desktop:dev` | desktop | Run the Electron desktop app with hot reload |
 | `npm run desktop:build` | desktop | Build the Windows installer (`apps/desktop/release/*.exe`) |
-| `npm test` | core + desktop | Run the full unit/IPC/bundle test suite (core → desktop) |
+| `npm test` | root | Run the full unit/IPC/bundle test suite (core → desktop) **then `npm run lint`** |
+| `npm run lint` | root | ESLint (flat config) across every workspace |
+| `npm run format` | root | Format the whole repo with Prettier (writes changes) |
+| `npm run format:check` | root | Check Prettier formatting with no writes (used in CI) |
 
-Workspace-only scripts (coverage, watch mode) are run with `-w`:
+Workspace-only scripts (coverage, watch mode, typecheck) are run with `-w`:
 
 ```bash
 npm run test:coverage -w @toastmasters/core
+npm run typecheck -w @toastmasters/core     # also available for @toastmasters/ui, @toastmasters/desktop
 ```
 
 ## Dashboard
@@ -270,4 +274,28 @@ loads the repo-root `.env` as a side effect.
 
 Core must stay free of `next` and `react` imports — a test in
 `packages/core/tests/workspace.test.ts` enforces this, because that invariant is what lets the
-Electron [desktop app](#desktop-app) reuse the same code.
+Electron [desktop app](#desktop-app) reuse the same code. `packages/ui` is held to the same rule
+in reverse — it must never import `electron` or reach into `apps/desktop` — guarded by a mirrored
+test in the same file, with a deliberately-broken fixture
+(`packages/core/tests/fixtures/ui-boundary-offender.tsx`) proving the guard actually fails closed.
+
+## Tooling
+
+- **Linting:** a single root-level ESLint flat config (`eslint.config.js`) covers every workspace —
+  type-aware rules (`typescript-eslint`'s `recommendedTypeChecked`) for real source, plain syntactic
+  rules for tests and config files. Run `npm run lint`; it's also chained onto `npm test`.
+- **Formatting:** Prettier (`.prettierrc.json`) with `npm run format` (writes) and
+  `npm run format:check` (CI-friendly, no writes). `eslint-config-prettier` disables any ESLint
+  stylistic rule that would fight Prettier.
+- **TypeScript:** a shared `tsconfig.base.json` at the repo root sets `strict: true` plus
+  `noUncheckedIndexedAccess` and `noImplicitOverride`. `packages/core`, `packages/ui`, and
+  `apps/desktop` each have their own `tsconfig.json` that `extend`s the base and adds
+  workspace-specific settings (JSX, `paths`, etc.); each workspace exposes its own
+  `npm run typecheck -w <name>` script.
+- **Logging:** two small structured loggers — `packages/core/logger.ts` and
+  `apps/desktop/src/main/logger.ts` — expose the same `debug`/`info`/`warn`/`error` shape with
+  optional structured context. They're kept separate rather than shared because `apps/desktop/src/main`
+  files (other than `core.ts`) must never statically import `@toastmasters/core` (see
+  [Importing core](#importing-core) above). Neither replaces the `ProgressReporter` callback used
+  for user-facing fetch/refresh progress lines — that stays a plain callback defaulting to
+  `console.log`.

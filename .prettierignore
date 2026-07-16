@@ -1,0 +1,29 @@
+# Build output / vendored / data — never our source.
+node_modules
+out
+release
+coverage
+dist
+results
+package-lock.json
+*.sqlite
+.env
+.env.example
+
+# Documentation is out of scope for this pass (docs agent owns it).
+specs
+*.md
+
+# Tests are owned by the tester agent, not this developer pass.
+**/tests/**
+**/*.test.ts
+**/*.test.tsx
+
+# Repo/agent tooling infra unrelated to the app workspaces.
+.claude
+.github
+.markdownlint-cli2.jsonc
+
+# CI/release/build configuration — not part of the "every workspace" source
+# surface this phase's lint/format baseline targets.
+apps/desktop/electron-builder.yml

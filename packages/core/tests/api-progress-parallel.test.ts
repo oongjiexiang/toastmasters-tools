@@ -316,7 +316,9 @@ describe("fetchAllProgress — fallback path when `next` doesn't match page=N (C
     // ignore the cursor and request `?...&page=2` (or `page=3`) instead of the
     // literal `next` URL the server returned — this exact-string comparison
     // (and the absence of any `page=` param) would fail against that code.
-    const secondCallUrl = fetchMock.mock.calls[1][0] as string;
+    const secondCall = fetchMock.mock.calls[1];
+    if (!secondCall) throw new Error("expected fetchAllProgress to have called fetch twice");
+    const secondCallUrl = secondCall[0] as string;
     expect(secondCallUrl).toBe(expectedNextUrl);
     expect(secondCallUrl).not.toMatch(/page=/);
     expect(members.map((m) => m.user.username)).toEqual([

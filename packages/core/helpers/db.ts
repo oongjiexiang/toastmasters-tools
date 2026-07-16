@@ -97,12 +97,12 @@ export function snapshotMembership(
 ): void {
   const db = openDb(dbPath);
 
-  const rows = parse(csvString, {
+  const rows: Record<string, string>[] = parse(csvString, {
     columns: true,
     skip_empty_lines: true,
     trim: true,
     relax_column_count: true,
-  }) as Record<string, string>[];
+  });
 
   const insert = db.prepare(`
     INSERT INTO membership_snapshots (captured_at, email, name, status, credentials)
@@ -175,11 +175,15 @@ export function getLatestProjects(
   if (!existsSync(dbPath)) return [];
   const db = openDb(dbPath);
 
-  const latestRow = db.prepare(`
+  const latestRow = db
+    .prepare(
+      `
     SELECT captured_at FROM project_snapshots
     WHERE email = ? AND path_name = ?
     ORDER BY captured_at DESC LIMIT 1
-  `).get(email, pathName) as { captured_at: string } | undefined;
+  `,
+    )
+    .get(email, pathName) as { captured_at: string } | undefined;
 
   if (!latestRow) {
     db.close();
@@ -195,14 +199,18 @@ export function getLatestProjects(
     type: string;
   };
 
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT email, path_name, level, lesson, complete, type
     FROM project_snapshots WHERE captured_at = ? AND email = ? AND path_name = ?
-  `).all(latestRow.captured_at, email, pathName) as RawRow[];
+  `,
+    )
+    .all(latestRow.captured_at, email, pathName) as RawRow[];
 
   db.close();
 
-  return rows.map(r => ({
+  return rows.map((r) => ({
     email: r.email,
     pathName: r.path_name,
     level: r.level,
@@ -252,11 +260,12 @@ export interface MembershipDiff {
 // ── Diff queries ──────────────────────────────────────────────────────────────
 
 function twoLatestDates(db: Database.Database, table: string): [string, string] | null {
-  const rows = db.prepare(
-    `SELECT DISTINCT captured_at FROM ${table} ORDER BY captured_at DESC LIMIT 2`
-  ).all() as { captured_at: string }[];
-  if (rows.length < 2) return null;
-  return [rows[1].captured_at, rows[0].captured_at]; // [older, newer]
+  const rows = db
+    .prepare(`SELECT DISTINCT captured_at FROM ${table} ORDER BY captured_at DESC LIMIT 2`)
+    .all() as { captured_at: string }[];
+  const [newer, older] = rows; // rows is DESC, so index 0 is the newer snapshot
+  if (!newer || !older) return null;
+  return [older.captured_at, newer.captured_at];
 }
 
 export function getProgressDiff(dbPath = DEFAULT_DB_PATH): ProgressDiff | null {
@@ -271,13 +280,27 @@ export function getProgressDiff(dbPath = DEFAULT_DB_PATH): ProgressDiff | null {
   const [older, newer] = dates;
 
   type RawRow = {
-    email: string; first_name: string; last_name: string; path_name: string;
-    ol1: number; nl1: number; ol2: number; nl2: number;
-    ol3: number; nl3: number; ol4: number; nl4: number;
-    ol5: number; nl5: number; opd: number; npd: number;
+    email: string;
+    first_name: string;
+    last_name: string;
+    path_name: string;
+    ol1: number;
+    nl1: number;
+    ol2: number;
+    nl2: number;
+    ol3: number;
+    nl3: number;
+    ol4: number;
+    nl4: number;
+    ol5: number;
+    nl5: number;
+    opd: number;
+    npd: number;
   };
 
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT
       n.email, n.first_name, n.last_name, n.path_name,
       o.level_1 AS ol1, n.level_1 AS nl1,
@@ -292,11 +315,13 @@ export function getProgressDiff(dbPath = DEFAULT_DB_PATH): ProgressDiff | null {
       AND (n.level_1 != o.level_1 OR n.level_2 != o.level_2 OR n.level_3 != o.level_3
         OR n.level_4 != o.level_4 OR n.level_5 != o.level_5 OR n.path_done != o.path_done)
     ORDER BY n.last_name, n.first_name
-  `).all(newer, older) as RawRow[];
+  `,
+    )
+    .all(newer, older) as RawRow[];
 
   db.close();
 
-  const changes: ProgressChange[] = rows.map(r => {
+  const changes: ProgressChange[] = rows.map((r) => {
     const gained: string[] = [];
     if (!r.ol1 && r.nl1) gained.push("Level 1");
     if (!r.ol2 && r.nl2) gained.push("Level 2");
@@ -304,7 +329,13 @@ export function getProgressDiff(dbPath = DEFAULT_DB_PATH): ProgressDiff | null {
     if (!r.ol4 && r.nl4) gained.push("Level 4");
     if (!r.ol5 && r.nl5) gained.push("Level 5");
     if (!r.opd && r.npd) gained.push("Path Completion");
-    return { email: r.email, firstName: r.first_name, lastName: r.last_name, pathName: r.path_name, gained };
+    return {
+      email: r.email,
+      firstName: r.first_name,
+      lastName: r.last_name,
+      pathName: r.path_name,
+      gained,
+    };
   });
 
   return { older, newer, changes };
@@ -321,27 +352,44 @@ export function getMembershipDiff(dbPath = DEFAULT_DB_PATH): MembershipDiff | nu
 
   const [older, newer] = dates;
 
-  const joined = db.prepare(`
+  const joined = db
+    .prepare(
+      `
     SELECT n.email, n.name, n.status FROM membership_snapshots n
     WHERE n.captured_at = ?
       AND NOT EXISTS (SELECT 1 FROM membership_snapshots o WHERE o.email = n.email AND o.captured_at = ?)
     ORDER BY n.name
-  `).all(newer, older) as MembershipRow[];
+  `,
+    )
+    .all(newer, older) as MembershipRow[];
 
-  const left = db.prepare(`
+  const left = db
+    .prepare(
+      `
     SELECT o.email, o.name, o.status FROM membership_snapshots o
     WHERE o.captured_at = ?
       AND NOT EXISTS (SELECT 1 FROM membership_snapshots n WHERE n.email = o.email AND n.captured_at = ?)
     ORDER BY o.name
-  `).all(older, newer) as MembershipRow[];
+  `,
+    )
+    .all(older, newer) as MembershipRow[];
 
-  const statusChangedRaw = db.prepare(`
+  const statusChangedRaw = db
+    .prepare(
+      `
     SELECT n.email, n.name, o.status AS old_status, n.status AS new_status
     FROM membership_snapshots n
     JOIN membership_snapshots o ON n.email = o.email
     WHERE n.captured_at = ? AND o.captured_at = ? AND n.status != o.status
     ORDER BY n.name
-  `).all(newer, older) as Array<{ email: string; name: string; old_status: string; new_status: string }>;
+  `,
+    )
+    .all(newer, older) as Array<{
+    email: string;
+    name: string;
+    old_status: string;
+    new_status: string;
+  }>;
 
   db.close();
 
@@ -350,8 +398,11 @@ export function getMembershipDiff(dbPath = DEFAULT_DB_PATH): MembershipDiff | nu
     newer,
     joined,
     left,
-    statusChanged: statusChangedRaw.map(r => ({
-      email: r.email, name: r.name, oldStatus: r.old_status, newStatus: r.new_status,
+    statusChanged: statusChangedRaw.map((r) => ({
+      email: r.email,
+      name: r.name,
+      oldStatus: r.old_status,
+      newStatus: r.new_status,
     })),
   };
 }
@@ -391,26 +442,41 @@ export function getLatestProgress(dbPath = DEFAULT_DB_PATH): ProgressSnapshot[] 
   if (!existsSync(dbPath)) return null;
   const db = openDb(dbPath);
 
-  const latest = db.prepare(
-    "SELECT captured_at FROM progress_snapshots ORDER BY captured_at DESC LIMIT 1"
-  ).get() as { captured_at: string } | undefined;
+  const latest = db
+    .prepare("SELECT captured_at FROM progress_snapshots ORDER BY captured_at DESC LIMIT 1")
+    .get() as { captured_at: string } | undefined;
 
-  if (!latest) { db.close(); return null; }
+  if (!latest) {
+    db.close();
+    return null;
+  }
 
   type RawRow = {
-    email: string; first_name: string; last_name: string; path_name: string;
-    level_1: number; level_2: number; level_3: number; level_4: number; level_5: number; path_done: number;
+    email: string;
+    first_name: string;
+    last_name: string;
+    path_name: string;
+    level_1: number;
+    level_2: number;
+    level_3: number;
+    level_4: number;
+    level_5: number;
+    path_done: number;
   };
 
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT email, first_name, last_name, path_name,
            level_1, level_2, level_3, level_4, level_5, path_done
     FROM progress_snapshots WHERE captured_at = ?
-  `).all(latest.captured_at) as RawRow[];
+  `,
+    )
+    .all(latest.captured_at) as RawRow[];
 
   db.close();
 
-  return rows.map(r => ({
+  return rows.map((r) => ({
     email: r.email,
     firstName: r.first_name,
     lastName: r.last_name,
@@ -428,15 +494,20 @@ export function getLatestMembership(dbPath = DEFAULT_DB_PATH): MembershipSnapsho
   if (!existsSync(dbPath)) return null;
   const db = openDb(dbPath);
 
-  const latest = db.prepare(
-    "SELECT captured_at FROM membership_snapshots ORDER BY captured_at DESC LIMIT 1"
-  ).get() as { captured_at: string } | undefined;
+  const latest = db
+    .prepare("SELECT captured_at FROM membership_snapshots ORDER BY captured_at DESC LIMIT 1")
+    .get() as { captured_at: string } | undefined;
 
-  if (!latest) { db.close(); return null; }
+  if (!latest) {
+    db.close();
+    return null;
+  }
 
-  const rows = db.prepare(
-    "SELECT email, name, status, credentials FROM membership_snapshots WHERE captured_at = ?"
-  ).all(latest.captured_at) as MembershipSnapshotRow[];
+  const rows = db
+    .prepare(
+      "SELECT email, name, status, credentials FROM membership_snapshots WHERE captured_at = ?",
+    )
+    .all(latest.captured_at) as MembershipSnapshotRow[];
 
   db.close();
   return rows;

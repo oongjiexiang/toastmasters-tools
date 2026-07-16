@@ -89,7 +89,9 @@ export function upsertCredential(file: string, key: string, value: string): void
 
   let replaced = false;
   for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trimStart();
+    const line = lines[i];
+    if (line === undefined) continue;
+    const trimmed = line.trimStart();
     // Skip comments so the template's "# BASECAMP_SESSIONID: …" hint is never
     // mistaken for the assignment line.
     if (trimmed.startsWith("#")) continue;
