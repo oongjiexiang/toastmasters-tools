@@ -91,10 +91,7 @@ export function LevelAccordion({ levels }: LevelAccordionProps) {
                 {level.projects.length === 0 ? (
                   <p className="text-muted-foreground text-sm py-2 px-1">
                     No project data for this level. Run{" "}
-                    <code className="bg-muted px-1 rounded text-xs">
-                      npm run fetch
-                    </code>{" "}
-                    to refresh.
+                    <code className="bg-muted px-1 rounded text-xs">npm run fetch</code> to refresh.
                   </p>
                 ) : (
                   <div className="divide-y">

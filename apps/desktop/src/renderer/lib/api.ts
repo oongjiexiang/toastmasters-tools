@@ -7,11 +7,7 @@
  */
 
 import type { AuthStatus, IpcResult } from "../../shared/ipc";
-import type {
-  DiffResult,
-  MemberDetail,
-  MemberSummary,
-} from "@toastmasters/core/queries";
+import type { DiffResult, MemberDetail, MemberSummary } from "@toastmasters/core/queries";
 
 export type { AuthStatus, DiffResult, MemberDetail, MemberSummary };
 
@@ -39,10 +35,7 @@ export async function getMembers(): Promise<MemberSummary[]> {
   return unwrap(await window.toastmasters.listMembers());
 }
 
-export async function getMember(
-  email: string,
-  pathway: string,
-): Promise<MemberDetail> {
+export async function getMember(email: string, pathway: string): Promise<MemberDetail> {
   return unwrap(await window.toastmasters.getMember(email, pathway));
 }
 

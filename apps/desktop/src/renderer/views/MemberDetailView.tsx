@@ -12,11 +12,7 @@ interface MemberDetailViewProps {
   onBack: () => void;
 }
 
-export function MemberDetailView({
-  email,
-  pathway,
-  onBack,
-}: MemberDetailViewProps) {
+export function MemberDetailView({ email, pathway, onBack }: MemberDetailViewProps) {
   const [detail, setDetail] = useState<MemberDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -79,8 +75,7 @@ export function MemberDetailView({
         </div>
         <p className="text-muted-foreground text-sm">
           {detail.pathway} · Path progress: {approvedCount} of{" "}
-          {detail.levels.filter((l) => l.level !== "Path Completion").length}{" "}
-          levels approved
+          {detail.levels.filter((l) => l.level !== "Path Completion").length} levels approved
         </p>
       </div>
       <LevelAccordion levels={detail.levels} />

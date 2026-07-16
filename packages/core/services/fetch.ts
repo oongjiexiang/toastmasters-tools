@@ -3,6 +3,7 @@ import { fetchAllProgress, fetchDetail } from "../helpers/api";
 import { snapshotProgress, snapshotProjects } from "../helpers/db";
 import { getSessionId } from "../config";
 import { DetailResponse, MemberProgress } from "../types";
+import { logger } from "../logger";
 
 const DETAIL_CONCURRENCY = 5;
 
@@ -21,7 +22,7 @@ export async function main(report: ProgressReporter = console.log): Promise<void
         "  1. Log in to https://basecamp.toastmasters.org\n" +
         "  2. Open DevTools → Application → Cookies\n" +
         "  3. Copy the 'sessionid' cookie value\n" +
-        "  4. Add it to your .env file as BASECAMP_SESSIONID=<value>"
+        "  4. Add it to your .env file as BASECAMP_SESSIONID=<value>",
     );
   }
 
@@ -33,7 +34,7 @@ export async function main(report: ProgressReporter = console.log): Promise<void
 
   // Step 2: Fetch detail for each member (concurrency-limited)
   report(
-    `Step 2/3 — fetching lesson details for ${members.length} members (${DETAIL_CONCURRENCY} at a time)…`
+    `Step 2/3 — fetching lesson details for ${members.length} members (${DETAIL_CONCURRENCY} at a time)…`,
   );
   const detailEntries: Array<{ member: MemberProgress; detail: DetailResponse }> = [];
   let completed = 0;
@@ -41,13 +42,14 @@ export async function main(report: ProgressReporter = console.log): Promise<void
   for (let i = 0; i < members.length; i += DETAIL_CONCURRENCY) {
     const batch = members.slice(i, i + DETAIL_CONCURRENCY);
     const results = await Promise.allSettled(
-      batch.map((member) => fetchDetail(member.course_id, member.user.username))
+      batch.map((member) => fetchDetail(member.course_id, member.user.username)),
     );
 
-    for (let j = 0; j < batch.length; j++) {
-      const member = batch[j];
-      const label = `${member.user.first_name} ${member.user.last_name}`;
+    for (const [j, member] of batch.entries()) {
       const result = results[j];
+      if (!result) continue; // results has the same length as batch by construction
+
+      const label = `${member.user.first_name} ${member.user.last_name}`;
       completed++;
       report(`  [${completed}/${members.length}] ${label} — ${member.path_name}`);
 
@@ -57,7 +59,7 @@ export async function main(report: ProgressReporter = console.log): Promise<void
         report(
           `    Warning: could not fetch detail for ${label}: ${
             result.reason instanceof Error ? result.reason.message : result.reason
-          }`
+          }`,
         );
       }
     }
@@ -70,7 +72,7 @@ export async function main(report: ProgressReporter = console.log): Promise<void
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   main().catch((err) => {
-    console.error("Failed:", err instanceof Error ? err.message : err);
+    logger.error("fetch failed", { error: err instanceof Error ? err.message : String(err) });
     process.exit(1);
   });
 }

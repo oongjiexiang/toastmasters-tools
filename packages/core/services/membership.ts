@@ -15,6 +15,8 @@ import { mkdirSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { snapshotMembership } from "../helpers/db";
 import { RESULTS_DIR, getTiCookie } from "../config";
+import { HttpError } from "../helpers/api";
+import { logger } from "../logger";
 
 const MEMBERSHIP_URL =
   "https://www.toastmasters.org/api/sitecore/ClubMembershipLanding/ExportClubMembershipToCSVDownload";
@@ -23,9 +25,7 @@ function todayDateString(): string {
   return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 }
 
-export async function main(
-  report: (line: string) => void = console.log
-): Promise<void> {
+export async function main(report: (line: string) => void = console.log): Promise<void> {
   if (!getTiCookie()) {
     throw new Error(
       "TI_COOKIE is not set.\n" +
@@ -33,7 +33,7 @@ export async function main(
         "  How to get it:\n" +
         "    1. Log in to https://www.toastmasters.org\n" +
         "    2. Open DevTools (F12) → Application → Cookies → www.toastmasters.org\n" +
-        "    3. Copy all cookies as a single semicolon-separated string"
+        "    3. Copy all cookies as a single semicolon-separated string",
     );
   }
 
@@ -48,7 +48,7 @@ export async function main(
   });
 
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status} ${response.statusText}`);
+    throw new HttpError(response.status, `HTTP ${response.status} ${response.statusText}`);
   }
 
   const csv = await response.text();
@@ -63,7 +63,9 @@ export async function main(
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   main().catch((err) => {
-    console.error("Failed:", err instanceof Error ? err.message : err);
+    logger.error("membership download failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     process.exit(1);
   });
 }

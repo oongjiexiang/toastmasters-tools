@@ -2,11 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from "elect
 import { copyFileSync } from "fs";
 import { basename, join } from "path";
 import { IPC, type IpcResult } from "../shared/ipc";
-import {
-  credentialsFile,
-  ensureCredentialsFile,
-  loadCredentials,
-} from "./credentials";
+import { credentialsFile, ensureCredentialsFile, loadCredentials } from "./credentials";
 // auth.ts is core-free (like credentials.ts), so importing it statically here
 // does NOT breach the import-order invariant — it never evaluates config.ts.
 import {
@@ -17,6 +13,9 @@ import {
   logOut,
   runLoginFlow,
 } from "./auth";
+// logger.ts is likewise core-free — see its header comment for why main
+// doesn't route logging through @toastmasters/core/logger instead.
+import { logger } from "./logger";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Bootstrap. The order of these three steps is load-bearing — see ./core.ts.
@@ -79,10 +78,7 @@ function handle<T>(
  * Electron's session store, so routing it through `loadCore()` would needlessly
  * evaluate core (and could do so before credentials are populated).
  */
-function handleAuth<T>(
-  channel: string,
-  handler: () => Promise<IpcResult<T>>,
-): void {
+function handleAuth<T>(channel: string, handler: () => Promise<IpcResult<T>>): void {
   ipcMain.handle(channel, async () => {
     try {
       return await handler();
@@ -118,9 +114,7 @@ function handleRefresh(
 
 /** Maps core's transport-agnostic QueryResult onto the IPC envelope. */
 function fromQuery<T>(
-  result:
-    | { ok: true; data: T }
-    | { ok: false; code: string; message: string },
+  result: { ok: true; data: T } | { ok: false; code: string; message: string },
 ): IpcResult<T> {
   return result.ok
     ? { ok: true, data: result.data }
@@ -147,9 +141,7 @@ function registerIpcHandlers(): void {
 
   handleRefresh(IPC.REFRESH_PROGRESS, (core, report) => core.runFetch(report));
 
-  handleRefresh(IPC.REFRESH_MEMBERSHIP, (core, report) =>
-    core.runMembership(report),
-  );
+  handleRefresh(IPC.REFRESH_MEMBERSHIP, (core, report) => core.runMembership(report));
 
   handle(IPC.DOWNLOAD_MEMBERSHIP_CSV, async (core) => {
     const source = core.findLatestMembershipFile(core.RESULTS_DIR);
@@ -187,10 +179,7 @@ async function runLoginFromMenu(): Promise<void> {
   try {
     await runLoginFlow(CREDENTIALS_FILE);
   } catch (err) {
-    console.error(
-      "[toastmasters] login failed:",
-      err instanceof Error ? err.message : err,
-    );
+    logger.error("login failed", { error: err instanceof Error ? err.message : String(err) });
   }
   BrowserWindow.getFocusedWindow()?.webContents.reload();
 }
@@ -201,10 +190,7 @@ async function runLogoutFromMenu(): Promise<void> {
   try {
     await logOut(CREDENTIALS_FILE, session.fromPartition(LOGIN_PARTITION));
   } catch (err) {
-    console.error(
-      "[toastmasters] logout failed:",
-      err instanceof Error ? err.message : err,
-    );
+    logger.error("logout failed", { error: err instanceof Error ? err.message : String(err) });
   }
   BrowserWindow.getFocusedWindow()?.webContents.reload();
 }
@@ -288,24 +274,23 @@ void app.whenReady().then(async () => {
   // Requires app.whenReady() (session access), hence its home here. A cold first
   // run has no session yet — the try/catch makes that a no-op.
   try {
-    const harvested = await harvestCookies(
-      session.fromPartition(LOGIN_PARTITION).cookies,
-    );
+    const harvested = await harvestCookies(session.fromPartition(LOGIN_PARTITION).cookies);
     applyCookies(CREDENTIALS_FILE, harvested);
   } catch (err) {
-    console.log(
-      "[toastmasters] startup self-heal skipped:",
-      err instanceof Error ? err.message : err,
-    );
+    logger.info("startup self-heal skipped", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
   // Observability: prove at runtime — in the packaged app, where there is no
   // repo root — that core resolved its database inside userData rather than
   // somewhere in the asar.
   const { DEFAULT_DB_PATH } = await loadCore();
-  console.log(`[toastmasters] userData:    ${USER_DATA_DIR}`);
-  console.log(`[toastmasters] database:    ${DEFAULT_DB_PATH}`);
-  console.log(`[toastmasters] credentials: ${CREDENTIALS_FILE}`);
+  logger.info("startup paths", {
+    userData: USER_DATA_DIR,
+    database: DEFAULT_DB_PATH,
+    credentials: CREDENTIALS_FILE,
+  });
 
   createWindow();
 

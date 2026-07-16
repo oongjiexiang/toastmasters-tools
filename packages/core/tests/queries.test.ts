@@ -187,7 +187,11 @@ describe("listMembers status computation", () => {
     });
     const result = listMembers();
     if (!result.ok) throw new Error("expected ok");
-    return result.data[0].pathways[0];
+    const member = result.data[0];
+    if (!member) throw new Error("expected at least one member");
+    const pathway = member.pathways[0];
+    if (!pathway) throw new Error("expected at least one pathway");
+    return pathway;
   }
 
   it("reports 'completed' when every level and the path itself are approved", () => {
@@ -301,7 +305,7 @@ describe("listMembers overall title", () => {
 
     const result = listMembers();
 
-    expect(result.ok && result.data[0].title).toBe("DTM");
+    expect(result.ok && result.data[0]?.title).toBe("DTM");
   });
 
   it("picks the highest level title across a member's pathways", () => {
@@ -321,8 +325,8 @@ describe("listMembers overall title", () => {
     const result = listMembers();
 
     // DL1 vs PM3 — the numeric suffix decides, not the alphabet.
-    expect(result.ok && result.data[0].title).toBe("PM3");
-    expect(result.ok && result.data[0].pathways.map((p) => p.title)).toEqual([
+    expect(result.ok && result.data[0]?.title).toBe("PM3");
+    expect(result.ok && result.data[0]?.pathways.map((p) => p.title)).toEqual([
       "DL1",
       "PM3",
     ]);
@@ -333,7 +337,7 @@ describe("listMembers overall title", () => {
 
     const result = listMembers();
 
-    expect(result.ok && result.data[0].title).toBe("");
+    expect(result.ok && result.data[0]?.title).toBe("");
   });
 
   it("derives the title from the pathway initials, ignoring a parenthesised suffix", () => {
@@ -350,7 +354,7 @@ describe("listMembers overall title", () => {
 
     const result = listMembers();
 
-    expect(result.ok && result.data[0].title).toBe("DL2");
+    expect(result.ok && result.data[0]?.title).toBe("DL2");
   });
 });
 
@@ -496,7 +500,7 @@ describe("getMemberDetail", () => {
     const result = getMemberDetail("alice@example.com", "Presentation Mastery");
     if (!result.ok) throw new Error("expected ok");
 
-    expect(result.data.levels[0].projects).toEqual([
+    expect(result.data.levels[0]?.projects).toEqual([
       { lesson: "Ice Breaker", complete: false, type: "Core" },
     ]);
   });
@@ -511,7 +515,7 @@ describe("getMemberDetail", () => {
     const result = getMemberDetail("alice@example.com", "Presentation Mastery");
     if (!result.ok) throw new Error("expected ok");
 
-    expect(result.data.levels[2].projects[0].type).toBe("Elective");
+    expect(result.data.levels[2]?.projects[0]?.type).toBe("Elective");
   });
 
   it("titles the member from their level flags and pathway", () => {

@@ -3,11 +3,7 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { type DiffResult } from "@toastmasters/core/queries";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 
 function fmtDate(iso: string) {
@@ -50,14 +46,16 @@ export function DiffSection({ loadDiff }: DiffSectionProps) {
 
   return (
     <Collapsible open={open} onOpenChange={handleOpenChange}>
-      <CollapsibleTrigger render={
-        <Button variant="outline" size="sm" className="gap-1.5">
-          <ChevronDown
-            className={`h-4 w-4 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
-          />
-          What changed?
-        </Button>
-      } />
+      <CollapsibleTrigger
+        render={
+          <Button variant="outline" size="sm" className="gap-1.5">
+            <ChevronDown
+              className={`h-4 w-4 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+            />
+            What changed?
+          </Button>
+        }
+      />
 
       <CollapsibleContent className="mt-4 text-sm space-y-4">
         {loading && <p className="text-muted-foreground">Loading…</p>}

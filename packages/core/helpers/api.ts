@@ -1,6 +1,23 @@
 import { BASE_URL, CLUB_ID, getSessionId } from "../config";
 import { ApiResponse, DetailResponse, MemberProgress } from "../types";
 
+/**
+ * A consistent error type for every failed HTTP call the scrapers make (both
+ * `fetchPage`/`fetchDetail` here and the membership download in
+ * `services/membership.ts`). Callers that only care about the message (e.g. the
+ * renderer's toast, matched via `/HTTP 40[13]/`) see the exact same text as
+ * before — `status` is additive, not a message-shape change.
+ */
+export class HttpError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "HttpError";
+    this.status = status;
+  }
+}
+
 function buildHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     Accept: "application/json",
@@ -17,8 +34,9 @@ async function fetchPage(url: string): Promise<ApiResponse> {
   const response = await fetch(url, { headers: buildHeaders() });
 
   if (!response.ok) {
-    throw new Error(
-      `HTTP ${response.status} ${response.statusText} for ${url}`
+    throw new HttpError(
+      response.status,
+      `HTTP ${response.status} ${response.statusText} for ${url}`,
     );
   }
 
@@ -38,7 +56,7 @@ async function fetchRemainingSequentially(
   startPageNum: number,
   count: number,
   allResults: MemberProgress[],
-  report: (line: string) => void
+  report: (line: string) => void,
 ): Promise<MemberProgress[]> {
   let url: string | null = startUrl;
   let pageNum = startPageNum;
@@ -55,7 +73,7 @@ async function fetchRemainingSequentially(
 }
 
 export async function fetchAllProgress(
-  report: (line: string) => void = console.log
+  report: (line: string) => void = console.log,
 ): Promise<MemberProgress[]> {
   const firstUrl = `${BASE_URL}?club=${CLUB_ID}&page=1`;
   const page1 = await fetchPage(firstUrl);
@@ -85,13 +103,7 @@ export async function fetchAllProgress(
     count > 0;
 
   if (!canParallelize) {
-    return fetchRemainingSequentially(
-      page1.next,
-      2,
-      count,
-      [...page1.results],
-      report
-    );
+    return fetchRemainingSequentially(page1.next, 2, count, [...page1.results], report);
   }
 
   const totalPages = Math.ceil(count / pageSize);
@@ -103,15 +115,14 @@ export async function fetchAllProgress(
   }
 
   // pageResults[i] holds the results for page (i + 2); undefined = failed/missing.
-  const pageResults: Array<MemberProgress[] | undefined> = new Array(pageUrls.length);
+  const pageResults = new Array<MemberProgress[] | undefined>(pageUrls.length);
 
   for (let i = 0; i < pageUrls.length; i += PROGRESS_CONCURRENCY) {
     const batch = pageUrls.slice(i, i + PROGRESS_CONCURRENCY);
     const settled = await Promise.allSettled(batch.map((url) => fetchPage(url)));
 
-    for (let j = 0; j < batch.length; j++) {
+    for (const [j, result] of settled.entries()) {
       const index = i + j;
-      const result = settled[j];
       if (result.status === "fulfilled") {
         pageResults[index] = result.value.results;
       } else {
@@ -136,16 +147,14 @@ export async function fetchAllProgress(
   return allResults;
 }
 
-export async function fetchDetail(
-  courseId: string,
-  username: string
-): Promise<DetailResponse> {
+export async function fetchDetail(courseId: string, username: string): Promise<DetailResponse> {
   const url = `${BASE_URL}${courseId}/detail?user=${username}&page_size=5000`;
   const response = await fetch(url, { headers: buildHeaders() });
 
   if (!response.ok) {
-    throw new Error(
-      `HTTP ${response.status} ${response.statusText} for detail ${courseId} / ${username}`
+    throw new HttpError(
+      response.status,
+      `HTTP ${response.status} ${response.statusText} for detail ${courseId} / ${username}`,
     );
   }
 
