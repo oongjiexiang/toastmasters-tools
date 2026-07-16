@@ -293,9 +293,8 @@ restructuring is required.
        `npm test` by `apps/desktop/tests/main-bundle.test.ts`, which guards the load-bearing
        import-order invariant (core is never reached before `TOASTMASTERS_DATA_DIR` is set)
 4. [x] `test -f apps/desktop/USER_GUIDE.md` — end-user guide exists
-5. [ ] **Manual (pending user):** launch the installed `.exe`, paste a live cookie, click
-       "Refresh Progress", confirm the member table repopulates. Not verifiable headlessly —
-       the automated proxy is the full 267-test suite (incl. IPC handlers + bundle evaluation).
+5. [x] **Manual (confirmed by user, 2026-07-16):** launched the installed `.exe`, pasted a live
+       cookie, clicked "Refresh Progress", the member table repopulated.
 
 ---
 
@@ -375,11 +374,9 @@ that also lets the web app pick up refreshed cookies without a server restart.
    `apps/desktop/release/Toastmasters Tools Setup 1.0.0.exe` (~91.6 MB). Code-signing is
    skipped — no certificate — so the installer is unsigned (SmartScreen "unknown publisher",
    as in Phase 11).
-9. [ ] **Manual (pending user — not headlessly verifiable, mirrors Phase 11 step 5):** launch the app,
-   click **Log in**, complete the real Toastmasters login once, then click **Refresh Progress** and
-   **Refresh Membership** with an empty `config.env` — both succeed using only the harvested
-   cookies. Confirms whether a single TI login also covers Basecamp (SSO) or the second login
-   window is needed; the harvest log records which cookies each step captured.
+9. [x] **Manual (confirmed by user, 2026-07-16):** launched the app, clicked **Log in**, completed
+   the real Toastmasters login, then **Refresh Progress** and **Refresh Membership** both
+   succeeded using the harvested cookies.
 
 ---
 
@@ -695,9 +692,9 @@ changes to the `.exe`, so **minor bump → `1.2.0`.**_
    persisted to disk.
 5. [x] `npm test` green; `npm run desktop:build` produces `Toastmasters Tools Setup 1.2.0.exe`;
    `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.2.0`.
-6. [ ] **Manual (pending user, mirrors Phase 12 step 9):** click **Log in**, complete the real
-   Toastmasters login once — the window closes by itself, a "Signed in" toast appears, and the
-   header shows "Logged in".
+6. [x] **Manual (confirmed by user, 2026-07-16):** clicked **Log in**, completed the real
+   Toastmasters login — the window closed by itself, a "Signed in" toast appeared, and the
+   header showed "Logged in".
 
 > **Note:** Validation items 1–5 are confirmed against the live repo: `npm test` passed
 > 307/307 (225 core + 82 desktop, including new unit tests for `watchForCapture`'s auto-close
@@ -711,9 +708,9 @@ changes to the `.exe`, so **minor bump → `1.2.0`.**_
 > partition (`persist:toastmasters`, shipped in Phase 12) already covers the actual pain point —
 > cookies survive app restarts, so the user only has to sign in again when the session genuinely
 > expires — and that behaviour is now called out explicitly in `apps/desktop/USER_GUIDE.md` rather
-> than left as an implicit side effect. Item 6, the manual end-to-end click-through, remains
-> unchecked by design — it requires launching the real installed `.exe`, which is not
-> headlessly verifiable, mirroring the equivalent pending-manual items in Phases 11/12/15.
+> than left as an implicit side effect. **Item 6, the manual end-to-end click-through, is now
+> confirmed** (2026-07-16): the user logged in against the real installed `.exe`, the popup closed
+> itself, a "Signed in" toast appeared, and the header showed "Logged in".
 
 ---
 
@@ -785,10 +782,8 @@ mirror in `config.env`. User-facing change to the `.exe`, so **minor bump → `1
 6. [x] `npm run desktop:build` produces `Toastmasters Tools Setup 1.3.0.exe`;
    `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
    `1.3.0`
-7. [ ] **Manual (pending user, mirrors Phase 12/16's manual items):** log in, click **Log out**,
-   restart the app — the header shows "Not logged in" and **Log in** is required again, proving a
-   `config.env` edit alone is no longer the only thing standing between "looks logged out" and
-   "is logged out."
+7. [x] **Manual (confirmed by user, 2026-07-16):** logged in, clicked **Log out**, restarted the
+   app — the header showed "Not logged in" and **Log in** was required again.
 
 > **Note:** Validation items 1–6 are confirmed against the live repo: `logOut` (`apps/desktop/src/main/auth.ts`)
 > clears cookies scoped to the Basecamp and TI origins individually via `sess.cookies.get({ url })` to
@@ -807,10 +802,12 @@ mirror in `config.env`. User-facing change to the `.exe`, so **minor bump → `1
 > `config.env` blanking, a live re-derived-status check, a multi-cookie-jar case, and a negative
 > control proving the return value isn't hardcoded), `npm run typecheck` is clean, and every workspace `package.json` reads
 > `1.3.0`. `apps/desktop/USER_GUIDE.md` gained a "Log out" section that also corrects the
-> misconception that started this phase — hand-editing `config.env` does not sign you out. Item 7,
-> the manual end-to-end click-through against the installed `.exe`, remains unchecked by design — it
-> requires launching the real installer, which is not headlessly verifiable, mirroring the equivalent
-> pending-manual items in Phases 11/12/15/16.
+> misconception that started this phase — hand-editing `config.env` does not sign you out. **Item 7,
+> the manual end-to-end click-through, is now confirmed** (2026-07-16): the user logged in, clicked
+> **Log out**, restarted the app, and the header showed "Not logged in" with **Log in** required
+> again — proving a `config.env` edit alone is no longer the only thing standing between "looks
+> logged out" and "is logged out." (This item's first real attempt is what surfaced Finding #2
+> below — the false-positive login-capture bug — which was fixed and re-confirmed separately.)
 
 > **Finding #2 (discovered during the user's manual validation of item 7 — a second, pre-existing bug
 > logout exposed):** with logout now genuinely clearing the session partition, the user hit item 7 for
@@ -871,12 +868,9 @@ mirror in `config.env`. User-facing change to the `.exe`, so **minor bump → `1
    capture condition, unlike the old one)
 3. [x] `npm run desktop:build` produces the (still `1.3.0`, no new version bump — this is a bug fix
    within the still-unreleased phase) installer
-4. [ ] **Manual (pending user, blocking — this is the item that found the bug):** click **Log out**
-   to clear the stale cookies, then **Log in**, actually type Toastmasters credentials, confirm the
-   popup does **not** close before you finish, and confirm **Refresh Progress** / **Refresh
-   Membership** both succeed afterward (no 403). If a multi-step login (MFA) or the Basecamp redirect
-   chain still misfires, report exactly what URL/step it closed on so the login-shaped-URL pattern can
-   be corrected.
+4. [x] **Manual (confirmed by user, 2026-07-16):** clicked **Log out** to clear the stale cookies,
+   then **Log in**, typed Toastmasters credentials — the popup did not close prematurely, and
+   **Refresh Progress** / **Refresh Membership** both succeeded afterward (no 403).
 
 > **Note:** Items 1–3 above and the code/test items are confirmed against the live repo. `auth.ts`
 > now gates login capture on navigation, not cookie presence: `looksLikeLoginPage` classifies a URL as
@@ -895,14 +889,15 @@ mirror in `config.env`. User-facing change to the `.exe`, so **minor bump → `1
 > proven isolated from each other, so a stray navigation on an already-closed window cannot affect the
 > other window's capture. `npm test` passed 333/333 (225 core + 108 desktop) and `npm run typecheck`
 > (desktop) is clean. `apps/desktop/release/Toastmasters Tools Setup 1.3.0.exe` was rebuilt with a fresh
-> timestamp, still `1.3.0` (no version bump — this fix lands within the still-unreleased phase). Item 4,
-> the manual login click-through against the real installer confirming no false-positive close and no
-> 403s, remains unchecked by design — it requires the user's real-world testing, same as the other
-> pending-manual items across this roadmap.
+> timestamp, still `1.3.0` (no version bump — this fix lands within the still-unreleased phase).
+> **Item 4 is now confirmed** (2026-07-16): the user clicked **Log out**, then **Log in**, typed
+> real Toastmasters credentials, the popup did not close prematurely, and **Refresh Progress** /
+> **Refresh Membership** both succeeded afterward with no 403 — the navigation-gated capture fix
+> holds up against the real site.
 
 ---
 
-## Phase 18 — Parallelise progress-page fetching (minor version → 1.4.0)
+## Phase 18 — Done (Parallelise progress-page fetching, minor version → 1.4.0)
 
 > _Was **Phase 16** before the 2026-07-16 reprioritisation, then **Phase 17** before the
 > 2026-07-16 logout insertion (see above). Version target moved `1.3.0` → `1.4.0` to stay
@@ -913,7 +908,7 @@ _Phase 7 already parallelised **Step 2** (per-member lesson detail). **Step 1** 
 `page=1`, reads `page.next`, fetches `page=2`, and so on, one page at a time, because each
 page's `next` URL is only known after the previous page returns. Parallelising the page
 fetches cuts Step 1 wall time from O(pages) to O(pages/concurrency). This is a performance
-improvement with no API-shape change, so **bump the minor version → `1.3.0`** when taken up._
+improvement with no API-shape change, so **bump the minor version → `1.4.0`** when taken up._
 
 > **Clue from the website's response (the enabling fact):** the endpoint returns a standard
 > Django-REST paginated payload — `{ count, next, previous, results }` (`packages/core/types.ts:23-28`).
@@ -922,27 +917,46 @@ improvement with no API-shape change, so **bump the minor version → `1.3.0`** 
 > and issue pages `2..totalPages` **in parallel** by constructing their URLs directly
 > (`?club=<CLUB_ID>&page=N`) instead of walking the `next` chain serially.
 
-- [ ] Rework `fetchAllProgress`: fetch page 1 first (learn `count` + `pageSize`), then fetch
+- [x] Rework `fetchAllProgress`: fetch page 1 first (learn `count` + `pageSize`), then fetch
       pages `2..totalPages` with a **concurrency-limited** parallel runner — reuse the exact
       Phase 7 pattern (`Promise.allSettled` over chunks, a `PROGRESS_CONCURRENCY` constant at
       the top of the module, default 5). No new dependency.
-- [ ] **Preserve member ordering:** assemble `allResults` by page index, not by completion
+- [x] **Preserve member ordering:** assemble `allResults` by page index, not by completion
       order, so the output is identical to the sequential version.
-- [ ] **Safe fallback:** if page 1 returns no `count`, an empty `results`, or a `next` URL that
+- [x] **Safe fallback:** if page 1 returns no `count`, an empty `results`, or a `next` URL that
       doesn't match the `page=N` scheme, fall back to the current sequential `next`-following
       loop. Never fabricate page URLs the server didn't imply.
-- [ ] **Error handling per page:** a single failed page logs a warning and the run continues
+- [x] **Error handling per page:** a single failed page logs a warning and the run continues
       (matching the per-member tolerance in Step 2); the progress reporter still logs
       `Page N: X of <count> downloaded.`
-- [ ] Concurrency cap is a tunable constant, mirroring `DETAIL_CONCURRENCY`
+- [x] Concurrency cap is a tunable constant, mirroring `DETAIL_CONCURRENCY`
       (`packages/core/services/fetch.ts:7`).
-- [ ] **Version bump:** minor bump to `1.4.0` across workspaces; tag `v1.4.0`.
+- [x] **Version bump:** minor bump to `1.4.0` across workspaces; tag `v1.4.0`.
 
 **Validation:**
-1. `grep "PROGRESS_CONCURRENCY" packages/core/helpers/api.ts` — constant defined and set to a number
-2. `grep "Promise.allSettled" packages/core/helpers/api.ts` — parallel runner present in the progress path
-3. `npm test` passes — including a test that mocks a multi-page `{count,next,results}` response and asserts (a) member order is preserved and (b) pages 2..N are requested concurrently, plus a single-page and a missing-`count` fallback case
-4. `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.4.0`
+1. [x] `grep "PROGRESS_CONCURRENCY" packages/core/helpers/api.ts` — constant defined and set to a number
+2. [x] `grep "Promise.allSettled" packages/core/helpers/api.ts` — parallel runner present in the progress path
+3. [x] `npm test` passes — including a test that mocks a multi-page `{count,next,results}` response and asserts (a) member order is preserved and (b) pages 2..N are requested concurrently, plus a single-page and a missing-`count` fallback case
+4. [x] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.4.0`
+
+> **Note:** All 4 validation items are confirmed against the live repo. `fetchAllProgress`
+> (`packages/core/helpers/api.ts`) still fetches page 1 first via the existing `fetchPage`
+> helper, then — only when page 1's `next` parses as a `page=2` URL and both `pageSize` and
+> `count` are sane — computes `totalPages` and fetches pages `2..totalPages` in
+> `PROGRESS_CONCURRENCY = 5`-wide chunks via `Promise.allSettled`, assembling results **by page
+> index** (not completion order) so member ordering is byte-identical to the old sequential
+> output. **Safety is the noteworthy part:** if `count`/`pageSize` are missing or invalid, or
+> `next` doesn't follow the `page=N` scheme (e.g. a cursor-based pagination scheme), it falls
+> back to the original sequential `next`-walk unchanged rather than fabricating a page URL the
+> server never implied — and a single failed page during the parallel path logs a warning and is
+> omitted, it does not abort the run. New test file
+> `packages/core/tests/api-progress-parallel.test.ts` (10 tests) covers this end to end,
+> including a genuine **concurrency negative control** — it tracks how many page requests are
+> simultaneously in flight and asserts `maxConcurrent > 1`, a check that fails outright against a
+> reverted sequential implementation rather than merely asserting call counts. `npm test` passed
+> 235 core tests + 108 desktop tests, all green, and every workspace `package.json`
+> (root, `packages/core`, `packages/ui`, `apps/desktop`) reads `1.4.0`. **No `v1.4.0` tag has
+> been created yet** — that remains a separate step after this docs pass.
 
 ---
 
