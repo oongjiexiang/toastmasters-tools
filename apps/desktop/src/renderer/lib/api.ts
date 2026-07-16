@@ -73,6 +73,11 @@ export async function getAuthStatus(): Promise<AuthStatus> {
   return unwrap(await window.toastmasters.authStatus());
 }
 
+/** Clears the Toastmasters session; resolves to the (now-cleared) status. */
+export async function logOut(): Promise<AuthStatus> {
+  return unwrap(await window.toastmasters.logout());
+}
+
 /**
  * Subscribes to live progress lines emitted during a refresh. Returns an
  * unsubscribe function; call it on cleanup so listeners don't accumulate.

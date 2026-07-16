@@ -14,6 +14,7 @@ import {
   currentAuthStatus,
   harvestCookies,
   LOGIN_PARTITION,
+  logOut,
   runLoginFlow,
 } from "./auth";
 
@@ -173,6 +174,11 @@ function registerIpcHandlers(): void {
     const status = await currentAuthStatus(session.fromPartition(LOGIN_PARTITION));
     return { ok: true, data: status };
   });
+
+  handleAuth(IPC.AUTH_LOGOUT, async () => {
+    const status = await logOut(CREDENTIALS_FILE, session.fromPartition(LOGIN_PARTITION));
+    return { ok: true, data: status };
+  });
 }
 
 /** Runs the login flow from the menu, then reloads the focused window so the
@@ -183,6 +189,20 @@ async function runLoginFromMenu(): Promise<void> {
   } catch (err) {
     console.error(
       "[toastmasters] login failed:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+  BrowserWindow.getFocusedWindow()?.webContents.reload();
+}
+
+/** Runs the logout from the menu, then reloads the focused window so the
+ *  header badge immediately reflects the cleared session. */
+async function runLogoutFromMenu(): Promise<void> {
+  try {
+    await logOut(CREDENTIALS_FILE, session.fromPartition(LOGIN_PARTITION));
+  } catch (err) {
+    console.error(
+      "[toastmasters] logout failed:",
       err instanceof Error ? err.message : err,
     );
   }
@@ -203,6 +223,12 @@ function createMenu(): void {
             // manual fallback if login does not work.
             label: "Log in to Toastmasters…",
             click: () => void runLoginFromMenu(),
+          },
+          {
+            // Clears the live session partition (not just config.env) — see
+            // logOut's doc comment in auth.ts for why that distinction matters.
+            label: "Log out",
+            click: () => void runLogoutFromMenu(),
           },
           {
             // Without this the user has no way to enter their cookies manually.

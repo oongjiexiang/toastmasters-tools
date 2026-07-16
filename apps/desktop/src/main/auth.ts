@@ -21,7 +21,10 @@ import { upsertCredential } from "./credentials";
 
 /**
  * A persistent partition so a login survives app restarts: Chromium writes the
- * cookie jar for this partition to disk under userData.
+ * cookie jar for this partition to disk under userData. This is also the whole
+ * "credential convenience" story for Phase 16 item 5: because the partition
+ * (and its cookies) already survive an app restart, the user rarely needs to
+ * re-enter credentials at all — no autofill/prefill is needed on top of it.
  */
 export const LOGIN_PARTITION = "persist:toastmasters";
 
@@ -102,13 +105,175 @@ export function applyCookies(
 }
 
 /**
+ * The subset of Electron's `Session["cookies"]` needed to watch for a captured
+ * login live, on top of the point-in-time `get` harvestCookies already uses.
+ * Electron's real `Cookies` object (an EventEmitter) satisfies this structurally
+ * with no cast needed.
+ *
+ * NOTE (Phase 17 Finding #2): cookie presence alone is NOT a reliable "login
+ * captured" signal — an anonymous visit to a login page commonly sets a
+ * session/CSRF cookie too. `runLoginFlow` no longer uses this watcher as its
+ * capture gate (see {@link watchForNavigationCapture}); it is kept here as a
+ * still-useful, independently-tested cookie-watching primitive.
+ */
+export interface CookieWatcher extends CookieSource {
+  on(event: "changed", listener: () => void): void;
+  off(event: "changed", listener: () => void): void;
+}
+
+/**
+ * Resolves as soon as `isCaptured` is true for the live cookie state: checked
+ * immediately (covers "already logged in from a prior session") and again on
+ * every Chromium `"changed"` cookie event. `cancel()` stops listening — call it
+ * once the caller no longer needs the watch (e.g. the window closed some other
+ * way first), so no listener is ever leaked onto the long-lived partition
+ * session across repeated login attempts.
+ */
+export function watchForCapture(
+  cookieSource: CookieWatcher,
+  isCaptured: (h: HarvestedCookies) => boolean,
+): { promise: Promise<void>; cancel: () => void } {
+  let settled = false;
+  const check = () => {
+    void harvestCookies(cookieSource).then((h) => {
+      if (settled || !isCaptured(h)) return;
+      settled = true;
+      cookieSource.off("changed", check);
+      resolveFn();
+    });
+  };
+  let resolveFn!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    resolveFn = resolve;
+    cookieSource.on("changed", check);
+    check();
+  });
+  return {
+    promise,
+    cancel: () => {
+      if (settled) return;
+      settled = true;
+      cookieSource.off("changed", check);
+    },
+  };
+}
+
+/**
+ * Classifies a URL as "login-shaped": its pathname contains `login`, `signin`,
+ * `sso`, or `auth` as a case-insensitive substring. Deliberately loose — we
+ * don't control TI/Basecamp's URL scheme, so this is a heuristic, not an exact
+ * match. An unparsable URL is treated as not login-shaped (never blocks
+ * capture on a malformed value).
+ */
+export function looksLikeLoginPage(url: string): boolean {
+  try {
+    return /login|signin|sso|auth/i.test(new URL(url).pathname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The subset of Electron's `WebContents` needed to watch navigation for the
+ * "left the login page" signal. Electron's real `WebContents` (an
+ * EventEmitter) satisfies this structurally with no cast needed at the real
+ * call site in `openLoginWindow`.
+ */
+export interface NavigationSource {
+  on(event: "did-navigate", listener: (event: unknown, url: string) => void): void;
+  on(event: "did-navigate-in-page", listener: (event: unknown, url: string) => void): void;
+  off(event: "did-navigate", listener: (event: unknown, url: string) => void): void;
+  off(event: "did-navigate-in-page", listener: (event: unknown, url: string) => void): void;
+}
+
+/**
+ * Resolves once the login window has genuinely navigated away from a
+ * login-shaped URL (see {@link looksLikeLoginPage}) AND `isCaptured` is true
+ * for the cookies harvested at that moment. Navigation is the *gate* — it is
+ * what distinguishes "the login page merely finished its first load" (which
+ * commonly sets an anonymous session/CSRF cookie, the Phase 17 Finding #2
+ * bug) from "the server actually accepted the credentials" — but the cookies
+ * are still the real payload `applyCookies` needs, so they're harvested and
+ * checked, not assumed, once navigation clears the gate.
+ *
+ * Listens to both `did-navigate` (full navigations, including the initial
+ * load — so an "already logged in" instant redirect away from the login URL
+ * still captures immediately, preserving the pre-existing fast path) and
+ * `did-navigate-in-page` (SPA-style same-document URL changes), since it's
+ * unknown whether TI/Basecamp's login flow uses full loads or client-side
+ * routing. A navigation back onto (or a redisplay of) a login-shaped URL —
+ * e.g. a failed-login redisplay with an error query string — does not
+ * satisfy the gate and is correctly ignored.
+ *
+ * `cancel()` unsubscribes both listeners, mirroring {@link watchForCapture}'s
+ * shape, so nothing leaks across repeated login attempts if the window
+ * closes some other way first.
+ */
+export function watchForNavigationCapture(
+  webContents: NavigationSource,
+  cookieSource: CookieSource,
+  isCaptured: (h: HarvestedCookies) => boolean,
+): { promise: Promise<void>; cancel: () => void } {
+  let settled = false;
+
+  const unsubscribe = () => {
+    webContents.off("did-navigate", onNavigate);
+    webContents.off("did-navigate-in-page", onNavigate);
+  };
+
+  let resolveFn!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    resolveFn = resolve;
+  });
+
+  function onNavigate(_event: unknown, url: string): void {
+    if (settled || looksLikeLoginPage(url)) return;
+    void harvestCookies(cookieSource).then((h) => {
+      if (settled || !isCaptured(h)) return;
+      settled = true;
+      unsubscribe();
+      resolveFn();
+    });
+  }
+
+  webContents.on("did-navigate", onNavigate);
+  webContents.on("did-navigate-in-page", onNavigate);
+
+  return {
+    promise,
+    cancel: () => {
+      if (settled) return;
+      settled = true;
+      unsubscribe();
+    },
+  };
+}
+
+/**
  * Opens a login window bound to the persistent partition and resolves once the
- * user closes it. Security: the window shows a third-party page, so it runs with
+ * user closes it — or, when the watcher built by `buildCaptureSignal` resolves
+ * first (the expected path: `runLoginFlow` wires it to
+ * {@link watchForNavigationCapture}), once the window is closed programmatically
+ * so the user isn't left staring at a login page after they've already
+ * finished. `buildCaptureSignal` is a factory rather than a plain
+ * `Promise<void>` because the navigation watcher needs the window's actual
+ * `webContents` to attach its listeners to, which doesn't exist until after
+ * the `BrowserWindow` is constructed — so `openLoginWindow` invokes it itself,
+ * right after construction and before `loadURL`, and owns calling `.cancel()`
+ * on it once the window closes for any reason (captured or manual), so no
+ * listener is ever leaked onto a `webContents` whose window has gone away.
+ * Security: the window shows a third-party page, so it runs with
  * `nodeIntegration: false`, `contextIsolation: true`, `sandbox: true` and NO
  * preload — it must never reach our IPC bridge. We inject no scripts into it.
  * Needs Electron; kept thin and not unit-tested.
  */
-export function openLoginWindow(url: string): Promise<void> {
+export function openLoginWindow(
+  url: string,
+  buildCaptureSignal?: (webContents: Electron.WebContents) => {
+    promise: Promise<void>;
+    cancel: () => void;
+  },
+): Promise<void> {
   return new Promise((resolve) => {
     const win = new BrowserWindow({
       width: 1024,
@@ -123,7 +288,20 @@ export function openLoginWindow(url: string): Promise<void> {
       },
     });
 
-    win.once("closed", () => resolve());
+    const capture = buildCaptureSignal?.(win.webContents);
+
+    win.once("closed", () => {
+      capture?.cancel();
+      resolve();
+    });
+
+    if (capture) {
+      void capture.promise.then(() => {
+        capture.cancel();
+        if (!win.isDestroyed()) win.close();
+      });
+    }
+
     void win.loadURL(url);
   });
 }
@@ -132,19 +310,33 @@ export function openLoginWindow(url: string): Promise<void> {
  * Orchestrates the full login without prior knowledge of whether TI's login also
  * covers Basecamp via SSO: open the TI login window → harvest → if the Basecamp
  * `sessionid` was not captured, open the Basecamp login window and harvest again
- * → apply. The per-step logs are how the user's manual validation determines the
- * SSO-vs-two-login question.
+ * → apply. Each window auto-closes as soon as {@link watchForNavigationCapture}
+ * sees the window navigate away from a login-shaped URL AND the relevant cookie
+ * has landed, so the user gets immediate feedback that the login completed
+ * instead of having to close the window themselves — without the Phase 17
+ * Finding #2 false positive of treating a merely-loaded login page's anonymous
+ * cookies as a completed login. The per-step logs are how the user's manual
+ * validation determines the SSO-vs-two-login question.
  */
 export async function runLoginFlow(credsFile: string): Promise<AuthStatus> {
   const loginSession = session.fromPartition(LOGIN_PARTITION);
+  const cookies = loginSession.cookies;
 
-  await openLoginWindow(TI_LOGIN_URL);
-  let harvested = await harvestCookies(loginSession.cookies);
+  await openLoginWindow(TI_LOGIN_URL, (webContents) =>
+    watchForNavigationCapture(
+      webContents,
+      cookies,
+      (h) => Boolean(h.tiCookie) || Boolean(h.basecampSessionId),
+    ),
+  );
+  let harvested = await harvestCookies(cookies);
   logHarvest("after TI login", harvested);
 
   if (!harvested.basecampSessionId) {
-    await openLoginWindow(BASECAMP_LOGIN_URL);
-    harvested = await harvestCookies(loginSession.cookies);
+    await openLoginWindow(BASECAMP_LOGIN_URL, (webContents) =>
+      watchForNavigationCapture(webContents, cookies, (h) => Boolean(h.basecampSessionId)),
+    );
+    harvested = await harvestCookies(cookies);
     logHarvest("after Basecamp login", harvested);
   }
 
@@ -165,6 +357,51 @@ export async function currentAuthStatus(sess: Session): Promise<AuthStatus> {
     basecamp: Boolean(harvested.basecampSessionId),
     ti: Boolean(harvested.tiCookie),
   };
+}
+
+/**
+ * Removes every cookie Electron's `cookies.get` reports for `url`, one at a
+ * time via `cookies.remove(url, name)`. Symmetric with `harvestCookies`
+ * above, which reads cookies the exact same way (`cookieSource.get({ url })`)
+ * — so "what login harvests" and "what logout removes" are provably the same
+ * set. Deliberately not `sess.clearStorageData({ origin })`: besides taking a
+ * bare origin (no trailing slash / path) rather than the full cookie URLs
+ * used elsewhere in this module, `clearStorageData` is documented upstream in
+ * Electron as unreliable specifically for cookies, and was observed in manual
+ * testing to silently leave the session partition authenticated.
+ */
+async function clearCookiesForUrl(sess: Session, url: string): Promise<void> {
+  const cookies = await sess.cookies.get({ url });
+  await Promise.all(cookies.map((c) => sess.cookies.remove(url, c.name)));
+}
+
+/**
+ * Clears the Toastmasters session for real (Phase 17).
+ *
+ * `config.env` is only ever a durable *copy* of whatever cookies the persistent
+ * partition (`LOGIN_PARTITION`) holds — `applyCookies` writes it, but never the
+ * other way around. So blanking `BASECAMP_SESSIONID` / `TI_COOKIE` in
+ * `config.env` alone is cosmetic: the partition's cookie jar is still live on
+ * disk, and the startup self-heal in `index.ts` (which re-harvests from that
+ * same partition on every launch) would just rewrite the blanked lines right
+ * back in, silently undoing the "logout". This function clears the partition's
+ * cookies for the Basecamp and TI origins specifically — never the whole
+ * partition — so nothing else stored there is disturbed, via `sess.cookies.get`
+ * + `sess.cookies.remove` (see {@link clearCookiesForUrl}), then clears the
+ * live `process.env` and the durable `config.env` copy to match. Returns the
+ * resulting `AuthStatus` (re-derived from the now-cleared session, not assumed)
+ * so the caller can confirm the session is genuinely cleared.
+ */
+export async function logOut(credsFile: string, sess: Session): Promise<AuthStatus> {
+  await clearCookiesForUrl(sess, BASECAMP_COOKIE_URL);
+  await clearCookiesForUrl(sess, TI_COOKIE_URL);
+
+  delete process.env.BASECAMP_SESSIONID;
+  delete process.env.TI_COOKIE;
+  upsertCredential(credsFile, "BASECAMP_SESSIONID", "");
+  upsertCredential(credsFile, "TI_COOKIE", "");
+
+  return currentAuthStatus(sess);
 }
 
 function logHarvest(stage: string, harvested: HarvestedCookies): void {

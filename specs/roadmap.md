@@ -293,9 +293,8 @@ restructuring is required.
        `npm test` by `apps/desktop/tests/main-bundle.test.ts`, which guards the load-bearing
        import-order invariant (core is never reached before `TOASTMASTERS_DATA_DIR` is set)
 4. [x] `test -f apps/desktop/USER_GUIDE.md` — end-user guide exists
-5. [ ] **Manual (pending user):** launch the installed `.exe`, paste a live cookie, click
-       "Refresh Progress", confirm the member table repopulates. Not verifiable headlessly —
-       the automated proxy is the full 267-test suite (incl. IPC handlers + bundle evaluation).
+5. [x] **Manual (confirmed by user, 2026-07-16):** launched the installed `.exe`, pasted a live
+       cookie, clicked "Refresh Progress", the member table repopulated.
 
 ---
 
@@ -375,11 +374,9 @@ that also lets the web app pick up refreshed cookies without a server restart.
    `apps/desktop/release/Toastmasters Tools Setup 1.0.0.exe` (~91.6 MB). Code-signing is
    skipped — no certificate — so the installer is unsigned (SmartScreen "unknown publisher",
    as in Phase 11).
-9. [ ] **Manual (pending user — not headlessly verifiable, mirrors Phase 11 step 5):** launch the app,
-   click **Log in**, complete the real Toastmasters login once, then click **Refresh Progress** and
-   **Refresh Membership** with an empty `config.env` — both succeed using only the harvested
-   cookies. Confirms whether a single TI login also covers Basecamp (SSO) or the second login
-   window is needed; the harvest log records which cookies each step captured.
+9. [x] **Manual (confirmed by user, 2026-07-16):** launched the app, clicked **Log in**, completed
+   the real Toastmasters login, then **Refresh Progress** and **Refresh Membership** both
+   succeeded using the harvested cookies.
 
 ---
 
@@ -631,7 +628,7 @@ re-ran the test file standalone (6/6 pass) and the full suite (294/294) after th
 
 ---
 
-## Phase 16 — Desktop login clarity & credential convenience (minor → 1.2.0)
+## Phase 16 — Done (Desktop login clarity & credential convenience, minor → 1.2.0)
 
 _Four UX papercuts on the desktop login/auth surface (Phase 12). Together they make it obvious
 whether you're signed in and remove the "I clicked Log in — now what?" confusion. User-facing
@@ -643,19 +640,19 @@ changes to the `.exe`, so **minor bump → `1.2.0`.**_
 > a **confirm-and-clean**, not the removal of a live control: verify nothing stale remains, then
 > close it. Do **not** invent a button to delete.
 
-- [ ] **(item 3) Confirm no dead "What's New" control remains.** Grep the desktop menu
+- [x] **(item 3) Confirm no dead "What's New" control remains.** Grep the desktop menu
       (`apps/desktop/src/main/index.ts`), the shared header
       (`packages/ui/components/DashboardHeader.tsx`), the renderer views, and any About dialog for
       `what.?s.?new` / `changelog` / `release.?notes`. Remove anything found; otherwise record
       "none present" and close the item.
-- [ ] **(item 4) Show login state in the UI.** The backend already exists — `AUTH_STATUS` IPC +
+- [x] **(item 4) Show login state in the UI.** The backend already exists — `AUTH_STATUS` IPC +
       `currentAuthStatus()` (`apps/desktop/src/main/auth.ts:162`) report which of Basecamp / TI
       cookies are present. Surface it: the renderer calls `AUTH_STATUS` on mount (and after any
       login or refresh) and renders a status indicator in the `authControl` slot of
       `DashboardHeader` (`packages/ui/components/DashboardHeader.tsx:26`) — e.g. a green "Logged in"
       badge vs a muted "Not logged in", degrading to "Basecamp only" / "TI only" when just one
       cookie set is present. The **Log in** button stays in the same slot.
-- [ ] **(item 6) Auto-close the login popup on success + notify.** Today `openLoginWindow`
+- [x] **(item 6) Auto-close the login popup on success + notify.** Today `openLoginWindow`
       resolves only when the user manually closes the window (`win.once("closed")`,
       `apps/desktop/src/main/auth.ts:126`) — with no on-page instructions, the user doesn't know
       when they're done. Change the flow to detect a successful capture (watch the partition's
@@ -665,7 +662,7 @@ changes to the `.exe`, so **minor bump → `1.2.0`.**_
       `runLoginFlow`'s SSO two-window sequence (TI → Basecamp only if `sessionid` still missing) and
       keep manual close as the fallback (closing still harvests). Keep the window's hardened
       settings (`sandbox: true`, no preload).
-- [ ] **(item 5, "if feasible") Credential autofill / caching.** The login already uses a
+- [x] **(item 5, "if feasible") Credential autofill / caching.** The login already uses a
       **persistent** session partition (`persist:toastmasters`, `apps/desktop/src/main/auth.ts:26`),
       so cookies survive restarts — the user usually won't re-enter anything until the session
       expires. Investigate enabling Chromium **form/password autofill** in that partition so the TI
@@ -674,44 +671,244 @@ changes to the `.exe`, so **minor bump → `1.2.0`.**_
       native autofill isn't reliable, fall back to app-managed convenience — store the **last-used
       TI username** (never the password) in `config.env` and prefill it — or simply document that
       the persistent session already caches the login. **Never persist the password in plaintext.**
-- [ ] **Version bump:** minor-bump every workspace `package.json` `version` to `1.2.0`; after
+- [x] **Version bump:** minor-bump every workspace `package.json` `version` to `1.2.0`; after
       validation, tag `v1.2.0`.
 
 **Validation:**
-1. **Login state visible:** `grep -r "AUTH_STATUS" apps/desktop/src/renderer` — the renderer
+1. [x] **Login state visible:** `grep -r "AUTH_STATUS" apps/desktop/src/renderer` — the renderer
    consumes it and renders a status element; a component/unit test asserts the indicator text
    switches with the `{ basecamp, ti }` status.
-2. **Auto-close works:**
+2. [x] **Auto-close works:**
    `grep -nE "cookies.*changed|did-navigate|\.close\(\)" apps/desktop/src/main/auth.ts` — a capture
    listener closes the window; a unit test with a mocked cookie source asserts a captured cookie
    triggers close and returns the applied status; the renderer receives a login-success
    notification.
-3. **No stale What's-New control:**
+3. [x] **No stale What's-New control:**
    `grep -riE "what.?s.?new|changelog|release.?notes" apps/desktop/src packages/ui` — no hits
    (confirms item 3).
-4. **Credential convenience present, password never stored:** either autofill in the persistent
+4. [x] **Credential convenience present, password never stored:** either autofill in the persistent
    partition is demonstrated/documented, or the fallback (prefilled username / documented cookie
    caching) is in place; `grep -riE "password" apps/desktop/src` shows no plaintext password
    persisted to disk.
-5. `npm test` green; `npm run desktop:build` produces `Toastmasters Tools Setup 1.2.0.exe`;
+5. [x] `npm test` green; `npm run desktop:build` produces `Toastmasters Tools Setup 1.2.0.exe`;
    `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.2.0`.
-6. **Manual (pending user, mirrors Phase 12 step 9):** click **Log in**, complete the real
-   Toastmasters login once — the window closes by itself, a "Signed in" toast appears, and the
-   header shows "Logged in".
+6. [x] **Manual (confirmed by user, 2026-07-16):** clicked **Log in**, completed the real
+   Toastmasters login — the window closed by itself, a "Signed in" toast appeared, and the
+   header showed "Logged in".
+
+> **Note:** Validation items 1–5 are confirmed against the live repo: `npm test` passed
+> 307/307 (225 core + 82 desktop, including new unit tests for `watchForCapture`'s auto-close
+> behavior and `describeAuthStatus`'s label mapping), `npm run desktop:build` produced
+> `apps/desktop/release/Toastmasters Tools Setup 1.2.0.exe` (91.6 MB), and every workspace
+> `package.json` reads `1.2.0`. **Item 5 (credential convenience) was closed via the documented
+> fallback, not a coded feature:** no autofill or username-prefill was implemented. Electron does
+> not bundle Chromium's password-manager/autofill service, and prefilling by scraping the real TI
+> login form's field selectors was ruled out as too fragile to maintain (an unversioned,
+> third-party page whose markup can change without notice). The existing persistent session
+> partition (`persist:toastmasters`, shipped in Phase 12) already covers the actual pain point —
+> cookies survive app restarts, so the user only has to sign in again when the session genuinely
+> expires — and that behaviour is now called out explicitly in `apps/desktop/USER_GUIDE.md` rather
+> than left as an implicit side effect. **Item 6, the manual end-to-end click-through, is now
+> confirmed** (2026-07-16): the user logged in against the real installed `.exe`, the popup closed
+> itself, a "Signed in" toast appeared, and the header showed "Logged in".
 
 ---
 
-## Phase 17 — Parallelise progress-page fetching (minor version → 1.3.0)
+> **Reprioritisation (2026-07-16, VPE request):** the desktop logout flow below is inserted as
+> the new **Phase 17** — the next highest-priority work, requested directly by the VPE — pushing
+> the previously-planned Phase 17 (parallelise progress fetching) down to **Phase 18** and Phase 18
+> (production-grade refactor) down to **Phase 19**. Version targets re-sequenced to stay
+> monotonic: `1.3.0` (logout) → `1.4.0` (parallelise) → `1.5.0` (refactor).
 
-> _Was **Phase 16** before the 2026-07-16 reprioritisation; the `1.3.0` version target is
-> unchanged (the two new phases land at `1.1.1` and `1.2.0`, so this stays monotonic)._
+---
+
+## Phase 17 — Done (Desktop logout (clear session cookies), minor → 1.3.0)
+
+_The VPE discovered that deleting the cookie values from `config.env` by hand does **not**
+actually log the app out: on the next launch the values reappear. Investigation traced this to
+the persistent Electron session partition (`persist:toastmasters`,
+`apps/desktop/src/main/auth.ts:29`) introduced in Phase 12 — it still holds the live Basecamp/TI
+cookies on disk, and the **startup self-heal** (`apps/desktop/src/main/index.ts`, inside
+`app.whenReady()`) re-harvests them into `config.env` on every launch, silently undoing the manual
+edit. This phase adds a real **Log out** action that clears the partition itself, not just its
+mirror in `config.env`. User-facing change to the `.exe`, so **minor bump → `1.3.0`.**_
+
+> **Finding (grounds this phase):** `config.env` is only ever a durable *copy* of whatever cookies
+> the persistent partition holds (`applyCookies`, `apps/desktop/src/main/auth.ts`) — it is never
+> the source of truth. Any logout must clear the partition's cookie jar; clearing `config.env`
+> alone is cosmetic and gets overwritten by the very next self-heal.
+
+- [x] **`auth.ts`: `logOut(credsFile, session)`.** Clears cookies scoped to the Basecamp
+      (`https://basecamp.toastmasters.org/`) and TI (`https://www.toastmasters.org/`) origins only
+      — not the whole partition, so nothing else stored there is disturbed — via `sess.cookies.get`
+      to enumerate each origin's cookies and `sess.cookies.remove(url, name)` to delete them one at a
+      time, mirroring exactly how `harvestCookies` already reads them — then deletes
+      `BASECAMP_SESSIONID` / `TI_COOKIE` from `process.env` (so a live scraper call sees them as
+      unset immediately, matching the Phase 12 "dynamic cookie reads" behaviour) and blanks both
+      lines in `config.env` by reusing the `credentials.ts` `upsertCredential` writer (write `""`,
+      same as the template's empty placeholder). Returns the resulting `AuthStatus` so the caller
+      can confirm the session is genuinely cleared, not just assume it.
+- [x] **IPC: `AUTH_LOGOUT` channel.** New channel alongside `AUTH_LOGIN` / `AUTH_STATUS` in
+      `apps/desktop/src/shared/ipc.ts`, wired through the preload `contextBridge` and the renderer's
+      `lib/api.ts`, following the exact pattern the other two auth channels already use
+      (`handleAuth`, no `loadCore()`).
+- [x] **Menu: File → Log out.** Mirrors the existing **Log in to Toastmasters…** item
+      (`apps/desktop/src/main/index.ts`) — runs the logout, then reloads the focused window so the
+      header badge immediately reflects the cleared state.
+- [x] **Renderer UX.** A **Log out** control in the same `authControl` slot as **Log in**
+      (`DashboardHeader`, `packages/ui/components/DashboardHeader.tsx`), shown only while a session
+      is actually held (`authStatus.basecamp || authStatus.ti`) so it isn't a dead button on first
+      launch. **Log in** and **Log out** are mutually exclusive — the slot renders exactly one of
+      them at a time, never both — per user UX feedback during manual testing. Loading →
+      success/error toast, matching the existing **Log in** control's pattern.
+- [x] **Update `apps/desktop/USER_GUIDE.md`** with a short "Log out" step, and correct the
+      Troubleshooting section if it currently implies editing `config.env` is sufficient to sign
+      out.
+- [x] **Version bump:** minor-bump every workspace `package.json` `version` to `1.3.0`; after
+      validation, tag `v1.3.0`.
+
+**Validation:**
+1. [x] `grep -n "AUTH_LOGOUT" apps/desktop/src/shared/ipc.ts` — channel declared
+2. [x] `grep -n "logOut" apps/desktop/src/main/auth.ts` — logout helper present, and it clears cookies
+   scoped to the Basecamp/TI origins individually via `sess.cookies.get`/`sess.cookies.remove` (not
+   e.g. a bare `session.clearStorageData()` with no `origin`, which would over-clear the partition
+   — and which was found in manual testing to silently fail to remove cookies at all)
+3. [x] `grep -i "Log out" apps/desktop/src/main/index.ts` — menu item present
+4. [x] `grep -r "AUTH_LOGOUT\|logOut" apps/desktop/src/renderer` — renderer wires the control
+5. [x] `npm test` green, including a unit test with a mocked session proving: (a) a logout clears the
+   mocked partition's cookies, `process.env`, and `config.env`, and (b) a subsequent
+   `currentAuthStatus`/self-heal-style re-harvest on that same mocked session reports both cookies
+   absent (the regression this phase exists to fix)
+6. [x] `npm run desktop:build` produces `Toastmasters Tools Setup 1.3.0.exe`;
+   `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
+   `1.3.0`
+7. [x] **Manual (confirmed by user, 2026-07-16):** logged in, clicked **Log out**, restarted the
+   app — the header showed "Not logged in" and **Log in** was required again.
+
+> **Note:** Validation items 1–6 are confirmed against the live repo: `logOut` (`apps/desktop/src/main/auth.ts`)
+> clears cookies scoped to the Basecamp and TI origins individually via `sess.cookies.get({ url })` to
+> enumerate each origin's cookies and `sess.cookies.remove(url, name)` to delete them one at a time —
+> the same per-origin scoping `harvestCookies` already reads with, never a bare unscoped call — then
+> clears `process.env.BASECAMP_SESSIONID` / `TI_COOKIE` and blanks both lines in `config.env`,
+> returning a live-re-derived `AuthStatus`. The
+> `AUTH_LOGOUT` channel is wired end-to-end (`shared/ipc.ts` → `preload/index.ts` → `main/index.ts`'s
+> `handleAuth` handler and its own **File → Log out** menu item, calling `logOut` directly, not a
+> copy of the login handler → `renderer/lib/api.ts`'s `logOut()` wrapper → the **Log out** button in
+> `DashboardView.tsx`). The renderer button renders only when `authStatus?.basecamp || authStatus?.ti`
+> is truthy, so it is never a dead control before first login — and it is mutually exclusive with
+> **Log in** (the `authControl` slot renders one or the other, never both), a fix made in response to
+> user UX feedback during manual testing. `npm test` passed 316/316 (225 core +
+> 91 desktop, including the `logOut` unit tests — origin-scoped clear, `process.env` clear,
+> `config.env` blanking, a live re-derived-status check, a multi-cookie-jar case, and a negative
+> control proving the return value isn't hardcoded), `npm run typecheck` is clean, and every workspace `package.json` reads
+> `1.3.0`. `apps/desktop/USER_GUIDE.md` gained a "Log out" section that also corrects the
+> misconception that started this phase — hand-editing `config.env` does not sign you out. **Item 7,
+> the manual end-to-end click-through, is now confirmed** (2026-07-16): the user logged in, clicked
+> **Log out**, restarted the app, and the header showed "Not logged in" with **Log in** required
+> again — proving a `config.env` edit alone is no longer the only thing standing between "looks
+> logged out" and "is logged out." (This item's first real attempt is what surfaced Finding #2
+> below — the false-positive login-capture bug — which was fixed and re-confirmed separately.)
+
+> **Finding #2 (discovered during the user's manual validation of item 7 — a second, pre-existing bug
+> logout exposed):** with logout now genuinely clearing the session partition, the user hit item 7 for
+> real for the first time — and found that clicking **Log in** against a truly empty partition closes
+> the popup **instantly, before any credentials are typed**, then reports "Signed in," then Refresh
+> fails with **403** on both Basecamp and TI. Root cause, confirmed by reading `harvestCookies`
+> (`apps/desktop/src/main/auth.ts`): the "login captured" check treats **any cookie at all** as proof
+> of authentication — TI's branch joins whatever cookies exist for `www.toastmasters.org` with no
+> filter, and Basecamp's branch keys off a cookie literally named `sessionid`, which (like TI's) is
+> commonly set for an **anonymous** visitor too, not only after real authentication. Merely loading the
+> login page sets such a cookie within about a second, which the auto-close logic (Phase 16 item 6)
+> then misreads as a completed login and writes into `config.env` as if it were real. This bug has
+> existed since Phase 12/16 but was invisible until now: Phase 17's logout was previously a no-op
+> (see Finding #1 above), so the partition always still held a genuinely-authenticated cookie from the
+> last real login, and reopening **Log in** would correctly (if coincidentally) detect that real
+> session instantly. **User-confirmed: both Refresh Progress (Basecamp) and Refresh Membership (TI)
+> 403 as a result — both checks are affected, not just one.**
+>
+> **Fix (user-selected, of two options offered):** stop keying "login captured" off cookie presence at
+> all. Instead, watch the login window's `webContents` navigation — `did-navigate` /
+> `did-navigate-in-page` — and treat the login as captured only once the page has navigated **away**
+> from a login-shaped URL (path containing `login`/`signin`/`sso`/`auth`, case-insensitive) to one that
+> isn't, which can only happen after the server actually accepts the credentials (or grants access via
+> an already-valid session — the legitimate "already logged in" fast path). Still harvest cookies at
+> that point as the actual payload to apply — the navigation event is the *gate*, not a replacement for
+> cookie harvesting. This is more robust than matching a specific cookie name (doesn't depend on
+> guessing TI/Basecamp's cookie scheme, won't break if they rename cookies) but carries a known,
+> flagged risk: a multi-step login (e.g. an MFA page hosted at a URL that doesn't match the
+> login/signin/sso/auth pattern) could still cause a premature capture, and Basecamp's redirect chain
+> (`BASECAMP_LOGIN_URL` is the destination `/dashboard` page itself, not a `/login` path — the login
+> detection there depends on Basecamp actually redirecting through a login-shaped URL first) is
+> unverified against the real site. Both risks require the user's real-world testing to confirm or
+> refute; this is not headlessly verifiable, same as item 7.
+
+- [x] **`auth.ts`: replace cookie-presence capture with navigation-gated capture.** Add a
+      navigation-aware watcher (parallel to the existing `watchForCapture`, which stays for its
+      current cookie-reading role) that resolves only once the login window's `webContents` has
+      navigated to a non-login-shaped URL, then harvests cookies as before. Wire it into
+      `openLoginWindow`/`runLoginFlow` in place of the pure-cookie `watchForCapture` predicate
+      currently used for the "captured" signal (the periodic cookie read inside stays useful as the
+      actual harvest, just not as the sole gate for closing the window).
+- [x] **Unit tests** with a fake `webContents`-like `EventEmitter` (mirroring the existing
+      `CookieWatcher` fake pattern in `apps/desktop/tests/auth.test.ts`), proving: (a) a plain page
+      load of the login URL alone does **not** trigger capture even once a cookie appears; (b) capture
+      fires once navigation lands on a non-login-shaped URL; (c) an "already logged in" instant
+      redirect away from the login URL still captures immediately (preserves the fast path); (d) a
+      failed-login redisplay of the same login-shaped URL (e.g. with an error query string) does not
+      falsely capture.
+- [x] **Clear the bogus cookies already written from the false-positive bug** — not a code fix, but
+      call out in the PR/manual-test notes that a user who already hit this bug should click **Log
+      out** (now genuinely working per Finding #1) before retesting **Log in**, so stale garbage
+      cookies from an anonymous page visit aren't sitting in `config.env`.
+
+**Validation (Finding #2):**
+1. [x] `grep -nE "did-navigate" apps/desktop/src/main/auth.ts` — navigation-gated capture present
+2. [x] `npm test` green, including the four navigation-capture cases listed above (with at least one
+   proven as a negative control — a plain page load with a cookie present must NOT satisfy the new
+   capture condition, unlike the old one)
+3. [x] `npm run desktop:build` produces the (still `1.3.0`, no new version bump — this is a bug fix
+   within the still-unreleased phase) installer
+4. [x] **Manual (confirmed by user, 2026-07-16):** clicked **Log out** to clear the stale cookies,
+   then **Log in**, typed Toastmasters credentials — the popup did not close prematurely, and
+   **Refresh Progress** / **Refresh Membership** both succeeded afterward (no 403).
+
+> **Note:** Items 1–3 above and the code/test items are confirmed against the live repo. `auth.ts`
+> now gates login capture on navigation, not cookie presence: `looksLikeLoginPage` classifies a URL as
+> login-shaped by a loose, case-insensitive `login`/`signin`/`sso`/`auth` pathname substring match, and
+> the new `watchForNavigationCapture` (built on a `NavigationSource` listening to `did-navigate` and
+> `did-navigate-in-page`) resolves only once the window's `webContents` has navigated **away** from a
+> login-shaped URL AND the target cookie has landed — cookies remain the payload `applyCookies` needs,
+> but navigation is now the gate, never cookie presence alone. `openLoginWindow`/`runLoginFlow` are
+> rewired to build this watcher (via a `buildCaptureSignal` factory bound to the real window's
+> `webContents`) instead of the old cookie-only `watchForCapture`, which stays in the module only as an
+> independently-tested, no-longer-load-bearing primitive. `apps/desktop/tests/auth.test.ts` covers all
+> four roadmap-required cases (a)–(d) — including the exact false-positive regression scenario from
+> Finding #2 — plus adversarial coverage: two navigation events racing before either's cookie harvest
+> settles still resolves and unsubscribes exactly once; `cancel()` invoked from both the capture-resolved
+> path and the window's `"closed"` handler is idempotent; and the TI and Basecamp windows' watchers are
+> proven isolated from each other, so a stray navigation on an already-closed window cannot affect the
+> other window's capture. `npm test` passed 333/333 (225 core + 108 desktop) and `npm run typecheck`
+> (desktop) is clean. `apps/desktop/release/Toastmasters Tools Setup 1.3.0.exe` was rebuilt with a fresh
+> timestamp, still `1.3.0` (no version bump — this fix lands within the still-unreleased phase).
+> **Item 4 is now confirmed** (2026-07-16): the user clicked **Log out**, then **Log in**, typed
+> real Toastmasters credentials, the popup did not close prematurely, and **Refresh Progress** /
+> **Refresh Membership** both succeeded afterward with no 403 — the navigation-gated capture fix
+> holds up against the real site.
+
+---
+
+## Phase 18 — Done (Parallelise progress-page fetching, minor version → 1.4.0)
+
+> _Was **Phase 16** before the 2026-07-16 reprioritisation, then **Phase 17** before the
+> 2026-07-16 logout insertion (see above). Version target moved `1.3.0` → `1.4.0` to stay
+> monotonic behind the new logout phase._
 
 _Phase 7 already parallelised **Step 2** (per-member lesson detail). **Step 1** —
 `fetchAllProgress` in `packages/core/helpers/api.ts` — is still strictly sequential: it fetches
 `page=1`, reads `page.next`, fetches `page=2`, and so on, one page at a time, because each
 page's `next` URL is only known after the previous page returns. Parallelising the page
 fetches cuts Step 1 wall time from O(pages) to O(pages/concurrency). This is a performance
-improvement with no API-shape change, so **bump the minor version → `1.3.0`** when taken up._
+improvement with no API-shape change, so **bump the minor version → `1.4.0`** when taken up._
 
 > **Clue from the website's response (the enabling fact):** the endpoint returns a standard
 > Django-REST paginated payload — `{ count, next, previous, results }` (`packages/core/types.ts:23-28`).
@@ -720,43 +917,231 @@ improvement with no API-shape change, so **bump the minor version → `1.3.0`** 
 > and issue pages `2..totalPages` **in parallel** by constructing their URLs directly
 > (`?club=<CLUB_ID>&page=N`) instead of walking the `next` chain serially.
 
-- [ ] Rework `fetchAllProgress`: fetch page 1 first (learn `count` + `pageSize`), then fetch
+- [x] Rework `fetchAllProgress`: fetch page 1 first (learn `count` + `pageSize`), then fetch
       pages `2..totalPages` with a **concurrency-limited** parallel runner — reuse the exact
       Phase 7 pattern (`Promise.allSettled` over chunks, a `PROGRESS_CONCURRENCY` constant at
       the top of the module, default 5). No new dependency.
-- [ ] **Preserve member ordering:** assemble `allResults` by page index, not by completion
+- [x] **Preserve member ordering:** assemble `allResults` by page index, not by completion
       order, so the output is identical to the sequential version.
-- [ ] **Safe fallback:** if page 1 returns no `count`, an empty `results`, or a `next` URL that
+- [x] **Safe fallback:** if page 1 returns no `count`, an empty `results`, or a `next` URL that
       doesn't match the `page=N` scheme, fall back to the current sequential `next`-following
       loop. Never fabricate page URLs the server didn't imply.
-- [ ] **Error handling per page:** a single failed page logs a warning and the run continues
+- [x] **Error handling per page:** a single failed page logs a warning and the run continues
       (matching the per-member tolerance in Step 2); the progress reporter still logs
       `Page N: X of <count> downloaded.`
-- [ ] Concurrency cap is a tunable constant, mirroring `DETAIL_CONCURRENCY`
+- [x] Concurrency cap is a tunable constant, mirroring `DETAIL_CONCURRENCY`
       (`packages/core/services/fetch.ts:7`).
-- [ ] **Version bump:** minor bump to `1.3.0` across workspaces; tag `v1.3.0`.
+- [x] **Version bump:** minor bump to `1.4.0` across workspaces; tag `v1.4.0`.
 
 **Validation:**
-1. `grep "PROGRESS_CONCURRENCY" packages/core/helpers/api.ts` — constant defined and set to a number
-2. `grep "Promise.allSettled" packages/core/helpers/api.ts` — parallel runner present in the progress path
-3. `npm test` passes — including a test that mocks a multi-page `{count,next,results}` response and asserts (a) member order is preserved and (b) pages 2..N are requested concurrently, plus a single-page and a missing-`count` fallback case
-4. `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.3.0`
+1. [x] `grep "PROGRESS_CONCURRENCY" packages/core/helpers/api.ts` — constant defined and set to a number
+2. [x] `grep "Promise.allSettled" packages/core/helpers/api.ts` — parallel runner present in the progress path
+3. [x] `npm test` passes — including a test that mocks a multi-page `{count,next,results}` response and asserts (a) member order is preserved and (b) pages 2..N are requested concurrently, plus a single-page and a missing-`count` fallback case
+4. [x] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.4.0`
+
+> **Note:** All 4 validation items are confirmed against the live repo. `fetchAllProgress`
+> (`packages/core/helpers/api.ts`) still fetches page 1 first via the existing `fetchPage`
+> helper, then — only when page 1's `next` parses as a `page=2` URL and both `pageSize` and
+> `count` are sane — computes `totalPages` and fetches pages `2..totalPages` in
+> `PROGRESS_CONCURRENCY = 5`-wide chunks via `Promise.allSettled`, assembling results **by page
+> index** (not completion order) so member ordering is byte-identical to the old sequential
+> output. **Safety is the noteworthy part:** if `count`/`pageSize` are missing or invalid, or
+> `next` doesn't follow the `page=N` scheme (e.g. a cursor-based pagination scheme), it falls
+> back to the original sequential `next`-walk unchanged rather than fabricating a page URL the
+> server never implied — and a single failed page during the parallel path logs a warning and is
+> omitted, it does not abort the run. New test file
+> `packages/core/tests/api-progress-parallel.test.ts` (10 tests) covers this end to end,
+> including a genuine **concurrency negative control** — it tracks how many page requests are
+> simultaneously in flight and asserts `maxConcurrent > 1`, a check that fails outright against a
+> reverted sequential implementation rather than merely asserting call counts. `npm test` passed
+> 235 core tests + 108 desktop tests, all green, and every workspace `package.json`
+> (root, `packages/core`, `packages/ui`, `apps/desktop`) reads `1.4.0`. **No `v1.4.0` tag has
+> been created yet** — that remains a separate step after this docs pass.
 
 ---
 
-## Phase 18 — Production-grade refactor (minor version → 1.4.0)
+> **Reprioritisation (2026-07-16, VPE request):** the desktop UI-polish phase below is inserted
+> as the new **Phase 19** — the next highest-priority work, requested directly by the VPE —
+> pushing the production-grade refactor down to **Phase 20**. Version targets re-sequenced to stay
+> monotonic: `1.5.0` (UI polish) → `1.6.0` (refactor). The refactor keeps yielding to
+> user-facing work, and there is a second reason to order it this way: this phase touches
+> `packages/ui` heavily, and Phase 20's own rule is not to refactor code an earlier phase is
+> still actively changing.
 
-> _Was **Phase 15** before the 2026-07-16 reprioritisation, and moved to **last** of the planned
-> phases: it's a behaviour-preserving cleanup, so it yields to the pipeline (15), login-UX (16),
-> and perf (17) work the VPE asked for first. Version target re-sequenced `1.2.0` → `1.4.0` to
-> stay monotonic behind Phase 17's `1.3.0`._
+---
+
+## Phase 19 — Desktop UI polish (affordances, expand/collapse, theming, layout; minor → 1.5.0)
+
+_The desktop app works, but it doesn't feel like a finished product. Nothing signals what is
+clickable, the two screens disagree about how expand/collapse works, there is no dark mode, and
+the header controls pile up in a ragged row. This phase is a UI-quality pass over the shipped
+`.exe` — no new data, no scraper or IPC change. User-facing, so **minor bump → `1.5.0`.**_
+
+> **Finding A (grounds the cursor items — it is one root cause, not N papercuts):** the app has
+> exactly **two** `cursor-pointer` classes in the entire renderer + `packages/ui`
+> (`MemberTable.tsx:97` and `:170`). Everything else — every `Button`, every `AccordionTrigger`,
+> the expand chevron in `MemberTable.tsx:126` — shows the default arrow cursor, because Tailwind
+> v4's preflight sets `button { cursor: default }` (a deliberate v4 change from v3) and neither
+> `buttonVariants` (`packages/ui/components/ui/button.tsx:7`) nor the `AccordionTrigger` base
+> class (`packages/ui/components/ui/accordion.tsx:35`) adds it back. So fix this **centrally in
+> the two primitives**, not by sprinkling `cursor-pointer` on call sites; the sprinkle would
+> re-rot the moment a new button is added.
+
+> **Finding B (load-bearing — dark mode is *disabled*, not missing; do this in order):**
+> `packages/ui/components/providers.tsx:7` renders
+> `<ThemeProvider attribute="class" defaultTheme="light" forcedTheme="light">`. `forcedTheme`
+> pins the app to light and makes the provider ignore any theme you set. `packages/ui/globals.css`
+> **already ships a complete `.dark` token block** (lines 85–117) and `ui/sonner.tsx:3` already
+> reads `useTheme()`, so the plumbing exists. **But** ~20 hardcoded palette classes with **no
+> `dark:` variant** sit across `MemberTable.tsx` (blue/amber/green badges, the `text-blue-600`
+> details link), `LevelAccordion.tsx` (`StatusBadge`), `ProjectRow.tsx` (`text-green-600/700`),
+> `MemberDetailView.tsx:75`, and `DashboardView.tsx:325`. `bg-blue-100 text-blue-800` on a dark
+> card is unreadable. **So: tokenise the status colours first, then remove `forcedTheme`.**
+> Dropping `forcedTheme` before the tokenisation ships a visibly broken dark mode.
+
+- [ ] **(item 1) Pointer cursor on everything clickable — fixed at the primitive.** Add
+      `cursor-pointer` to the `buttonVariants` base string (`packages/ui/components/ui/button.tsx`)
+      and to the `AccordionTrigger` base class (`packages/ui/components/ui/accordion.tsx`), so
+      every existing and future button/trigger inherits it. `disabled:pointer-events-none` is
+      already in `buttonVariants` and keeps disabled buttons from showing it — verify that holds.
+      Then remove the now-redundant per-call-site `cursor-pointer` in `MemberTable.tsx:170`. Any
+      element that is clickable but is **not** a `Button` (the `<TableRow>`s, the raw `<button>`
+      chevron at `MemberTable.tsx:126`) still needs it explicitly — cover those under item 2.
+- [ ] **(item 2) Whole-row click targets in `MemberTable`.** Today the behaviour is inconsistent:
+      a **single-pathway** row is already fully clickable with a pointer and `hover:bg-muted/50`
+      (`MemberTable.tsx:95-99`), but a **multi-pathway** member's parent row is inert — no cursor,
+      no hover, and clicking it does nothing; only the ~16px chevron responds. Its expanded child
+      rows are worse: they navigate only via a small `details →` text button
+      (`MemberTable.tsx:168-173`). Make it uniform:
+  - Parent (multi-pathway) row: clicking anywhere on it **toggles expand**, with `cursor-pointer`
+    + the same `hover:bg-muted/50`. Keep the chevron as the visual affordance; it must not
+    double-fire (the existing `e.stopPropagation()` at `MemberTable.tsx:64` is what prevents that
+    — keep it).
+  - Child (per-pathway) row: clicking anywhere navigates to that pathway's detail, same cursor +
+    hover treatment as a single-pathway row. Drop the `details →` button once the row itself
+    navigates, or keep it only if it still earns its place as a visual affordance.
+  - Keep the rows keyboard-reachable and screen-reader-sane: a clickable `<TableRow>` needs
+    `role="button"`-equivalent semantics (`tabIndex={0}` + Enter/Space handling) or an inner
+    focusable control. A row that only responds to a mouse is a regression, not polish.
+- [ ] **(item 3) One expand/collapse-all toggle, not two buttons.** `LevelAccordion.tsx:68-83`
+      renders **separate** "Expand all" and "Collapse all" buttons (shipped in Phase 3). Replace
+      them with a **single** button that reflects and flips the current state — "Collapse all"
+      when any level is open, "Expand all" when none are — matching the VPE's request for "just a
+      button". Default stays **all expanded** (Phase 3's documented behaviour; do not change it).
+      Decide the label from `openItems.length > 0`, so the button stays truthful when the user
+      opens/closes levels individually.
+- [ ] **(item 4) Expand/collapse in the overview page.** The dashboard's `MemberTable` has
+      per-member expansion for multi-pathway members (`expandedRows`, `MemberTable.tsx:61`) but
+      **no** expand-all/collapse-all control — that only exists on the detail page. Add the same
+      single toggle from item 3 above the table, driving the `expandedRows` set. It must
+      **only render when at least one member actually has multiple pathways**
+      (`members.some(m => m.pathways.length > 1)`) — in a club where nobody is on two paths it
+      would be a dead control, exactly the "never a dead button" rule Phase 17 applied to **Log
+      out**. Consider extracting the toggle as a shared component in `packages/ui` rather than
+      writing it twice.
+- [ ] **(item 5) Tokenise the hardcoded status colours (prerequisite for item 6).** Replace the
+      raw palette classes listed in Finding B with theme-aware ones. Prefer semantic tokens that
+      already flip with `.dark` (`muted`, `accent`, `destructive`, `foreground`) where they fit;
+      where a genuine status hue is needed (green = done/approved, amber = ready/close, blue =
+      title), either add `dark:` variants (`bg-blue-100 text-blue-800 dark:bg-blue-950
+      dark:text-blue-200`) or — better — add status tokens to the `:root` / `.dark` blocks in
+      `packages/ui/globals.css` and use those, so the mapping lives in one place. The status
+      semantics must not change: approved still reads green, ready still reads amber.
+- [ ] **(item 6) Light/dark mode with a real toggle.** Remove `forcedTheme="light"` from
+      `packages/ui/components/providers.tsx` and set `defaultTheme="system"` with
+      `enableSystem` so the app follows the OS by default (Windows 11 has a system-wide dark
+      setting; matching it is the least surprising default). Add a header toggle
+      (sun/moon icon `Button`, `lucide-react` already provides `Sun`/`Moon`) cycling
+      light → dark → system, in a new **optional** `themeControl` slot on `DashboardHeader` —
+      mirroring exactly how the `authControl` slot was added in Phase 12
+      (`packages/ui/components/DashboardHeader.tsx:26`). `next-themes` persists the choice to
+      `localStorage`, which in Electron lives under the app's `userData` partition, so the
+      setting survives restarts with no new persistence code — **verify this rather than
+      assume it**; if it does not persist, fall back to storing the preference in `config.env`
+      via the existing `credentials.ts` `upsertCredential` writer. Guard against the
+      first-paint flash of the wrong theme in the renderer's HTML shell. Sonner already reads
+      `useTheme()`, so toasts should follow for free — confirm they do.
+- [ ] **(item 7) Header + layout tidy.** `DashboardHeader` (`flex items-start justify-between`)
+      now carries six controls — auth badge, Log in/out, Refresh Progress, Refresh Membership,
+      Membership CSV, and the new theme toggle — in one `flex-wrap` row that ragged-wraps at
+      narrow widths. Group them so the header reads as deliberate: the auth badge and its
+      button together, the two Refresh buttons as one visual unit (they are the primary action
+      pair), and the utility controls (CSV, theme) separated — a button group, a separator, or
+      an icon-only button for the low-frequency ones. Keep every existing control reachable and
+      keep its accessible name (the tests and the user guide reference these labels); this is a
+      **visual regrouping, not a removal**. Confirm the layout holds at the app's minimum window
+      width.
+- [ ] **(item 8) No behaviour change beyond the UI.** No IPC channel, query, scraper, or
+      `packages/core` change belongs in this phase. If something here appears to need a core
+      change, stop and flag it — that is a sign the item is mis-scoped.
+- [ ] **Version bump:** minor-bump every workspace `package.json` `version` to `1.5.0`; after
+      validation, tag `v1.5.0`.
+
+**Validation:**
+1. [ ] `grep -n "cursor-pointer" packages/ui/components/ui/button.tsx packages/ui/components/ui/accordion.tsx`
+   — present in **both** primitives' base classes (item 1), so the fix is central rather than
+   per-call-site.
+2. [ ] `grep -nE "cursor-pointer|hover:bg-muted" packages/ui/components/MemberTable.tsx` — the
+   multi-pathway parent row and the expanded child rows both carry the affordance, not just the
+   single-pathway row (item 2). A unit test asserts: clicking a parent row toggles expansion
+   (and does **not** navigate), clicking a child row calls `onSelectMember` with that child's
+   pathway, and clicking the chevron toggles **once**, not twice (the `stopPropagation` guard —
+   include this as a negative control, since it is the exact bug item 2 can introduce).
+3. [ ] `grep -c "Expand all" packages/ui/components/LevelAccordion.tsx` — the two-button pair is
+   gone (item 3); a test asserts one button whose label flips between "Expand all" and
+   "Collapse all" with the open state, and that the default render is all-expanded (guards
+   Phase 3's behaviour).
+4. [ ] A test asserts the overview toggle **renders** when a member has >1 pathway and does
+   **not** render when every member has exactly one (item 4) — the dead-control guard, and the
+   half that is easy to forget.
+5. [ ] `grep -rnE "(bg|text)-(blue|green|amber)-[0-9]{2,3}" packages/ui/components apps/desktop/src/renderer`
+   — every remaining hit is paired with a `dark:` variant, or the hit count is zero because the
+   colours moved into `globals.css` tokens (item 5).
+6. [ ] `grep -n "forcedTheme" packages/ui/components/providers.tsx` — **no hits** (item 6), and
+   `grep -rn "themeControl" packages/ui/components/DashboardHeader.tsx apps/desktop/src/renderer`
+   — the slot exists and the renderer fills it. A test asserts the toggle cycles
+   light → dark → system and that the provider is no longer force-pinned.
+7. [ ] `npm test` green (existing 343 as the floor — 235 core + 108 desktop — plus the new
+   component tests; **note** `packages/ui` ships no test suite of its own by design (Phase 14),
+   so these land in `apps/desktop/tests/`, which is where the components are actually rendered.
+   The renderer currently has no component-rendering test at all — `authStatusLabel.test.ts` is
+   a pure-function test — so this phase must **add a component test harness**
+   (`@testing-library/react` + `jsdom`) as its first step, which is new devDependency + vitest
+   `environment` config work in `apps/desktop`, not a free assumption).
+8. [ ] `npm run typecheck` clean; `npm run desktop:build` produces
+   `Toastmasters Tools Setup 1.5.0.exe`;
+   `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
+   `1.5.0`.
+9. [ ] **Manual (user):** launch the built `.exe` and confirm — the pointer cursor appears over
+   buttons, table rows, and accordion headers; clicking anywhere on a multi-pathway row expands
+   it and anywhere on a child row opens that pathway; the single expand/collapse toggle works on
+   **both** screens; the theme toggle switches light↔dark with **all** badges legible in dark
+   (this is the item automated tests cannot judge — the tokenisation in item 5 is verified for
+   *presence* by validation 5, not for *legibility*); and the theme survives an app restart.
+
+> **Scope note:** items 1–4 and 7 are mechanical and independently verifiable. Item 6 is the
+> only one with a real ordering dependency (item 5 must land first — Finding B), and item 9 is
+> the only judgement call that must go to the user. If the phase runs long, items 5 + 6 (theming)
+> are the clean split point: 1–4 + 7 ship a complete "affordances + layout" phase on their own.
+
+---
+
+## Phase 20 — Production-grade refactor (minor version → 1.6.0)
+
+> _Was **Phase 15** before the 2026-07-16 reprioritisation, then **Phase 18** before the
+> 2026-07-16 logout insertion, then **Phase 19** before the 2026-07-16 UI-polish insertion (see
+> above). Stays **last** of the planned phases: it's a behaviour-preserving cleanup, so it yields
+> to the pipeline (15), login-UX (16), logout (17), perf (18), and UI-polish (19) work the VPE
+> asked for first. Version target re-sequenced `1.5.0` → `1.6.0` to stay monotonic behind Phase
+> 19's `1.5.0`._
 
 _With the repo collapsed to a single app plus shared packages (Phase 14), do a repo-wide
 cleanup pass to make it maintainable and production-grade: consistent structure, enforced
 lint/format, strict typing, no dead code, uniform error handling and logging. This is a
 behaviour-preserving refactor — no new user-facing feature and no user-facing change to the
-shipped `.exe` — so **tag the resulting build with a minor bump — `1.4.0`.** Do this only
-after Phases 15–17; refactoring code those phases are still actively changing is wasted work._
+shipped `.exe` — so **tag the resulting build with a minor bump — `1.6.0`.** Do this only
+after Phases 15–19; refactoring code those phases are still actively changing is wasted work
+(Phase 19 in particular rewrites much of `packages/ui`)._
 
 - [ ] **Tooling baseline:** a single shared ESLint (flat config) + Prettier setup at the repo
       root applied to every workspace; add `lint` / `format` scripts and wire `lint` into `npm test`
@@ -776,15 +1161,15 @@ after Phases 15–17; refactoring code those phases are still actively changing 
       barrel/`index.ts` conventions across `packages/*` and `apps/desktop`.
 - [ ] **No behaviour change / no coverage loss:** the full test suite stays green and coverage
       does not drop; refactors that touch logic get a test asserting the preserved behaviour.
-- [ ] **Version bump:** set every workspace `package.json` `version` to `1.4.0`; after
-      validation, tag the build `v1.4.0`.
+- [ ] **Version bump:** set every workspace `package.json` `version` to `1.6.0`; after
+      validation, tag the build `v1.6.0`.
 
 **Validation:**
 1. `npm run lint` exits 0 with zero warnings; `npm run format -- --check` (or equivalent) is clean
 2. `npm test` passes with coverage ≥ the Phase 14 baseline (no regression)
-3. `npm run desktop:build` produces `Toastmasters Tools Setup 1.4.0.exe`
+3. `npm run desktop:build` produces `Toastmasters Tools Setup 1.6.0.exe`
 4. `grep -rc "any" packages/core/*.ts packages/core/helpers` shows no new bare `any`s vs. baseline; strict flags present in the shared tsconfig
-5. `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.4.0`
+5. `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.6.0`
 
 ---
 
