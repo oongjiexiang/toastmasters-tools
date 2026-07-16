@@ -1,5 +1,11 @@
 # ADR — Next.js + shadcn/ui frontend
 
+> **Superseded — the web app was removed in Phase 14; components now live in `packages/ui`.**
+> This document is the historical record of why Next.js + shadcn/ui was chosen for the
+> now-deleted `apps/web`. The shadcn/ui component decisions still apply — those components were
+> extracted verbatim into `packages/ui` (`@toastmasters/ui`) and are consumed by
+> `apps/desktop`'s renderer — but Next.js itself is gone. See `specs/roadmap.md` Phase 14.
+
 | Field | Value |
 |---|---|
 | Date | 2026-06-23 |

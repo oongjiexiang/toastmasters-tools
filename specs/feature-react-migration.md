@@ -1,5 +1,13 @@
 # Feature Spec: Next.js + shadcn/ui Migration
 
+> **Superseded — the web app was removed in Phase 14; components now live in `packages/ui`.**
+> This document is the historical record of the Phase 4 migration off string-templated HTML
+> onto Next.js + React + shadcn/ui. The resulting `apps/web` was deleted in Phase 14; its
+> reusable components (`MemberTable`, `LevelAccordion`, `DashboardHeader`, `DiffSection`,
+> `ProjectRow`, `providers`, the shadcn `ui/*` primitives) were extracted into `packages/ui`
+> (`@toastmasters/ui`) first and are now consumed by `apps/desktop`. See `specs/roadmap.md`
+> Phase 14.
+
 ## Problem
 
 `services/ui.ts` builds every page by concatenating HTML strings. There is no component model

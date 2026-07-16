@@ -11,7 +11,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ProjectRow } from "@/components/ProjectRow";
-import type { LevelGroup } from "@/lib/api";
+import type { LevelGroup } from "@toastmasters/core/queries";
 
 type LevelStatus = "approved" | "ready" | "in-progress" | "not-started";
 

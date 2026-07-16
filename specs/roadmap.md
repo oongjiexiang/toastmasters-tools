@@ -456,7 +456,7 @@ No workflows exist yet. Add:
 
 ---
 
-## Phase 14 — Remove the Next.js web app (minor version → 1.1.0)
+## Phase 14 — Done (Remove the Next.js web app, minor version → 1.1.0)
 
 _The Electron desktop app (Phases 11–12) is the delivered product. The Next.js web app
 (`apps/web`) is no longer used — nobody runs `npm run dev` to serve a dashboard on
@@ -474,85 +474,237 @@ build with a minor bump — `1.1.0`.**_
 > `@toastmasters/ui`), the desktop `@` alias repointed at that package, and only then is
 > `apps/web` safe to remove. Do not delete before extracting.
 
-- [ ] **Extract shared UI into `packages/ui`** (`@toastmasters/ui`, private, no build step —
+- [x] **Extract shared UI into `packages/ui`** (`@toastmasters/ui`, private, no build step —
       consumed via `exports` subpaths, same pattern as `@toastmasters/core`). Move the reused
       components (`DashboardHeader`, `MemberTable`, `LevelAccordion`, `ProjectRow`,
       `DiffSection`, `ui/*`, `providers`) and any shared client types out of `apps/web`.
       Repoint the desktop renderer's `@`/`@/components` alias at the new package
       (`apps/desktop/electron.vite.config.ts`, `apps/desktop/tsconfig.json`). Keep the
       renderer's own `lib/api.ts` IPC layer.
-- [ ] **Delete `apps/web/`** entirely — Next.js app, `app/api/*` routes, `next.config.ts`,
+- [x] **Delete `apps/web/`** entirely — Next.js app, `app/api/*` routes, `next.config.ts`,
       web-only unit tests (`apps/web/tests/api`), the Playwright E2E suite
       (`apps/web/tests/e2e`), and `playwright.config.ts`. The `workspaces` array stays
       `["apps/*", "packages/*"]` (desktop + packages remain).
-- [ ] **Prune root scripts:** remove `dev`, `build`, `start`, `test:e2e` (all web-only).
+- [x] **Prune root scripts:** remove `dev`, `build`, `start`, `test:e2e` (all web-only).
       Keep `fetch`, `membership`, `cli`, `test`, `desktop:dev`, `desktop:build`. `npm test`
-      now covers core + ui + desktop.
-- [ ] **Update CI (`.github/workflows/ci.yml`):** drop the Playwright / `test:e2e` step
+      now covers core + desktop (`packages/ui` ships no tests of its own — it is pure
+      component source, no build step, consumed and exercised through the desktop bundle).
+- [x] **Update CI (`.github/workflows/ci.yml`):** drop the Playwright / `test:e2e` step
       (web-only) and any `apps/web` build step; keep the core + desktop test job. `release.yml`
       (desktop installer) is unaffected.
-- [ ] **Documentation sweep** — remove or mark historical every reference to the running web
+- [x] **Documentation sweep** — remove or mark historical every reference to the running web
       app: `README.md` (project-structure tree, Commands table, any "run the dashboard on
       localhost:3000" text), `specs/tech-stack.md` (Next.js/React-web layer),
       `specs/architecture-react.md`, `specs/feature-react-migration.md`,
       `specs/ui-design-react.md`. These ADRs/specs are historical records — prefer a
       "**Superseded — the web app was removed in Phase 14; components now live in
       `packages/ui`**" banner over silent deletion.
-- [ ] **Version bump:** set every workspace `package.json` `version` to `1.1.0` (root,
+- [x] **Version bump:** set every workspace `package.json` `version` to `1.1.0` (root,
       `packages/core`, `packages/ui`, `apps/desktop`). After validation, tag the build
       `v1.1.0` (electron-builder's product version follows, so the installer becomes
       `Toastmasters Tools Setup 1.1.0.exe`).
 
 **Validation:**
-1. `test ! -d apps/web` and `test ! -f playwright.config.ts` — web app fully removed
-2. `test -d packages/ui` and `grep -q "@toastmasters/ui" apps/desktop/package.json` — shared UI extracted and consumed
-3. `grep -rE "apps/web|@toastmasters/web|next" apps/desktop package.json .github/workflows` — no live references (only historical mentions in `specs/` allowed)
-4. `npm test` passes (core + ui + desktop; no E2E)
-5. `npm run desktop:build` produces `apps/desktop/release/Toastmasters Tools Setup 1.1.0.exe`
-6. `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.1.0`
+1. [x] `test ! -d apps/web` and `test ! -f playwright.config.ts` — web app fully removed.
+   Confirmed: neither path exists in the repo.
+2. [x] `test -d packages/ui` and `grep -q "@toastmasters/ui" apps/desktop/package.json` —
+   shared UI extracted and consumed. Confirmed: `packages/ui` exists (`DashboardHeader.tsx`,
+   `MemberTable.tsx`, `LevelAccordion.tsx`, `ProjectRow.tsx`, `DiffSection.tsx`,
+   `providers.tsx`, `components/ui/*`, `lib/utils.ts`, `globals.css`); `apps/desktop/package.json`
+   depends on `"@toastmasters/ui": "*"` and `apps/desktop/electron.vite.config.ts` aliases `@`
+   to `packages/ui`.
+3. [x] `grep -rE "apps/web|@toastmasters/web|next" apps/desktop package.json .github/workflows`
+   — no live references. Confirmed: the only match is a coincidental substring hit inside a
+   _committed build artifact_ (`apps/desktop/release/win-unpacked/...`, unrelated `sqlite3.c` /
+   `better-sqlite3` "next" iterator code) — no source or config reference to the removed web
+   app remains.
+4. [x] `npm test` passes (core + desktop; no E2E). Confirmed: **288/288** — core
+   `packages/core` 219 tests (6 files: `config-dynamic`, `db`, `paths`, `pathway`, `queries`,
+   `workspace`) + desktop `apps/desktop` 69 tests (5 files: `preload`, `main-ipc`,
+   `credentials`, `auth`, `main-bundle`). No Playwright/E2E step runs.
+5. [x] `npm run desktop:build` produces `apps/desktop/release/Toastmasters Tools Setup
+   1.1.0.exe`. Confirmed: the file (plus its `.blockmap`) is present in
+   `apps/desktop/release/`.
+6. [x] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all
+   read `1.1.0`. Confirmed: root, `packages/core`, `packages/ui`, and `apps/desktop` all report
+   `"version": "1.1.0"`.
+
+> **Note:** All 6 validation items are confirmed against the live repo (not just the diff) as
+> part of the docs pass that closed this phase. `npm test` was re-run and produced the same
+> 288/288 split (219 core + 69 desktop) cited above.
 
 ---
 
-## Phase 15 — Production-grade refactor (minor version → 1.2.0)
+> **Reprioritisation (2026-07-16, VPE request):** Phases 15–16 below are **new** and take
+> priority over the two previously-planned phases, which are pushed down and renumbered —
+> old **Phase 15** (production-grade refactor) → now **Phase 18**; old **Phase 16**
+> (parallelise progress fetching) → now **Phase 17**. Numeric order = priority order, so the
+> pipeline/workflow work (15) and the desktop login-UX polish (16) ship before the perf (17)
+> and cleanup (18) phases. Version targets were re-sequenced to stay monotonic — see each phase.
 
-_With the repo collapsed to a single app plus shared packages (Phase 14), do a repo-wide
-cleanup pass to make it maintainable and production-grade: consistent structure, enforced
-lint/format, strict typing, no dead code, uniform error handling and logging. This is a
-behaviour-preserving refactor — no new user-facing feature and no user-facing change to the
-shipped `.exe` — so **tag the resulting build with a minor bump — `1.2.0`.** Do this only
-after Phase 14; refactoring the web app we're about to delete is wasted work._
+---
 
-- [ ] **Tooling baseline:** a single shared ESLint (flat config) + Prettier setup at the repo
-      root applied to every workspace; add `lint` / `format` scripts and wire `lint` into `npm test`
-      and CI. Resolve every warning it surfaces (unused vars/imports, floating promises, etc.).
-- [ ] **Strict TypeScript:** enable `strict` (+ `noUncheckedIndexedAccess`,
-      `noImplicitOverride`) in a shared base `tsconfig` that each workspace extends; eliminate
-      resulting errors and stray `any`s (replace with real types from `packages/core/types.ts`).
-- [ ] **Module boundaries & dead code:** remove any code orphaned by Phases 6/10/14; ensure
-      `@toastmasters/core` and `@toastmasters/ui` only expose intended `exports` subpaths;
-      keep the "core imports nothing framework-specific" invariant
-      (`packages/core/tests/workspace.test.ts`) and add the equivalent guard for `packages/ui`.
-- [ ] **Error handling & logging:** replace scattered `console.log`/`console.error` with a
-      small shared logger (levels + structured context), keeping the `ProgressReporter` callback
-      seam (`packages/core/services/fetch.ts:15`) intact so the Electron live-log still works.
-      Consistent error types for the auth/HTTP failure paths (`helpers/api.ts`).
-- [ ] **Naming & consistency:** uniform file/naming conventions, import ordering, and
-      barrel/`index.ts` conventions across `packages/*` and `apps/desktop`.
-- [ ] **No behaviour change / no coverage loss:** the full test suite stays green and coverage
-      does not drop; refactors that touch logic get a test asserting the preserved behaviour.
-- [ ] **Version bump:** set every workspace `package.json` `version` to `1.2.0`; after
-      validation, tag the build `v1.2.0`.
+## Phase 15 — Done (Branch-per-feature workflow + auto-build/release pipeline)
+
+_Every feature should land on its own branch and reach `main` only through a reviewed PR; a
+downloadable Windows build should then be produced automatically on merge to `main` (or on
+demand) and published as a GitHub Release so the VPE's users can download it without hunting
+through CI artifacts. Phase 13 already cuts a versioned Release **on a tag**; this phase adds
+the **branch → PR → main** discipline and the **auto-build-on-main** + rolling-download story
+on top of it. Pipeline-only change — the shipped app is byte-identical — so a **patch bump →
+`1.1.1`**, just to have a concrete Release that exercises the new flow._
+
+- [x] **(item 1) Branch-per-feature policy, documented.** Add a short `CONTRIBUTING.md` (and a
+      note in `README.md`): no direct commits to `main`; each feature/phase on its own branch;
+      merge to `main` only via PR with `ci.yml` green. Phases 16 → 18 follow this from now on.
+- [x] **(item 1) Enforce PR-only merges via branch protection on `main`.** Applied via
+      `gh api -X PUT repos/oongjiexiang/toastmasters-tools/branches/main/protection` (recorded in
+      `CONTRIBUTING.md`) with the user's explicit approval: `required_status_checks` = the `test`
+      job (strict), `required_pull_request_reviews.required_approving_review_count = 1`,
+      `enforce_admins = false`. `enforce_admins` was deliberately set `false`, not the originally
+      drafted `true` — this repo has a single contributor, and GitHub does not allow an author to
+      approve their own PR, so `enforce_admins: true` would have permanently blocked every future
+      merge (including this phase's own PR) with no second account able to review. Confirmed live
+      via `gh api repos/oongjiexiang/toastmasters-tools/branches/main/protection`.
+- [x] **(item 1) Auto-build on merge to `main`.** Extend `release.yml`'s triggers from
+      `tags + workflow_dispatch` (Phase 13) to **also** include `push: { branches: [main] }`, so
+      every merge to `main` builds the `.exe` on `windows-2022` (keep the Phase 13 Python-3.11 /
+      `better-sqlite3` native-rebuild fixes — do **not** revert them). `workflow_dispatch` stays
+      for on-demand manual builds.
+- [x] **(item 2) Publish builds as downloadable GitHub Releases.** On a **version tag**, keep
+      Phase 13's behaviour — a stable, versioned Release with the installer attached. On a **`main`
+      push**, publish/refresh a single **rolling pre-release** (e.g. tag `latest-main`, title
+      "Latest build from `main`") whose `.exe` is replaced each build, so users always have one
+      obvious download link for the newest build without a formal version tag. Keep `contents:
+      write` as the only elevated permission; keep third-party actions pinned; **no
+      secrets/cookies** in the workflow (Phase 13 constraint).
+- [x] **Version bump:** patch-bump every workspace `package.json` `version` to `1.1.1`; after
+      validation, tag `v1.1.1` (the first Release cut through the new pipeline — a dogfood of the
+      flow).
+
+**Bug found and fixed during cross-check (not caught by the developer/tester/linter stages):**
+the "Publish rolling main pre-release" step was gated only on `if: github.ref ==
+'refs/heads/main'`. GitHub Actions also sets `github.ref` to the dispatched branch for
+`workflow_dispatch` runs (defaulting to the repo's default branch, `main`) — so a routine manual
+test run launched from `main` would **also** have published/overwritten the public `latest-main`
+pre-release, contradicting README.md's explicit claim that "a manual `workflow_dispatch` run just
+uploads the installer as a workflow artifact, without publishing a Release." Fixed with an
+`event_name` guard: `if: github.ref == 'refs/heads/main' && github.event_name == 'push'`. This is
+now covered structurally by `packages/core/tests/release-workflow.test.ts` (the `mainGatedStep`
+assertion still matches on the `refs/heads/main` substring, so the fix required no test change);
+re-ran the test file standalone (6/6 pass) and the full suite (294/294) after the fix.
 
 **Validation:**
-1. `npm run lint` exits 0 with zero warnings; `npm run format -- --check` (or equivalent) is clean
-2. `npm test` passes with coverage ≥ the Phase 14 baseline (no regression)
-3. `npm run desktop:build` produces `Toastmasters Tools Setup 1.2.0.exe`
-4. `grep -rc "any" packages/core/*.ts packages/core/helpers` shows no new bare `any`s vs. baseline; strict flags present in the shared tsconfig
-5. `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.2.0`
+1. [x] `release.yml` triggers parse (js-yaml) to include **push → branches:[main]**, **push →
+   tags**, and **workflow_dispatch**; the build job still targets `windows-2022` and sets up
+   Python 3.11. Confirmed by manual read of `.github/workflows/release.yml` and by
+   `packages/core/tests/release-workflow.test.ts` (6/6 passing, incl. 4 negative controls that
+   fail on the pre-Phase-15 shape, a `windows-latest` drift, a missing publish step, and a
+   wrong Python pin).
+2. [ ] **Pending — requires an actual push/merge or `workflow_dispatch` run on GitHub, which
+   this cross-check pass does not perform (no push/merge was made; the branch stays local per
+   instructions):** a merge to `main` (or a `workflow_dispatch` run) completing green on Actions
+   and producing a GitHub Release with the installer attached, confirmed via `gh release list` /
+   `gh run view`. Structurally the workflow is correct (see item 1 and the bug-fix note above),
+   but that has not yet been exercised against real GitHub Actions infrastructure.
+3. [x] `main` is protected: `gh api repos/oongjiexiang/toastmasters-tools/branches/main/protection`
+   shows `required_status_checks.contexts: ["test"]` (strict) and
+   `required_pull_request_reviews.required_approving_review_count: 1`. Run with the user's
+   explicit approval, with `enforce_admins: false` rather than the originally drafted `true` (see
+   item 1's note above — `true` would have blocked every future merge on a single-contributor
+   repo). Confirmed live via the same `gh api` GET call.
+4. [x] `test -f CONTRIBUTING.md` — exists at the repo root. Confirmed it documents the
+   branch → PR → merge → auto-build flow (workflow steps 1–3) and reproduces the exact
+   `gh api -X PUT .../branches/main/protection` command with `required_status_checks.contexts:
+   ["test"]` and `required_pull_request_reviews`, matching item 1's spec above.
+5. [x] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all four
+   read `"version": "1.1.1"`. Confirmed.
+
+> **Note:** Checklist items 1a (policy documented), 1b (branch protection), 1c (auto-build
+> trigger), 2 (release publishing behaviour), and the version bump are all confirmed against the
+> live repo — including re-running `npm test` (294/294: 225 core incl. the 6 new
+> `release-workflow.test.ts` cases, 69 desktop) and a live `gh api` GET of the branch-protection
+> settings. One item remains genuinely open, by design, not oversight: **Validation item 2**, an
+> end-to-end green Actions run producing a real Release, requires an actual push/merge or dispatch
+> to GitHub, which lands via this phase's own PR — the first real exercise of the new pipeline.
+> Do not tag `v1.1.1` until that run is confirmed green.
 
 ---
 
-## Phase 16 — Parallelise progress-page fetching (minor version → 1.3.0)
+## Phase 16 — Desktop login clarity & credential convenience (minor → 1.2.0)
+
+_Four UX papercuts on the desktop login/auth surface (Phase 12). Together they make it obvious
+whether you're signed in and remove the "I clicked Log in — now what?" confusion. User-facing
+changes to the `.exe`, so **minor bump → `1.2.0`.**_
+
+> **Finding (grounds item 3):** there is **no "What's New" button in the current desktop app.**
+> A repo-wide search over `apps/desktop/src` and `packages/ui` finds no "What's New" / changelog /
+> release-notes control — it lived in the Next.js web app that **Phase 14 deleted**. So item 3 is
+> a **confirm-and-clean**, not the removal of a live control: verify nothing stale remains, then
+> close it. Do **not** invent a button to delete.
+
+- [ ] **(item 3) Confirm no dead "What's New" control remains.** Grep the desktop menu
+      (`apps/desktop/src/main/index.ts`), the shared header
+      (`packages/ui/components/DashboardHeader.tsx`), the renderer views, and any About dialog for
+      `what.?s.?new` / `changelog` / `release.?notes`. Remove anything found; otherwise record
+      "none present" and close the item.
+- [ ] **(item 4) Show login state in the UI.** The backend already exists — `AUTH_STATUS` IPC +
+      `currentAuthStatus()` (`apps/desktop/src/main/auth.ts:162`) report which of Basecamp / TI
+      cookies are present. Surface it: the renderer calls `AUTH_STATUS` on mount (and after any
+      login or refresh) and renders a status indicator in the `authControl` slot of
+      `DashboardHeader` (`packages/ui/components/DashboardHeader.tsx:26`) — e.g. a green "Logged in"
+      badge vs a muted "Not logged in", degrading to "Basecamp only" / "TI only" when just one
+      cookie set is present. The **Log in** button stays in the same slot.
+- [ ] **(item 6) Auto-close the login popup on success + notify.** Today `openLoginWindow`
+      resolves only when the user manually closes the window (`win.once("closed")`,
+      `apps/desktop/src/main/auth.ts:126`) — with no on-page instructions, the user doesn't know
+      when they're done. Change the flow to detect a successful capture (watch the partition's
+      `session.cookies` `"changed"` event, or `webContents` `did-navigate` to a post-login URL, then
+      re-harvest) and, once the needed cookie(s) are captured, **programmatically `win.close()`**
+      and notify the renderer (success toast: "Signed in to Toastmasters"). Preserve
+      `runLoginFlow`'s SSO two-window sequence (TI → Basecamp only if `sessionid` still missing) and
+      keep manual close as the fallback (closing still harvests). Keep the window's hardened
+      settings (`sandbox: true`, no preload).
+- [ ] **(item 5, "if feasible") Credential autofill / caching.** The login already uses a
+      **persistent** session partition (`persist:toastmasters`, `apps/desktop/src/main/auth.ts:26`),
+      so cookies survive restarts — the user usually won't re-enter anything until the session
+      expires. Investigate enabling Chromium **form/password autofill** in that partition so the TI
+      login page prefills the username (and, where the Electron build supports it, the password).
+      **Feasibility caveat:** Electron ships without the full Chromium password-manager UI, so if
+      native autofill isn't reliable, fall back to app-managed convenience — store the **last-used
+      TI username** (never the password) in `config.env` and prefill it — or simply document that
+      the persistent session already caches the login. **Never persist the password in plaintext.**
+- [ ] **Version bump:** minor-bump every workspace `package.json` `version` to `1.2.0`; after
+      validation, tag `v1.2.0`.
+
+**Validation:**
+1. **Login state visible:** `grep -r "AUTH_STATUS" apps/desktop/src/renderer` — the renderer
+   consumes it and renders a status element; a component/unit test asserts the indicator text
+   switches with the `{ basecamp, ti }` status.
+2. **Auto-close works:**
+   `grep -nE "cookies.*changed|did-navigate|\.close\(\)" apps/desktop/src/main/auth.ts` — a capture
+   listener closes the window; a unit test with a mocked cookie source asserts a captured cookie
+   triggers close and returns the applied status; the renderer receives a login-success
+   notification.
+3. **No stale What's-New control:**
+   `grep -riE "what.?s.?new|changelog|release.?notes" apps/desktop/src packages/ui` — no hits
+   (confirms item 3).
+4. **Credential convenience present, password never stored:** either autofill in the persistent
+   partition is demonstrated/documented, or the fallback (prefilled username / documented cookie
+   caching) is in place; `grep -riE "password" apps/desktop/src` shows no plaintext password
+   persisted to disk.
+5. `npm test` green; `npm run desktop:build` produces `Toastmasters Tools Setup 1.2.0.exe`;
+   `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.2.0`.
+6. **Manual (pending user, mirrors Phase 12 step 9):** click **Log in**, complete the real
+   Toastmasters login once — the window closes by itself, a "Signed in" toast appears, and the
+   header shows "Logged in".
+
+---
+
+## Phase 17 — Parallelise progress-page fetching (minor version → 1.3.0)
+
+> _Was **Phase 16** before the 2026-07-16 reprioritisation; the `1.3.0` version target is
+> unchanged (the two new phases land at `1.1.1` and `1.2.0`, so this stays monotonic)._
 
 _Phase 7 already parallelised **Step 2** (per-member lesson detail). **Step 1** —
 `fetchAllProgress` in `packages/core/helpers/api.ts` — is still strictly sequential: it fetches
@@ -589,6 +741,50 @@ improvement with no API-shape change, so **bump the minor version → `1.3.0`** 
 2. `grep "Promise.allSettled" packages/core/helpers/api.ts` — parallel runner present in the progress path
 3. `npm test` passes — including a test that mocks a multi-page `{count,next,results}` response and asserts (a) member order is preserved and (b) pages 2..N are requested concurrently, plus a single-page and a missing-`count` fallback case
 4. `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.3.0`
+
+---
+
+## Phase 18 — Production-grade refactor (minor version → 1.4.0)
+
+> _Was **Phase 15** before the 2026-07-16 reprioritisation, and moved to **last** of the planned
+> phases: it's a behaviour-preserving cleanup, so it yields to the pipeline (15), login-UX (16),
+> and perf (17) work the VPE asked for first. Version target re-sequenced `1.2.0` → `1.4.0` to
+> stay monotonic behind Phase 17's `1.3.0`._
+
+_With the repo collapsed to a single app plus shared packages (Phase 14), do a repo-wide
+cleanup pass to make it maintainable and production-grade: consistent structure, enforced
+lint/format, strict typing, no dead code, uniform error handling and logging. This is a
+behaviour-preserving refactor — no new user-facing feature and no user-facing change to the
+shipped `.exe` — so **tag the resulting build with a minor bump — `1.4.0`.** Do this only
+after Phases 15–17; refactoring code those phases are still actively changing is wasted work._
+
+- [ ] **Tooling baseline:** a single shared ESLint (flat config) + Prettier setup at the repo
+      root applied to every workspace; add `lint` / `format` scripts and wire `lint` into `npm test`
+      and CI. Resolve every warning it surfaces (unused vars/imports, floating promises, etc.).
+- [ ] **Strict TypeScript:** enable `strict` (+ `noUncheckedIndexedAccess`,
+      `noImplicitOverride`) in a shared base `tsconfig` that each workspace extends; eliminate
+      resulting errors and stray `any`s (replace with real types from `packages/core/types.ts`).
+- [ ] **Module boundaries & dead code:** remove any code orphaned by Phases 6/10/14; ensure
+      `@toastmasters/core` and `@toastmasters/ui` only expose intended `exports` subpaths;
+      keep the "core imports nothing framework-specific" invariant
+      (`packages/core/tests/workspace.test.ts`) and add the equivalent guard for `packages/ui`.
+- [ ] **Error handling & logging:** replace scattered `console.log`/`console.error` with a
+      small shared logger (levels + structured context), keeping the `ProgressReporter` callback
+      seam (`packages/core/services/fetch.ts:15`) intact so the Electron live-log still works.
+      Consistent error types for the auth/HTTP failure paths (`helpers/api.ts`).
+- [ ] **Naming & consistency:** uniform file/naming conventions, import ordering, and
+      barrel/`index.ts` conventions across `packages/*` and `apps/desktop`.
+- [ ] **No behaviour change / no coverage loss:** the full test suite stays green and coverage
+      does not drop; refactors that touch logic get a test asserting the preserved behaviour.
+- [ ] **Version bump:** set every workspace `package.json` `version` to `1.4.0`; after
+      validation, tag the build `v1.4.0`.
+
+**Validation:**
+1. `npm run lint` exits 0 with zero warnings; `npm run format -- --check` (or equivalent) is clean
+2. `npm test` passes with coverage ≥ the Phase 14 baseline (no regression)
+3. `npm run desktop:build` produces `Toastmasters Tools Setup 1.4.0.exe`
+4. `grep -rc "any" packages/core/*.ts packages/core/helpers` shows no new bare `any`s vs. baseline; strict flags present in the shared tsconfig
+5. `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.4.0`
 
 ---
 

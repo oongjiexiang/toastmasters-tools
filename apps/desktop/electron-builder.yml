@@ -18,11 +18,11 @@ asarUnpack:
   - node_modules/better-sqlite3/**/*
 
 # Rebuild the native binding against Electron's ABI (it is installed against
-# Node's ABI for the CLI and the web app).
+# Node's ABI for the CLI).
 #
 # ⚠️ npm workspaces hoist better-sqlite3 to the *root* node_modules, so this
-# rebuild rewrites the same binary the CLI, the Next.js app and the test suite
-# load — leaving them with an Electron-ABI .node they cannot dlopen
+# rebuild rewrites the same binary the CLI and the test suite load —
+# leaving them with an Electron-ABI .node they cannot dlopen
 # (NODE_MODULE_VERSION 130 vs 115). The installer is packed before that matters,
 # so the `build` script restores the Node-ABI build afterwards via
 # `restore:node-abi`. Do not remove that step.

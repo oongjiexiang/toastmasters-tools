@@ -4,8 +4,9 @@
  * Reproduces the pre-fix (Phase 10) resolution that the regression suite exists to
  * reject: every anchor derived from `process.cwd()`, with a *relative* RESULTS_DIR.
  * Under npm workspaces the cwd is the workspace directory, so this yields
- * <repo>/packages/core/results/db.sqlite for the CLI and <repo>/apps/web/results/
- * db.sqlite for the dashboard — two different databases, and neither is the user's.
+ * <repo>/packages/core/results/db.sqlite for the CLI and <repo>/apps/desktop/
+ * results/db.sqlite for the desktop app — two different databases, and neither
+ * is the user's.
  *
  * tests/paths.test.ts feeds this probe's output through the *same* assertion helper
  * used for the real implementation and requires it to throw. If someone ever

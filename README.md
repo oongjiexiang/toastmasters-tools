@@ -2,7 +2,10 @@
 
 [![CI](https://github.com/oongjiexiang/toastmasters-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/oongjiexiang/toastmasters-tools/actions/workflows/ci.yml)
 
-Personal VPE tooling for one Toastmasters club. Scrapes Basecamp (pathway progress) and toastmasters.org (membership roster), stores snapshots in SQLite, and serves a local web dashboard for weekly/monthly reporting. Also ships as a double-clickable Windows desktop app (see [Desktop app](#desktop-app)).
+Personal VPE tooling for one Toastmasters club. Scrapes Basecamp (pathway progress) and toastmasters.org (membership roster), stores snapshots in SQLite, and ships as a double-clickable Windows desktop app (see [Desktop app](#desktop-app)) for weekly/monthly reporting.
+
+> **Contributing:** every feature/phase lands on its own branch and reaches `main` only
+> through a reviewed PR gated on CI — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Prerequisites
 
@@ -45,7 +48,8 @@ Both cookies expire with your browser session — you will need to refresh them 
 > **Desktop app:** the [desktop app](#desktop-app) obtains these cookies automatically — click
 > **Log in** and sign in on the embedded Toastmasters pages, and it harvests
 > `BASECAMP_SESSIONID` / `TI_COOKIE` for you (writing them to its own `config.env`).
-> The DevTools method above is still the way to supply cookies for the CLI and web app.
+> The DevTools method above is still the way to supply cookies for the CLI, or as the desktop
+> app's manual fallback (**Open Credentials File…**).
 
 ## Typical workflow
 
@@ -55,7 +59,7 @@ npm run fetch       # Scrape Basecamp → SQLite
 npm run membership  # Scrape TI membership roster → SQLite
 
 # 2. Open the dashboard
-npm run dev         # http://localhost:3000
+npm run desktop:dev # Electron app with hot reload — see Desktop app below
 ```
 
 Or use the interactive CLI launcher to run fetch and membership in sequence:
@@ -73,24 +77,19 @@ All commands are run from the repository root.
 | `npm run fetch` | core | Scrape Basecamp progress for all members and snapshot to SQLite |
 | `npm run membership` | core | Download TI membership roster and snapshot to SQLite |
 | `npm run cli` | core | Interactive launcher — choose which scripts to run |
-| `npm run dev` | web | Start the local web dashboard at `http://localhost:3000` |
-| `npm run build` | web | Build the Next.js app for production |
-| `npm start` | web | Start the production build |
 | `npm run desktop:dev` | desktop | Run the Electron desktop app with hot reload |
 | `npm run desktop:build` | desktop | Build the Windows installer (`apps/desktop/release/*.exe`) |
-| `npm test` | core + web + desktop | Run the full unit/API/bundle test suite (core → web → desktop) |
-| `npm run test:e2e` | web | Run the Playwright E2E tests |
+| `npm test` | core + desktop | Run the full unit/IPC/bundle test suite (core → desktop) |
 
 Workspace-only scripts (coverage, watch mode) are run with `-w`:
 
 ```bash
 npm run test:coverage -w @toastmasters/core
-npm run test:watch -w @toastmasters/web
 ```
 
-## Web dashboard
+## Dashboard
 
-Start with `npm run dev`, then open `http://localhost:3000`.
+Open it via the [desktop app](#desktop-app) (`npm run desktop:dev`, or the installed `.exe`).
 
 The dashboard reads from the SQLite database written by `fetch` and `membership`. Run those first — the dashboard shows a banner if no snapshot is found.
 
@@ -123,9 +122,9 @@ Downloads the raw membership CSV from toastmasters.org that was last fetched.
 ## Desktop app
 
 A double-clickable Windows app (`apps/desktop`, Electron) that bundles Node, the scrapers,
-SQLite, and the dashboard into one native app — no terminal, no `npm run dev`. It reuses the
-same `@toastmasters/core` logic and React components as the web app, talking to the main
-process over IPC instead of HTTP.
+SQLite, and the dashboard into one native app — no terminal, no local dev server. It reuses
+the same `@toastmasters/core` scraping/SQLite logic and the shared React components in
+`packages/ui` (`@toastmasters/ui`), talking to the main process over IPC instead of HTTP.
 
 - **Download:** grab `Toastmasters Tools Setup <version>.exe` from the repo's
   [Releases](https://github.com/oongjiexiang/toastmasters-tools/releases) page — CI builds and
@@ -147,12 +146,15 @@ process over IPC instead of HTTP.
 
 GitHub Actions (`.github/workflows/`) keep `main` releasable:
 
-- **`ci.yml`** runs the full test suite (`npm test` — core + web + desktop) and the Playwright
-  E2E tests on every branch push and PR into `main`. It needs no Toastmasters cookies — the
-  tests mock the network.
-- **`release.yml`** builds the Windows installer on `windows-latest` when you push a **version
-  tag** (e.g. `1.0`) or trigger it manually. On a tag it creates a **GitHub Release** with the
-  `.exe` attached; a manual run uploads the installer as a workflow artifact.
+- **`ci.yml`** runs the full test suite (`npm test` — core + desktop) on every branch push and
+  PR into `main`. It needs no Toastmasters cookies — the tests mock the network.
+- **`release.yml`** builds the Windows installer on `windows-2022` when you push a **version
+  tag** (e.g. `1.0`), push/merge to **`main`**, or trigger it manually. On a version tag it
+  creates a stable **GitHub Release** with the `.exe` attached. On a push to `main` it instead
+  publishes/refreshes a single **rolling pre-release** (tag `latest-main`) with the `.exe`
+  attached, so there's always one obvious download link for the newest build between version
+  tags — see [`CONTRIBUTING.md`](CONTRIBUTING.md). A manual `workflow_dispatch` run just
+  uploads the installer as a workflow artifact, without publishing a Release.
 
 ## Title logic
 
@@ -173,9 +175,9 @@ for the whole monorepo.
 
 Both locations are resolved from a **repo-root anchor**, not from the working directory of the
 running process. This matters because npm workspace scripts run with the cwd set to their own
-workspace: `npm run fetch` runs in `packages/core/`, `npm run dev` runs in `apps/web/`. They
-still read and write the same `<repo>/results/db.sqlite` and the same `<repo>/.env`. The anchor
-lives in `packages/core/paths.ts` (`REPO_ROOT`, `DATA_DIR`, `ENV_FILE`).
+workspace: `npm run fetch` runs in `packages/core/`, `npm run desktop:dev` runs in
+`apps/desktop/`. They still read and write the same `<repo>/results/db.sqlite` and the same
+`<repo>/.env`. The anchor lives in `packages/core/paths.ts` (`REPO_ROOT`, `DATA_DIR`, `ENV_FILE`).
 
 To store data somewhere else, set `TOASTMASTERS_DATA_DIR` to an absolute path:
 
@@ -189,63 +191,62 @@ Electron's `app.getPath('userData')`.
 
 ## Project structure
 
-The repo is an **npm workspaces** monorepo. Shared scraping/SQLite/pathway logic lives in
-`packages/core`; each app in `apps/` consumes it. Every command below is still run from the
+The repo is an **npm workspaces** monorepo: a single Electron app (`apps/desktop`) plus two
+shared packages (`packages/core`, `packages/ui`). Every command below is still run from the
 repository root — the root `package.json` delegates to the right workspace.
 
 ```text
 ├── package.json              # Workspace root — delegates all scripts (private, no source)
 │
 ├── packages/
-│   └── core/                 # @toastmasters/core — framework-agnostic shared logic
-│       ├── index.ts          # Interactive CLI launcher (npm run cli)
-│       ├── paths.ts          # Repo-root anchor: REPO_ROOT, DATA_DIR, ENV_FILE, .env loading
-│       ├── config.ts         # Environment variables and shared constants
-│       ├── types.ts          # TypeScript type definitions
-│       ├── services/
-│       │   ├── fetch.ts      # Scrapes Basecamp progress, snapshots to SQLite
-│       │   └── membership.ts # Downloads TI membership CSV, snapshots to SQLite
-│       ├── queries.ts        # Transport-agnostic read-models (list/detail/diff) — web + desktop
-│       ├── helpers/
-│       │   ├── api.ts        # Basecamp API calls
-│       │   ├── db.ts         # SQLite read/write (snapshots, queries, diff)
-│       │   ├── files.ts      # File utilities (findLatestMembershipFile)
-│       │   └── pathway.ts    # Pathway/level logic (titles, next level, etc.)
-│       └── tests/            # Unit tests for pathway.ts and db.ts + workspace invariants
+│   ├── core/                 # @toastmasters/core — framework-agnostic shared logic
+│   │   ├── index.ts          # Interactive CLI launcher (npm run cli)
+│   │   ├── paths.ts          # Repo-root anchor: REPO_ROOT, DATA_DIR, ENV_FILE, .env loading
+│   │   ├── config.ts         # Environment variables and shared constants
+│   │   ├── types.ts          # TypeScript type definitions
+│   │   ├── services/
+│   │   │   ├── fetch.ts      # Scrapes Basecamp progress, snapshots to SQLite
+│   │   │   └── membership.ts # Downloads TI membership CSV, snapshots to SQLite
+│   │   ├── queries.ts        # Transport-agnostic read-models (list/detail/diff) — used by desktop
+│   │   ├── helpers/
+│   │   │   ├── api.ts        # Basecamp API calls
+│   │   │   ├── db.ts         # SQLite read/write (snapshots, queries, diff)
+│   │   │   ├── files.ts      # File utilities (findLatestMembershipFile)
+│   │   │   └── pathway.ts    # Pathway/level logic (titles, next level, etc.)
+│   │   └── tests/            # Unit tests for pathway.ts and db.ts + workspace invariants
+│   │
+│   └── ui/                   # @toastmasters/ui — shared React components (Phase 14)
+│       ├── components/       # MemberTable, LevelAccordion, DashboardHeader, DiffSection,
+│       │                     # ProjectRow, providers.tsx, and the shadcn ui/* primitives
+│       ├── lib/               # utils.ts (shared component helpers, e.g. cn())
+│       └── globals.css       # Tailwind base styles, imported by the desktop renderer
 │
 ├── apps/
-│   ├── web/                  # @toastmasters/web — Next.js app (App Router)
-│       ├── app/
-│       │   ├── page.tsx      # Dashboard home (member table)
-│       │   ├── members/[email]/     # Member detail page
-│       │   └── api/
-│       │       ├── members/         # GET /api/members — member list with pathway summaries
-│       │       ├── members/[email]/ # GET /api/members/:email — full level detail
-│       │       ├── diff/            # GET /api/diff — progress + membership diff
-│       │       ├── membership-file/ # GET /api/membership-file — CSV download
-│       │       └── refresh/         # POST /api/refresh/{progress,membership}
-│       ├── components/       # React UI components (MemberTable, LevelAccordion, …)
-│       ├── lib/              # Client-side fetch wrappers (api.ts)
-│       └── tests/
-│           ├── api/          # Smoke tests for each API route
-│           └── e2e/          # Playwright E2E tests for the dashboard
-│   └── desktop/              # @toastmasters/desktop — Electron app
+│   └── desktop/               # @toastmasters/desktop — Electron app (the shipped product)
 │       ├── src/
-│       │   ├── main/         # Main process: IPC handlers, in-app login, credentials, menu
-│       │   ├── preload/      # contextBridge — the only renderer→Node surface
-│       │   ├── renderer/     # React UI (reuses the web components over IPC)
-│       │   └── shared/       # Typed IPC contract
-│       ├── tests/            # IPC, preload, auth, credentials + main-bundle invariant
-│       └── USER_GUIDE.md     # Non-technical end-user guide
+│       │   ├── main/          # Main process: IPC handlers, in-app login, credentials, menu
+│       │   ├── preload/       # contextBridge — the only renderer→Node surface
+│       │   ├── renderer/      # React UI — views + lib/api.ts (IPC client); imports its
+│       │   │                  # components from @toastmasters/ui via the "@" alias
+│       │   └── shared/        # Typed IPC contract
+│       ├── tests/             # IPC, preload, auth, credentials + main-bundle invariant
+│       └── USER_GUIDE.md      # Non-technical end-user guide
 │
 ├── .github/workflows/        # CI (tests) + release (Windows installer) pipelines
 └── results/                  # SQLite DB + membership CSV (not committed)
 ```
 
+> **Historical note:** through Phase 13 there was also a `apps/web` Next.js dashboard,
+> deleted in Phase 14 once the Electron app became the sole shipped product. Its reusable React
+> components were extracted into `packages/ui` first — see `specs/roadmap.md` Phase 14 and the
+> superseded ADRs in `specs/` (`architecture-react.md`, `feature-react-migration.md`,
+> `ui-design-react.md`) for the historical record.
+
 ### Importing core
 
-`packages/core` has no build step (it runs through `tsx`, and Next.js transpiles it via
-`transpilePackages`). Consumers import it through its declared subpaths:
+`packages/core` has no build step — it runs through `tsx` at the CLI, and `electron-vite`
+transpiles and bundles it into the desktop app's main process (see
+`apps/desktop/electron.vite.config.ts`). Consumers import it through its declared subpaths:
 
 ```ts
 import { getLatestProgress } from "@toastmasters/core/db";

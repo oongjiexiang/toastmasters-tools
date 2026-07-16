@@ -1,5 +1,11 @@
 # UI Design Spec — React Dashboard (Phase 4)
 
+> **Superseded — the web app was removed in Phase 14; components now live in `packages/ui`.**
+> This design spec described the Phase 4 `apps/web` dashboard. The layout and component
+> design it documents are unchanged — the same components now render inside the
+> `apps/desktop` Electron renderer, sourced from `packages/ui` (`@toastmasters/ui`) instead of
+> `apps/web/components`. See `specs/roadmap.md` Phase 14.
+
 Design spec for re-implementing the Phase 2 dashboard in React + shadcn/ui. One user
 (the club VPE), runs locally, light mode only, laptop only. Handoff target: a developer.
 

@@ -4,7 +4,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
 const REPO_ROOT = resolve(__dirname, "../..");
-const WEB_DIR = resolve(__dirname, "../web");
+const UI_DIR = resolve(__dirname, "../../packages/ui");
 
 export default defineConfig({
   main: {
@@ -32,15 +32,15 @@ export default defineConfig({
   renderer: {
     root: resolve(__dirname, "src/renderer"),
     resolve: {
-      // The renderer reuses the web app's components verbatim, and they import
-      // through Next's "@/*" alias — so "@" must resolve to apps/web here.
+      // The renderer reuses packages/ui's components verbatim, and they import
+      // through a Next-style "@/*" alias — so "@" must resolve to packages/ui here.
       alias: {
-        "@": WEB_DIR,
+        "@": UI_DIR,
       },
     },
     plugins: [react(), tailwindcss()],
     server: {
-      // apps/web lives outside the renderer root; let the dev server read it.
+      // packages/ui lives outside the renderer root; let the dev server read it.
       fs: { allow: [REPO_ROOT] },
     },
     build: {

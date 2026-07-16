@@ -1,7 +1,7 @@
 {
   "name": "toastmasters-tools",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.1",
   "description": "Fetch Toastmasters Basecamp member progress and serve a local dashboard",
   "type": "module",
   "workspaces": [
@@ -9,15 +9,11 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run dev -w @toastmasters/web",
-    "build": "npm run build -w @toastmasters/web",
-    "start": "npm run start -w @toastmasters/web",
     "desktop:dev": "npm run dev -w @toastmasters/desktop",
     "desktop:build": "npm run build -w @toastmasters/desktop",
     "cli": "npm run cli -w @toastmasters/core",
     "fetch": "npm run fetch -w @toastmasters/core",
     "membership": "npm run membership -w @toastmasters/core",
-    "test": "npm run test -w @toastmasters/core && npm run test -w @toastmasters/web && npm run test -w @toastmasters/desktop",
-    "test:e2e": "npm run test:e2e -w @toastmasters/web"
+    "test": "npm run test -w @toastmasters/core && npm run test -w @toastmasters/desktop"
   }
 }

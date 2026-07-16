@@ -6,9 +6,10 @@ import { MemberDetailView } from "./views/MemberDetailView";
 
 /**
  * The desktop app has two screens, so it holds a view union in state rather than
- * pulling in a router. This is the Electron counterpart of the web app's
- * `app/page.tsx` + `app/members/[email]/page.tsx` route pair — the components
- * inside each screen are the same ones the web app renders.
+ * pulling in a router. This was the Electron counterpart of the old Next.js web
+ * app's `app/page.tsx` + `app/members/[email]/page.tsx` route pair (removed in
+ * Phase 14) — the components inside each screen are the same ones from
+ * `packages/ui` that the web app used to render.
  */
 type View =
   | { name: "dashboard" }

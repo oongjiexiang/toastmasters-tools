@@ -9,11 +9,11 @@ import { fileURLToPath } from "url";
  * Phase 10 regression: core's filesystem anchors must not depend on process.cwd().
  *
  * npm workspace scripts run with the *workspace* directory as cwd:
- *   npm run fetch -w @toastmasters/core  ->  cwd = <repo>/packages/core
- *   npm run dev   -w @toastmasters/web   ->  cwd = <repo>/apps/web
+ *   npm run fetch -w @toastmasters/core     ->  cwd = <repo>/packages/core
+ *   npm run desktop:dev -w @toastmasters/desktop  ->  cwd = <repo>/apps/desktop
  *
  * Before packages/core/paths.ts, `.env` and `results/db.sqlite` were resolved
- * against cwd, so the CLI and the dashboard read and wrote *different* SQLite
+ * against cwd, so the CLI and the desktop app read and wrote *different* SQLite
  * files and the user's real <repo>/results/db.sqlite was orphaned.
  *
  * These checks run OUT OF PROCESS on purpose. REPO_ROOT / DATA_DIR /
@@ -24,12 +24,16 @@ import { fileURLToPath } from "url";
  *
  * Everything here is read-only: the probes resolve paths, they never open a
  * database or create a directory. No test points at the real db.sqlite in write mode.
+ *
+ * Phase 14 removed apps/web (the Next.js dashboard); apps/desktop is the
+ * remaining second workspace whose scripts run with cwd = its own directory,
+ * so it stands in as the non-core anchor for these checks.
  */
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CORE_DIR = resolve(__dirname, "..");
 const REPO_ROOT = resolve(CORE_DIR, "..", "..");
-const WEB_DIR = resolve(REPO_ROOT, "apps", "web");
+const DESKTOP_DIR = resolve(REPO_ROOT, "apps", "desktop");
 
 const TSX_CLI = resolve(REPO_ROOT, "node_modules", "tsx", "dist", "cli.mjs");
 const PROBE = resolve(__dirname, "fixtures", "paths-probe.ts");
@@ -129,10 +133,10 @@ describe("core filesystem anchors are independent of process.cwd()", () => {
     assertAnchoredAtRepoRoot(probe);
   }, SPAWN_TIMEOUT_MS);
 
-  it("anchors on the repo root when the web server runs with cwd = apps/web", () => {
-    const probe = runProbe(PROBE, WEB_DIR);
+  it("anchors on the repo root when the desktop app runs with cwd = apps/desktop", () => {
+    const probe = runProbe(PROBE, DESKTOP_DIR);
 
-    expect(norm(probe.cwd)).toBe(norm(WEB_DIR));
+    expect(norm(probe.cwd)).toBe(norm(DESKTOP_DIR));
     assertAnchoredAtRepoRoot(probe);
   }, SPAWN_TIMEOUT_MS);
 
@@ -148,23 +152,23 @@ describe("core filesystem anchors are independent of process.cwd()", () => {
     }
   }, SPAWN_TIMEOUT_MS);
 
-  it("resolves the CLI's and the dashboard's database to one and the same file", () => {
+  it("resolves the CLI's and the desktop app's database to one and the same file", () => {
     const fromCore = runProbe(PROBE, CORE_DIR);
-    const fromWeb = runProbe(PROBE, WEB_DIR);
+    const fromDesktop = runProbe(PROBE, DESKTOP_DIR);
 
-    expect(anchors(fromWeb)).toEqual(anchors(fromCore));
-    expect(norm(fromWeb.DEFAULT_DB_PATH)).toBe(norm(fromCore.DEFAULT_DB_PATH));
+    expect(anchors(fromDesktop)).toEqual(anchors(fromCore));
+    expect(norm(fromDesktop.DEFAULT_DB_PATH)).toBe(norm(fromCore.DEFAULT_DB_PATH));
   }, SPAWN_TIMEOUT_MS);
 
-  it("loads the repo-root .env from every cwd, so config is identical for CLI and web", () => {
+  it("loads the repo-root .env from every cwd, so config is identical for CLI and desktop", () => {
     const fromCore = runProbe(PROBE, CORE_DIR);
-    const fromWeb = runProbe(PROBE, WEB_DIR);
+    const fromDesktop = runProbe(PROBE, DESKTOP_DIR);
 
     // Compared against the real <repo>/.env, not against the probe's own view of it:
     // a probe that looked for .env in the wrong directory reports [] and must fail here.
     // Key names only — no values ever leave the subprocess.
     expect(fromCore.loadedEnvKeys).toEqual(ROOT_ENV_KEYS);
-    expect(fromWeb.loadedEnvKeys).toEqual(ROOT_ENV_KEYS);
+    expect(fromDesktop.loadedEnvKeys).toEqual(ROOT_ENV_KEYS);
   }, SPAWN_TIMEOUT_MS);
 });
 
@@ -178,27 +182,29 @@ describe("negative control: the pre-fix, cwd-anchored resolution is rejected", (
     expect(() => assertAnchoredAtRepoRoot(legacy)).toThrow();
   }, SPAWN_TIMEOUT_MS);
 
-  it("fails the repo-root contract when the old code runs with cwd = apps/web", () => {
-    const legacy = runProbe(LEGACY_PROBE, WEB_DIR);
+  it("fails the repo-root contract when the old code runs with cwd = apps/desktop", () => {
+    const legacy = runProbe(LEGACY_PROBE, DESKTOP_DIR);
 
     expect(() => assertAnchoredAtRepoRoot(legacy)).toThrow();
   }, SPAWN_TIMEOUT_MS);
 
   it("reproduces the two-databases bug the fix eliminates", () => {
     const legacyCore = runProbe(LEGACY_PROBE, CORE_DIR);
-    const legacyWeb = runProbe(LEGACY_PROBE, WEB_DIR);
+    const legacyDesktop = runProbe(LEGACY_PROBE, DESKTOP_DIR);
 
-    // The CLI and the dashboard would have used different SQLite files...
-    expect(norm(legacyWeb.DEFAULT_DB_PATH)).not.toBe(norm(legacyCore.DEFAULT_DB_PATH));
+    // The CLI and the desktop app would have used different SQLite files...
+    expect(norm(legacyDesktop.DEFAULT_DB_PATH)).not.toBe(norm(legacyCore.DEFAULT_DB_PATH));
     expect(norm(legacyCore.DEFAULT_DB_PATH)).toBe(
       norm(join(CORE_DIR, "results", "db.sqlite")),
     );
-    expect(norm(legacyWeb.DEFAULT_DB_PATH)).toBe(norm(join(WEB_DIR, "results", "db.sqlite")));
+    expect(norm(legacyDesktop.DEFAULT_DB_PATH)).toBe(
+      norm(join(DESKTOP_DIR, "results", "db.sqlite")),
+    );
 
     // ...and neither would have been the user's real database.
     const realDb = norm(join(REPO_ROOT, "results", "db.sqlite"));
     expect(norm(legacyCore.DEFAULT_DB_PATH)).not.toBe(realDb);
-    expect(norm(legacyWeb.DEFAULT_DB_PATH)).not.toBe(realDb);
+    expect(norm(legacyDesktop.DEFAULT_DB_PATH)).not.toBe(realDb);
   }, SPAWN_TIMEOUT_MS);
 
   it("fails the absolute-RESULTS_DIR contract, which the relative 'results' string broke", () => {
@@ -229,7 +235,7 @@ describe("TOASTMASTERS_DATA_DIR override (Phase 11 / Electron hook)", () => {
   it("leaves REPO_ROOT and ENV_FILE anchored on the repo root", () => {
     const dataDir = mkdtempSync(join(tmpdir(), "tm-data-"));
     try {
-      const probe = runProbe(PROBE, WEB_DIR, { TOASTMASTERS_DATA_DIR: dataDir });
+      const probe = runProbe(PROBE, DESKTOP_DIR, { TOASTMASTERS_DATA_DIR: dataDir });
 
       expect(norm(probe.REPO_ROOT)).toBe(norm(REPO_ROOT));
       expect(norm(probe.ENV_FILE)).toBe(norm(join(REPO_ROOT, ".env")));
@@ -242,9 +248,9 @@ describe("TOASTMASTERS_DATA_DIR override (Phase 11 / Electron hook)", () => {
     const dataDir = mkdtempSync(join(tmpdir(), "tm-data-"));
     try {
       const fromCore = runProbe(PROBE, CORE_DIR, { TOASTMASTERS_DATA_DIR: dataDir });
-      const fromWeb = runProbe(PROBE, WEB_DIR, { TOASTMASTERS_DATA_DIR: dataDir });
+      const fromDesktop = runProbe(PROBE, DESKTOP_DIR, { TOASTMASTERS_DATA_DIR: dataDir });
 
-      expect(norm(fromWeb.DEFAULT_DB_PATH)).toBe(norm(fromCore.DEFAULT_DB_PATH));
+      expect(norm(fromDesktop.DEFAULT_DB_PATH)).toBe(norm(fromCore.DEFAULT_DB_PATH));
       expect(norm(fromCore.DEFAULT_DB_PATH)).toBe(norm(join(dataDir, "db.sqlite")));
     } finally {
       rmSync(dataDir, { recursive: true, force: true });
