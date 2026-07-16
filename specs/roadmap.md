@@ -960,20 +960,188 @@ improvement with no API-shape change, so **bump the minor version → `1.4.0`** 
 
 ---
 
-## Phase 19 — Production-grade refactor (minor version → 1.5.0)
+> **Reprioritisation (2026-07-16, VPE request):** the desktop UI-polish phase below is inserted
+> as the new **Phase 19** — the next highest-priority work, requested directly by the VPE —
+> pushing the production-grade refactor down to **Phase 20**. Version targets re-sequenced to stay
+> monotonic: `1.5.0` (UI polish) → `1.6.0` (refactor). The refactor keeps yielding to
+> user-facing work, and there is a second reason to order it this way: this phase touches
+> `packages/ui` heavily, and Phase 20's own rule is not to refactor code an earlier phase is
+> still actively changing.
+
+---
+
+## Phase 19 — Desktop UI polish (affordances, expand/collapse, theming, layout; minor → 1.5.0)
+
+_The desktop app works, but it doesn't feel like a finished product. Nothing signals what is
+clickable, the two screens disagree about how expand/collapse works, there is no dark mode, and
+the header controls pile up in a ragged row. This phase is a UI-quality pass over the shipped
+`.exe` — no new data, no scraper or IPC change. User-facing, so **minor bump → `1.5.0`.**_
+
+> **Finding A (grounds the cursor items — it is one root cause, not N papercuts):** the app has
+> exactly **two** `cursor-pointer` classes in the entire renderer + `packages/ui`
+> (`MemberTable.tsx:97` and `:170`). Everything else — every `Button`, every `AccordionTrigger`,
+> the expand chevron in `MemberTable.tsx:126` — shows the default arrow cursor, because Tailwind
+> v4's preflight sets `button { cursor: default }` (a deliberate v4 change from v3) and neither
+> `buttonVariants` (`packages/ui/components/ui/button.tsx:7`) nor the `AccordionTrigger` base
+> class (`packages/ui/components/ui/accordion.tsx:35`) adds it back. So fix this **centrally in
+> the two primitives**, not by sprinkling `cursor-pointer` on call sites; the sprinkle would
+> re-rot the moment a new button is added.
+
+> **Finding B (load-bearing — dark mode is *disabled*, not missing; do this in order):**
+> `packages/ui/components/providers.tsx:7` renders
+> `<ThemeProvider attribute="class" defaultTheme="light" forcedTheme="light">`. `forcedTheme`
+> pins the app to light and makes the provider ignore any theme you set. `packages/ui/globals.css`
+> **already ships a complete `.dark` token block** (lines 85–117) and `ui/sonner.tsx:3` already
+> reads `useTheme()`, so the plumbing exists. **But** ~20 hardcoded palette classes with **no
+> `dark:` variant** sit across `MemberTable.tsx` (blue/amber/green badges, the `text-blue-600`
+> details link), `LevelAccordion.tsx` (`StatusBadge`), `ProjectRow.tsx` (`text-green-600/700`),
+> `MemberDetailView.tsx:75`, and `DashboardView.tsx:325`. `bg-blue-100 text-blue-800` on a dark
+> card is unreadable. **So: tokenise the status colours first, then remove `forcedTheme`.**
+> Dropping `forcedTheme` before the tokenisation ships a visibly broken dark mode.
+
+- [ ] **(item 1) Pointer cursor on everything clickable — fixed at the primitive.** Add
+      `cursor-pointer` to the `buttonVariants` base string (`packages/ui/components/ui/button.tsx`)
+      and to the `AccordionTrigger` base class (`packages/ui/components/ui/accordion.tsx`), so
+      every existing and future button/trigger inherits it. `disabled:pointer-events-none` is
+      already in `buttonVariants` and keeps disabled buttons from showing it — verify that holds.
+      Then remove the now-redundant per-call-site `cursor-pointer` in `MemberTable.tsx:170`. Any
+      element that is clickable but is **not** a `Button` (the `<TableRow>`s, the raw `<button>`
+      chevron at `MemberTable.tsx:126`) still needs it explicitly — cover those under item 2.
+- [ ] **(item 2) Whole-row click targets in `MemberTable`.** Today the behaviour is inconsistent:
+      a **single-pathway** row is already fully clickable with a pointer and `hover:bg-muted/50`
+      (`MemberTable.tsx:95-99`), but a **multi-pathway** member's parent row is inert — no cursor,
+      no hover, and clicking it does nothing; only the ~16px chevron responds. Its expanded child
+      rows are worse: they navigate only via a small `details →` text button
+      (`MemberTable.tsx:168-173`). Make it uniform:
+  - Parent (multi-pathway) row: clicking anywhere on it **toggles expand**, with `cursor-pointer`
+    + the same `hover:bg-muted/50`. Keep the chevron as the visual affordance; it must not
+    double-fire (the existing `e.stopPropagation()` at `MemberTable.tsx:64` is what prevents that
+    — keep it).
+  - Child (per-pathway) row: clicking anywhere navigates to that pathway's detail, same cursor +
+    hover treatment as a single-pathway row. Drop the `details →` button once the row itself
+    navigates, or keep it only if it still earns its place as a visual affordance.
+  - Keep the rows keyboard-reachable and screen-reader-sane: a clickable `<TableRow>` needs
+    `role="button"`-equivalent semantics (`tabIndex={0}` + Enter/Space handling) or an inner
+    focusable control. A row that only responds to a mouse is a regression, not polish.
+- [ ] **(item 3) One expand/collapse-all toggle, not two buttons.** `LevelAccordion.tsx:68-83`
+      renders **separate** "Expand all" and "Collapse all" buttons (shipped in Phase 3). Replace
+      them with a **single** button that reflects and flips the current state — "Collapse all"
+      when any level is open, "Expand all" when none are — matching the VPE's request for "just a
+      button". Default stays **all expanded** (Phase 3's documented behaviour; do not change it).
+      Decide the label from `openItems.length > 0`, so the button stays truthful when the user
+      opens/closes levels individually.
+- [ ] **(item 4) Expand/collapse in the overview page.** The dashboard's `MemberTable` has
+      per-member expansion for multi-pathway members (`expandedRows`, `MemberTable.tsx:61`) but
+      **no** expand-all/collapse-all control — that only exists on the detail page. Add the same
+      single toggle from item 3 above the table, driving the `expandedRows` set. It must
+      **only render when at least one member actually has multiple pathways**
+      (`members.some(m => m.pathways.length > 1)`) — in a club where nobody is on two paths it
+      would be a dead control, exactly the "never a dead button" rule Phase 17 applied to **Log
+      out**. Consider extracting the toggle as a shared component in `packages/ui` rather than
+      writing it twice.
+- [ ] **(item 5) Tokenise the hardcoded status colours (prerequisite for item 6).** Replace the
+      raw palette classes listed in Finding B with theme-aware ones. Prefer semantic tokens that
+      already flip with `.dark` (`muted`, `accent`, `destructive`, `foreground`) where they fit;
+      where a genuine status hue is needed (green = done/approved, amber = ready/close, blue =
+      title), either add `dark:` variants (`bg-blue-100 text-blue-800 dark:bg-blue-950
+      dark:text-blue-200`) or — better — add status tokens to the `:root` / `.dark` blocks in
+      `packages/ui/globals.css` and use those, so the mapping lives in one place. The status
+      semantics must not change: approved still reads green, ready still reads amber.
+- [ ] **(item 6) Light/dark mode with a real toggle.** Remove `forcedTheme="light"` from
+      `packages/ui/components/providers.tsx` and set `defaultTheme="system"` with
+      `enableSystem` so the app follows the OS by default (Windows 11 has a system-wide dark
+      setting; matching it is the least surprising default). Add a header toggle
+      (sun/moon icon `Button`, `lucide-react` already provides `Sun`/`Moon`) cycling
+      light → dark → system, in a new **optional** `themeControl` slot on `DashboardHeader` —
+      mirroring exactly how the `authControl` slot was added in Phase 12
+      (`packages/ui/components/DashboardHeader.tsx:26`). `next-themes` persists the choice to
+      `localStorage`, which in Electron lives under the app's `userData` partition, so the
+      setting survives restarts with no new persistence code — **verify this rather than
+      assume it**; if it does not persist, fall back to storing the preference in `config.env`
+      via the existing `credentials.ts` `upsertCredential` writer. Guard against the
+      first-paint flash of the wrong theme in the renderer's HTML shell. Sonner already reads
+      `useTheme()`, so toasts should follow for free — confirm they do.
+- [ ] **(item 7) Header + layout tidy.** `DashboardHeader` (`flex items-start justify-between`)
+      now carries six controls — auth badge, Log in/out, Refresh Progress, Refresh Membership,
+      Membership CSV, and the new theme toggle — in one `flex-wrap` row that ragged-wraps at
+      narrow widths. Group them so the header reads as deliberate: the auth badge and its
+      button together, the two Refresh buttons as one visual unit (they are the primary action
+      pair), and the utility controls (CSV, theme) separated — a button group, a separator, or
+      an icon-only button for the low-frequency ones. Keep every existing control reachable and
+      keep its accessible name (the tests and the user guide reference these labels); this is a
+      **visual regrouping, not a removal**. Confirm the layout holds at the app's minimum window
+      width.
+- [ ] **(item 8) No behaviour change beyond the UI.** No IPC channel, query, scraper, or
+      `packages/core` change belongs in this phase. If something here appears to need a core
+      change, stop and flag it — that is a sign the item is mis-scoped.
+- [ ] **Version bump:** minor-bump every workspace `package.json` `version` to `1.5.0`; after
+      validation, tag `v1.5.0`.
+
+**Validation:**
+1. [ ] `grep -n "cursor-pointer" packages/ui/components/ui/button.tsx packages/ui/components/ui/accordion.tsx`
+   — present in **both** primitives' base classes (item 1), so the fix is central rather than
+   per-call-site.
+2. [ ] `grep -nE "cursor-pointer|hover:bg-muted" packages/ui/components/MemberTable.tsx` — the
+   multi-pathway parent row and the expanded child rows both carry the affordance, not just the
+   single-pathway row (item 2). A unit test asserts: clicking a parent row toggles expansion
+   (and does **not** navigate), clicking a child row calls `onSelectMember` with that child's
+   pathway, and clicking the chevron toggles **once**, not twice (the `stopPropagation` guard —
+   include this as a negative control, since it is the exact bug item 2 can introduce).
+3. [ ] `grep -c "Expand all" packages/ui/components/LevelAccordion.tsx` — the two-button pair is
+   gone (item 3); a test asserts one button whose label flips between "Expand all" and
+   "Collapse all" with the open state, and that the default render is all-expanded (guards
+   Phase 3's behaviour).
+4. [ ] A test asserts the overview toggle **renders** when a member has >1 pathway and does
+   **not** render when every member has exactly one (item 4) — the dead-control guard, and the
+   half that is easy to forget.
+5. [ ] `grep -rnE "(bg|text)-(blue|green|amber)-[0-9]{2,3}" packages/ui/components apps/desktop/src/renderer`
+   — every remaining hit is paired with a `dark:` variant, or the hit count is zero because the
+   colours moved into `globals.css` tokens (item 5).
+6. [ ] `grep -n "forcedTheme" packages/ui/components/providers.tsx` — **no hits** (item 6), and
+   `grep -rn "themeControl" packages/ui/components/DashboardHeader.tsx apps/desktop/src/renderer`
+   — the slot exists and the renderer fills it. A test asserts the toggle cycles
+   light → dark → system and that the provider is no longer force-pinned.
+7. [ ] `npm test` green (existing 343 as the floor — 235 core + 108 desktop — plus the new
+   component tests; **note** `packages/ui` ships no test suite of its own by design (Phase 14),
+   so these land in `apps/desktop/tests/`, which is where the components are actually rendered.
+   The renderer currently has no component-rendering test at all — `authStatusLabel.test.ts` is
+   a pure-function test — so this phase must **add a component test harness**
+   (`@testing-library/react` + `jsdom`) as its first step, which is new devDependency + vitest
+   `environment` config work in `apps/desktop`, not a free assumption).
+8. [ ] `npm run typecheck` clean; `npm run desktop:build` produces
+   `Toastmasters Tools Setup 1.5.0.exe`;
+   `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
+   `1.5.0`.
+9. [ ] **Manual (user):** launch the built `.exe` and confirm — the pointer cursor appears over
+   buttons, table rows, and accordion headers; clicking anywhere on a multi-pathway row expands
+   it and anywhere on a child row opens that pathway; the single expand/collapse toggle works on
+   **both** screens; the theme toggle switches light↔dark with **all** badges legible in dark
+   (this is the item automated tests cannot judge — the tokenisation in item 5 is verified for
+   *presence* by validation 5, not for *legibility*); and the theme survives an app restart.
+
+> **Scope note:** items 1–4 and 7 are mechanical and independently verifiable. Item 6 is the
+> only one with a real ordering dependency (item 5 must land first — Finding B), and item 9 is
+> the only judgement call that must go to the user. If the phase runs long, items 5 + 6 (theming)
+> are the clean split point: 1–4 + 7 ship a complete "affordances + layout" phase on their own.
+
+---
+
+## Phase 20 — Production-grade refactor (minor version → 1.6.0)
 
 > _Was **Phase 15** before the 2026-07-16 reprioritisation, then **Phase 18** before the
-> 2026-07-16 logout insertion (see above). Stays **last** of the planned phases: it's a
-> behaviour-preserving cleanup, so it yields to the pipeline (15), login-UX (16), logout (17),
-> and perf (18) work the VPE asked for first. Version target re-sequenced `1.4.0` → `1.5.0` to
-> stay monotonic behind Phase 18's `1.4.0`._
+> 2026-07-16 logout insertion, then **Phase 19** before the 2026-07-16 UI-polish insertion (see
+> above). Stays **last** of the planned phases: it's a behaviour-preserving cleanup, so it yields
+> to the pipeline (15), login-UX (16), logout (17), perf (18), and UI-polish (19) work the VPE
+> asked for first. Version target re-sequenced `1.5.0` → `1.6.0` to stay monotonic behind Phase
+> 19's `1.5.0`._
 
 _With the repo collapsed to a single app plus shared packages (Phase 14), do a repo-wide
 cleanup pass to make it maintainable and production-grade: consistent structure, enforced
 lint/format, strict typing, no dead code, uniform error handling and logging. This is a
 behaviour-preserving refactor — no new user-facing feature and no user-facing change to the
-shipped `.exe` — so **tag the resulting build with a minor bump — `1.5.0`.** Do this only
-after Phases 15–18; refactoring code those phases are still actively changing is wasted work._
+shipped `.exe` — so **tag the resulting build with a minor bump — `1.6.0`.** Do this only
+after Phases 15–19; refactoring code those phases are still actively changing is wasted work
+(Phase 19 in particular rewrites much of `packages/ui`)._
 
 - [ ] **Tooling baseline:** a single shared ESLint (flat config) + Prettier setup at the repo
       root applied to every workspace; add `lint` / `format` scripts and wire `lint` into `npm test`
@@ -993,15 +1161,15 @@ after Phases 15–18; refactoring code those phases are still actively changing 
       barrel/`index.ts` conventions across `packages/*` and `apps/desktop`.
 - [ ] **No behaviour change / no coverage loss:** the full test suite stays green and coverage
       does not drop; refactors that touch logic get a test asserting the preserved behaviour.
-- [ ] **Version bump:** set every workspace `package.json` `version` to `1.5.0`; after
-      validation, tag the build `v1.5.0`.
+- [ ] **Version bump:** set every workspace `package.json` `version` to `1.6.0`; after
+      validation, tag the build `v1.6.0`.
 
 **Validation:**
 1. `npm run lint` exits 0 with zero warnings; `npm run format -- --check` (or equivalent) is clean
 2. `npm test` passes with coverage ≥ the Phase 14 baseline (no regression)
-3. `npm run desktop:build` produces `Toastmasters Tools Setup 1.5.0.exe`
+3. `npm run desktop:build` produces `Toastmasters Tools Setup 1.6.0.exe`
 4. `grep -rc "any" packages/core/*.ts packages/core/helpers` shows no new bare `any`s vs. baseline; strict flags present in the shared tsconfig
-5. `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.5.0`
+5. `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.6.0`
 
 ---
 
