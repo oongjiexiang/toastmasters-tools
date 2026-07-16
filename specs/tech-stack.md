@@ -1,5 +1,14 @@
 # Tech Stack
 
+> **Superseded (partial) — the web app was removed in Phase 14; components now live in
+> `packages/ui`.** This document tracks the stack's evolution phase by phase, so most of it is
+> still accurate — Layers 0–2, 5, and 7 describe the current shipped architecture. **Layer 3**
+> (local web UI) and **Layer 4** (Next.js frontend) describe the `apps/web` app, and **Layer 6**
+> describes its Playwright E2E suite — all three were deleted in Phase 14. The React/shadcn
+> component decisions they document still hold: those components were extracted verbatim into
+> `packages/ui` (`@toastmasters/ui`) and are now consumed by `apps/desktop`'s renderer (Layer 7)
+> instead of by Next.js. See `specs/roadmap.md` Phase 14 for the removal and extraction.
+
 ## Current (baseline)
 
 | Layer | Choice | Why |
@@ -8,7 +17,7 @@
 | Runtime | Node.js v18+ via `tsx` | Zero-compile dev loop; familiar ecosystem |
 | CSV I/O | `csv-parse` / `csv-stringify` | Robust RFC 4180 handling without a DB dependency |
 | Auth | Browser session cookies (manual) | Only viable method; both portals lack public OAuth |
-| Packaging | Electron `.exe` (Phase 11) for the end user; `npm run dev` for development | The VPE double-clicks an installer; developers run the workspace scripts from the repo root |
+| Packaging | Electron `.exe` (Phase 11) for the end user; `npm run desktop:dev` for development | The VPE double-clicks an installer; developers run the workspace scripts from the repo root |
 | Output | Flat CSV files in `results/` | Opens directly in Google Sheets / Excel |
 
 ## Target Architecture
@@ -22,9 +31,10 @@ The repo is **npm workspaces**: `workspaces: ["apps/*", "packages/*"]` in a priv
 
 | Workspace | Package | Role |
 |---|---|---|
-| `packages/core` | `@toastmasters/core` | Framework-agnostic shared logic: SQLite (`helpers/db.ts`), scrapers (`services/{fetch,membership}.ts`), pathway rules (`helpers/pathway.ts`), config, types, and the interactive CLI. No build step — runs under `tsx`, and Next.js transpiles it via `transpilePackages`. |
-| `apps/web` | `@toastmasters/web` | Next.js dashboard (Layer 4). Imports core; owns its own `tsconfig`, `vitest.config.ts`, `playwright.config.ts`. |
-| `apps/desktop` | _(Phase 11)_ | Electron app (Layer 7). Imports the same core from the main process. |
+| `packages/core` | `@toastmasters/core` | Framework-agnostic shared logic: SQLite (`helpers/db.ts`), scrapers (`services/{fetch,membership}.ts`), pathway rules (`helpers/pathway.ts`), config, types, and the interactive CLI. No build step — runs under `tsx` (originally also Next.js-transpiled via `transpilePackages`; now `electron-vite`-bundled for `apps/desktop`). |
+| `apps/web` _(removed, Phase 14)_ | `@toastmasters/web` | Next.js dashboard (Layer 4). Imports core; owns its own `tsconfig`, `vitest.config.ts`, `playwright.config.ts`. Deleted in Phase 14 — its components live in `packages/ui` now. |
+| `packages/ui` _(added, Phase 14)_ | `@toastmasters/ui` | Shared React/shadcn components extracted from `apps/web` before deletion; consumed by `apps/desktop`'s renderer. |
+| `apps/desktop` | `@toastmasters/desktop` (Phase 11) | Electron app (Layer 7) — now the sole shipped app. Imports core from the main process and `packages/ui` in the renderer. |
 
 Core is consumed through explicit `exports` subpaths (`@toastmasters/core/db`, `/pathway`,
 `/api`, `/files`, `/config`, `/paths`, `/types`, `/fetch`, `/membership`) — not deep
@@ -62,12 +72,12 @@ Add a SQLite file (`results/db.sqlite`) to persist snapshots after each run:
 
 Likely driver: `better-sqlite3` (synchronous, zero native deps on Node 18+).
 
-### Layer 3 — Local web UI (Phase 2, done)
+### Layer 3 — Local web UI (Phase 2, done; superseded — see banner above)
 
 A local HTTP server (Node's built-in `http`) reads from SQLite and serves the dashboard on
 `localhost` only. In Phase 4 this is replaced by Next.js API routes + React pages.
 
-### Layer 4 — Next.js frontend (Phase 4)
+### Layer 4 — Next.js frontend (Phase 4; superseded, removed Phase 14 — see banner above)
 
 | Concern | Choice | Why |
 |---|---|---|
@@ -92,7 +102,7 @@ command instead of two processes. See ADR for full comparison.
 | Coverage | `@vitest/coverage-v8` | Built-in, no extra config |
 | Scope | `helpers/` pure logic + API endpoint mappers | Highest value, lowest mocking cost |
 
-### Layer 6 — E2E browser testing (Phase 9)
+### Layer 6 — E2E browser testing (Phase 9; superseded, removed Phase 14 — see banner above)
 
 | Concern | Choice | Why |
 |---|---|---|
@@ -113,7 +123,7 @@ Windows `.exe` instead._
 |---|---|---|
 | Shell | **Electron** | Bundles Node.js, so `@toastmasters/core` (SQLite + scrapers) and `better-sqlite3`'s native module run **unchanged** in the main process — no rewrite |
 | Build tool | **electron-vite** | Modern Vite-based Electron tooling: hot reload in dev, clean main/preload/renderer build split |
-| UI | React (reused from `apps/web`) | The existing `MemberTable` / `LevelAccordion` / refresh-header components port directly; only the data layer changes from `fetch("/api/…")` to IPC |
+| UI | React (reused from `apps/web`, later extracted to `packages/ui` in Phase 14) | The existing `MemberTable` / `LevelAccordion` / refresh-header components port directly; only the data layer changes from `fetch("/api/…")` to IPC |
 | Main ↔ renderer | IPC via `contextBridge` preload | Typed, sandboxed bridge; `nodeIntegration` stays off. Main process owns SQLite + scraping |
 | Packaging | **electron-builder** (NSIS target) | One-command Windows installer `.exe`; user double-clicks, no terminal |
 | Auth (Phase 12) | **In-app login** — user signs in on the genuine Toastmasters pages in an embedded window; the main process harvests the session cookies from a persistent Electron partition (`persist:toastmasters`) | The scrapers authenticate by a `Cookie` header; the main process's `session.cookies.get()` can read those cookies — including httpOnly auth cookies — with no manual copy. Manual `config.env` paste stays as a fallback |
@@ -127,7 +137,9 @@ self-heal keep the login across restarts; the manual **Open Credentials File…*
 a fallback. This depends on core reading its cookies **dynamically** — `getSessionId()` /
 `getTiCookie()` in `packages/core/config.ts` read `process.env` at request time — so a login
 applied after core is imported takes effect on the next refresh with no restart. Browser
-cross-origin cookie isolation makes this Electron-only; the web app keeps the manual paste.
+cross-origin cookie isolation makes in-app login Electron-only; the CLI (and the desktop app's
+own fallback) still use the manual paste. (`apps/web`, which also kept the manual paste, was
+removed in Phase 14.)
 
 **Supersedes Docker (Phase 0 baseline), retired in Phase 10.** Docker solved "run this without a
 global Node install" for a developer; the `.exe` solves it for the actual end user, and does so
@@ -143,13 +155,14 @@ without a terminal. See `roadmap.md` Phase 10 for the removal rationale.
 
 **Monorepo prerequisite (Phase 10):** the repo becomes npm workspaces with `packages/core`
 (shared SQLite + scraping + pathway logic) consumed by both `apps/web` (Next.js) and
-`apps/desktop` (Electron). Neither app forks the core logic.
+`apps/desktop` (Electron). Neither app forks the core logic. (`apps/web` was later removed in
+Phase 14, leaving `apps/desktop` as the sole consumer alongside the new `packages/ui`.)
 
 ## Constraints
 
 - **No cloud dependencies** for runtime. Credentials are local; data never leaves the machine.
 - **CLI stays build-free.** `tsx` runs the Node code directly. The build step is scoped to the
-  React app (`apps/web`) only — the CLI never requires a bundler.
+  React renderer (`apps/desktop`, via `electron-vite`) only — the CLI never requires a bundler.
 - **`packages/core` imports no framework.** No `next`, no `react`. Enforced by
   `packages/core/tests/workspace.test.ts`.
 - **shadcn components are vendored source**, committed to the repo and edited in place.

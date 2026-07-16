@@ -7,11 +7,11 @@ import { fileURLToPath } from "url";
  * Phase 10 structural invariants for the npm-workspaces monorepo.
  *
  * These tests protect the *wiring* rather than behaviour: the `exports` map of
- * @toastmasters/core, the public symbols the web API routes depend on, and the
- * framework-agnosticism of core that Phase 11 (Electron) is predicated on.
+ * @toastmasters/core, the public symbols apps/desktop and packages/ui depend on,
+ * and the framework-agnosticism of core that Phase 11 (Electron) is predicated on.
  *
  * They live in the core package because core's suite runs first under the root
- * `npm test`, so a broken monorepo layout fails fast before the web suite runs.
+ * `npm test`, so a broken monorepo layout fails fast before the desktop suite runs.
  */
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -204,7 +204,8 @@ describe("@toastmasters/core public symbols", () => {
   it("db exposes the snapshot writers and queries the API routes call", async () => {
     const db = await import("@toastmasters/core/db");
 
-    // Consumed by apps/web/app/api/{members,members/[email],diff}/route.ts
+    // Consumed by apps/desktop's IPC handlers (see specs/tech-stack.md; formerly
+    // by apps/web/app/api/{members,members/[email],diff}/route.ts before Phase 14)
     expect(db.getLatestProgress).toBeTypeOf("function");
     expect(db.getLatestMembership).toBeTypeOf("function");
     expect(db.getLatestProjects).toBeTypeOf("function");
@@ -244,7 +245,7 @@ describe("@toastmasters/core public symbols", () => {
 
   // ./paths is public API, not an implementation detail: Phase 11's Electron main
   // process reads DATA_DIR and points it at app.getPath('userData').
-  it("paths exposes the filesystem anchors Electron and the web app depend on", async () => {
+  it("paths exposes the filesystem anchors Electron depends on", async () => {
     const paths = await import("@toastmasters/core/paths");
 
     expect(paths.REPO_ROOT).toBeTypeOf("string");
@@ -309,11 +310,11 @@ describe("core stays framework-agnostic (Phase 11 Electron precondition)", () =>
     expect(offenders).toEqual([]);
   });
 
-  it("no core source file reaches into the web app's app/, components/ or lib/", () => {
-    const webReach = /(^|\/)(app|components|lib)\//;
+  it("no core source file reaches into a UI package's app/, components/ or lib/", () => {
+    const uiReach = /(^|\/)(app|components|lib)\//;
     const offenders = coreSources.flatMap((file) =>
       importSpecifiers(file)
-        .filter((spec) => spec.startsWith("@/") || webReach.test(spec))
+        .filter((spec) => spec.startsWith("@/") || uiReach.test(spec))
         .map((spec) => `${file} -> ${spec}`),
     );
     expect(offenders).toEqual([]);
@@ -340,8 +341,8 @@ describe("dead pre-monorepo aliases are gone", () => {
     expect(allSources.length).toBeGreaterThan(0);
   });
 
-  // Guards against a vacuous pass, as above: prove the scanner sees the web app's
-  // real imports (including the core subpaths that replaced the dead aliases).
+  // Guards against a vacuous pass, as above: prove the scanner sees the workspace
+  // sources' real imports (including the core subpaths that replaced the dead aliases).
   it("extracts real import specifiers from workspace sources", () => {
     const allSpecs = allSources.flatMap(importSpecifiers);
     expect(allSpecs).toContain("@toastmasters/core/db");
@@ -362,8 +363,12 @@ describe("dead pre-monorepo aliases are gone", () => {
 
   // Widened in Phase 11: apps/desktop is now a second consumer of core, and it
   // must respect the same `exports` contract (no deep relative reach into
-  // packages/core/helpers/*).
-  it.each(["web", "desktop"])(
+  // packages/core/helpers/*). Phase 14 removed apps/web (its "web" case would
+  // have collected an empty file list and passed vacuously — see the "Guards
+  // against a vacuous pass" comments elsewhere in this file) and added
+  // packages/ui as a second, non-`apps/` consumer, held to the same contract
+  // by the dedicated case below it.
+  it.each(["desktop"])(
     "every %s import of core goes through a declared @toastmasters/core subpath",
     (appName) => {
       const appSources = collectSourceFiles(join(REPO_ROOT, "apps", appName), [
@@ -392,5 +397,29 @@ describe("dead pre-monorepo aliases are gone", () => {
     const specs = desktopSources.flatMap(importSpecifiers);
     expect(specs).toContain("@toastmasters/core/queries");
     expect(specs).toContain("@toastmasters/core/db");
+  });
+
+  // packages/ui imports core's view-model types (DiffResult, MemberSummary,
+  // PathwaySummary, LevelGroup) from @toastmasters/core/queries, so it must
+  // respect the same declared-subpath contract as apps/desktop.
+  it("every ui import of core goes through a declared @toastmasters/core subpath", () => {
+    const uiSources = collectSourceFiles(join(REPO_ROOT, "packages", "ui"));
+    const declared = new Set(
+      EXPORT_SUBPATHS.map((s) => `@toastmasters/core${s.slice(1)}`),
+    );
+
+    const offenders = uiSources.flatMap((file) =>
+      importSpecifiers(file)
+        .filter((spec) => spec.startsWith("@toastmasters/core"))
+        .filter((spec) => !declared.has(spec))
+        .map((spec) => `${file} -> ${spec}`),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it("finds packages/ui's core imports (guards the scan above from passing vacuously)", () => {
+    const uiSources = collectSourceFiles(join(REPO_ROOT, "packages", "ui"));
+    const specs = uiSources.flatMap(importSpecifiers);
+    expect(specs).toContain("@toastmasters/core/queries");
   });
 });

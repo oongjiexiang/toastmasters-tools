@@ -2,10 +2,11 @@
  * Read-model queries for the dashboard.
  *
  * This module holds the logic that used to live inside the Next.js API routes
- * (`apps/web/app/api/{members,members/[email],diff}/route.ts`). It is
- * transport-agnostic on purpose: the web app maps the results onto HTTP
- * responses, and the Electron main process (Phase 11) maps the *same* results
- * onto IPC replies. Neither app forks the logic — see `specs/tech-stack.md`.
+ * (`apps/web/app/api/{members,members/[email],diff}/route.ts`, removed in
+ * Phase 14). It is transport-agnostic on purpose: the now-removed web app
+ * used to map the results onto HTTP responses, and the Electron main process
+ * (Phase 11) maps the *same* results onto IPC replies. No consumer forks the
+ * logic — see `specs/tech-stack.md`.
  *
  * Failures are returned, not thrown, as a discriminated union (`QueryResult`).
  * Each transport owns its own mapping:

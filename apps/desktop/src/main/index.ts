@@ -55,7 +55,8 @@ function loadCore(): Promise<Core> {
 
 /**
  * Registers a handler that always answers with an IpcResult, mirroring how the
- * Next.js routes always answer with `{ data }` or `{ error: { code, message } }`.
+ * old web app's Next.js routes (removed in Phase 14) always answered with
+ * `{ data }` or `{ error: { code, message } }`.
  */
 function handle<T>(
   channel: string,

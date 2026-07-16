@@ -1,9 +1,9 @@
 /**
  * Out-of-process probe for core's filesystem anchors.
  *
- * Spawned by tests/paths.test.ts with an explicit `cwd` (packages/core, apps/web,
- * or an unrelated directory). It imports core exactly as the CLI and the Next
- * server do, then prints the resolved anchors as JSON on stdout.
+ * Spawned by tests/paths.test.ts with an explicit `cwd` (packages/core,
+ * apps/desktop, or an unrelated directory). It imports core exactly as the CLI
+ * and the desktop app do, then prints the resolved anchors as JSON on stdout.
  *
  * A subprocess is the only honest way to observe cwd-dependence: REPO_ROOT,
  * DATA_DIR and DEFAULT_DB_PATH are module-load-time constants, and vitest itself

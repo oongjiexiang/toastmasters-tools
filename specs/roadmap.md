@@ -456,7 +456,7 @@ No workflows exist yet. Add:
 
 ---
 
-## Phase 14 — Remove the Next.js web app (minor version → 1.1.0)
+## Phase 14 — Done (Remove the Next.js web app, minor version → 1.1.0)
 
 _The Electron desktop app (Phases 11–12) is the delivered product. The Next.js web app
 (`apps/web`) is no longer used — nobody runs `npm run dev` to serve a dashboard on
@@ -474,42 +474,64 @@ build with a minor bump — `1.1.0`.**_
 > `@toastmasters/ui`), the desktop `@` alias repointed at that package, and only then is
 > `apps/web` safe to remove. Do not delete before extracting.
 
-- [ ] **Extract shared UI into `packages/ui`** (`@toastmasters/ui`, private, no build step —
+- [x] **Extract shared UI into `packages/ui`** (`@toastmasters/ui`, private, no build step —
       consumed via `exports` subpaths, same pattern as `@toastmasters/core`). Move the reused
       components (`DashboardHeader`, `MemberTable`, `LevelAccordion`, `ProjectRow`,
       `DiffSection`, `ui/*`, `providers`) and any shared client types out of `apps/web`.
       Repoint the desktop renderer's `@`/`@/components` alias at the new package
       (`apps/desktop/electron.vite.config.ts`, `apps/desktop/tsconfig.json`). Keep the
       renderer's own `lib/api.ts` IPC layer.
-- [ ] **Delete `apps/web/`** entirely — Next.js app, `app/api/*` routes, `next.config.ts`,
+- [x] **Delete `apps/web/`** entirely — Next.js app, `app/api/*` routes, `next.config.ts`,
       web-only unit tests (`apps/web/tests/api`), the Playwright E2E suite
       (`apps/web/tests/e2e`), and `playwright.config.ts`. The `workspaces` array stays
       `["apps/*", "packages/*"]` (desktop + packages remain).
-- [ ] **Prune root scripts:** remove `dev`, `build`, `start`, `test:e2e` (all web-only).
+- [x] **Prune root scripts:** remove `dev`, `build`, `start`, `test:e2e` (all web-only).
       Keep `fetch`, `membership`, `cli`, `test`, `desktop:dev`, `desktop:build`. `npm test`
-      now covers core + ui + desktop.
-- [ ] **Update CI (`.github/workflows/ci.yml`):** drop the Playwright / `test:e2e` step
+      now covers core + desktop (`packages/ui` ships no tests of its own — it is pure
+      component source, no build step, consumed and exercised through the desktop bundle).
+- [x] **Update CI (`.github/workflows/ci.yml`):** drop the Playwright / `test:e2e` step
       (web-only) and any `apps/web` build step; keep the core + desktop test job. `release.yml`
       (desktop installer) is unaffected.
-- [ ] **Documentation sweep** — remove or mark historical every reference to the running web
+- [x] **Documentation sweep** — remove or mark historical every reference to the running web
       app: `README.md` (project-structure tree, Commands table, any "run the dashboard on
       localhost:3000" text), `specs/tech-stack.md` (Next.js/React-web layer),
       `specs/architecture-react.md`, `specs/feature-react-migration.md`,
       `specs/ui-design-react.md`. These ADRs/specs are historical records — prefer a
       "**Superseded — the web app was removed in Phase 14; components now live in
       `packages/ui`**" banner over silent deletion.
-- [ ] **Version bump:** set every workspace `package.json` `version` to `1.1.0` (root,
+- [x] **Version bump:** set every workspace `package.json` `version` to `1.1.0` (root,
       `packages/core`, `packages/ui`, `apps/desktop`). After validation, tag the build
       `v1.1.0` (electron-builder's product version follows, so the installer becomes
       `Toastmasters Tools Setup 1.1.0.exe`).
 
 **Validation:**
-1. `test ! -d apps/web` and `test ! -f playwright.config.ts` — web app fully removed
-2. `test -d packages/ui` and `grep -q "@toastmasters/ui" apps/desktop/package.json` — shared UI extracted and consumed
-3. `grep -rE "apps/web|@toastmasters/web|next" apps/desktop package.json .github/workflows` — no live references (only historical mentions in `specs/` allowed)
-4. `npm test` passes (core + ui + desktop; no E2E)
-5. `npm run desktop:build` produces `apps/desktop/release/Toastmasters Tools Setup 1.1.0.exe`
-6. `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read `1.1.0`
+1. [x] `test ! -d apps/web` and `test ! -f playwright.config.ts` — web app fully removed.
+   Confirmed: neither path exists in the repo.
+2. [x] `test -d packages/ui` and `grep -q "@toastmasters/ui" apps/desktop/package.json` —
+   shared UI extracted and consumed. Confirmed: `packages/ui` exists (`DashboardHeader.tsx`,
+   `MemberTable.tsx`, `LevelAccordion.tsx`, `ProjectRow.tsx`, `DiffSection.tsx`,
+   `providers.tsx`, `components/ui/*`, `lib/utils.ts`, `globals.css`); `apps/desktop/package.json`
+   depends on `"@toastmasters/ui": "*"` and `apps/desktop/electron.vite.config.ts` aliases `@`
+   to `packages/ui`.
+3. [x] `grep -rE "apps/web|@toastmasters/web|next" apps/desktop package.json .github/workflows`
+   — no live references. Confirmed: the only match is a coincidental substring hit inside a
+   _committed build artifact_ (`apps/desktop/release/win-unpacked/...`, unrelated `sqlite3.c` /
+   `better-sqlite3` "next" iterator code) — no source or config reference to the removed web
+   app remains.
+4. [x] `npm test` passes (core + desktop; no E2E). Confirmed: **288/288** — core
+   `packages/core` 219 tests (6 files: `config-dynamic`, `db`, `paths`, `pathway`, `queries`,
+   `workspace`) + desktop `apps/desktop` 69 tests (5 files: `preload`, `main-ipc`,
+   `credentials`, `auth`, `main-bundle`). No Playwright/E2E step runs.
+5. [x] `npm run desktop:build` produces `apps/desktop/release/Toastmasters Tools Setup
+   1.1.0.exe`. Confirmed: the file (plus its `.blockmap`) is present in
+   `apps/desktop/release/`.
+6. [x] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all
+   read `1.1.0`. Confirmed: root, `packages/core`, `packages/ui`, and `apps/desktop` all report
+   `"version": "1.1.0"`.
+
+> **Note:** All 6 validation items are confirmed against the live repo (not just the diff) as
+> part of the docs pass that closed this phase. `npm test` was re-run and produced the same
+> 288/288 split (219 core + 69 desktop) cited above.
 
 ---
 

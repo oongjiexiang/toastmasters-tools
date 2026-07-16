@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
-import { type DiffResult } from "@/lib/api";
+import { type DiffResult } from "@toastmasters/core/queries";
 import {
   Collapsible,
   CollapsibleContent,
@@ -17,8 +17,8 @@ function fmtDate(iso: string) {
 interface DiffSectionProps {
   /**
    * The data source is injected so the component works over either transport:
-   * the web app passes its `fetch("/api/diff")` wrapper, the Electron renderer
-   * passes its IPC wrapper.
+   * the now-removed web app (Phase 14) passed its `fetch("/api/diff")` wrapper;
+   * the Electron renderer passes its IPC wrapper.
    */
   loadDiff: () => Promise<DiffResult>;
 }

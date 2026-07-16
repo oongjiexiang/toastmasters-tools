@@ -1,9 +1,9 @@
 /**
- * The renderer's data layer: a drop-in replacement for `apps/web/lib/api.ts`.
- *
- * Same function names, same signatures, same thrown-Error-on-failure behaviour —
- * only the transport differs (IPC instead of `fetch("/api/…")`). That is what
- * lets the shared components from `apps/web` be reused verbatim.
+ * The renderer's data layer: same function names, same signatures, same
+ * thrown-Error-on-failure behaviour as the old Next.js dashboard's `lib/api.ts`
+ * (removed in Phase 14) — only the transport differs (IPC instead of
+ * `fetch("/api/…")`). That is what lets the shared components from
+ * `packages/ui` be reused verbatim.
  */
 
 import type { AuthStatus, IpcResult } from "../../shared/ipc";
@@ -29,7 +29,7 @@ export class IpcError extends Error {
   }
 }
 
-/** Mirrors `handleResponse` in the web app: unwrap `data`, or throw the message. */
+/** Mirrors the old web app's `handleResponse` (removed in Phase 14): unwrap `data`, or throw the message. */
 function unwrap<T>(result: IpcResult<T>): T {
   if (!result.ok) throw new IpcError(result.message, result.code);
   return result.data;

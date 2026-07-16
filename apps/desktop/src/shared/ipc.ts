@@ -33,8 +33,9 @@ export interface AuthStatus {
 }
 
 /**
- * The IPC analogue of the web app's `{ data } | { error: { code, message } }`
- * HTTP envelope. `code` mirrors `QueryResult`'s discriminant where one exists.
+ * The IPC analogue of the old web app's (removed in Phase 14)
+ * `{ data } | { error: { code, message } }` HTTP envelope. `code` mirrors
+ * `QueryResult`'s discriminant where one exists.
  */
 export type IpcResult<T> =
   | { ok: true; data: T }

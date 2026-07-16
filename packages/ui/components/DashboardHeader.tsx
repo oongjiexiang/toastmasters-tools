@@ -11,15 +11,17 @@ interface DashboardHeaderProps {
   onRefreshProgress: () => void;
   onRefreshMembership: () => void;
   /**
-   * Slot for the membership-CSV control: the web app renders a download anchor,
-   * the Electron renderer a button that saves the file over IPC. Everything else
-   * in the header is identical, so only the differing element is injected.
+   * Slot for the membership-CSV control: the now-removed web app (Phase 14)
+   * rendered a download anchor here; the Electron renderer passes a button that
+   * saves the file over IPC. Everything else in the header is identical, so
+   * only the differing element is injected.
    */
   membershipCsvControl: React.ReactNode;
   /**
-   * Optional slot for an auth control (the Electron "Log in" button). Undefined
-   * for the web app — the browser cannot harvest cross-origin cookies — so its
-   * layout and behaviour are unchanged.
+   * Optional slot for an auth control (the Electron "Log in" button). Was
+   * undefined for the now-removed web app (Phase 14) — a browser cannot
+   * harvest cross-origin cookies, so that build never had anything to inject
+   * here. The desktop renderer always supplies it.
    */
   authControl?: React.ReactNode;
 }

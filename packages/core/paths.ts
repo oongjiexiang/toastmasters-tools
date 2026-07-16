@@ -5,10 +5,10 @@
  * resolved from a *stable anchor*, never from `process.cwd()`. Under npm
  * workspaces the cwd is the workspace directory, not the repo root:
  *
- *   npm run fetch  -w @toastmasters/core  ->  cwd = <repo>/packages/core
- *   npm run dev    -w @toastmasters/web   ->  cwd = <repo>/apps/web
+ *   npm run fetch        -w @toastmasters/core    ->  cwd = <repo>/packages/core
+ *   npm run desktop:dev  -w @toastmasters/desktop ->  cwd = <repo>/apps/desktop
  *
- * Anchoring on cwd would give the CLI and the dashboard two different databases.
+ * Anchoring on cwd would give the CLI and the desktop app two different databases.
  *
  * Resolution order:
  *   REPO_ROOT — walk up from this module's own location (import.meta.url) until a
