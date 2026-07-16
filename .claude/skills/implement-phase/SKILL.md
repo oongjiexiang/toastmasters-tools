@@ -19,6 +19,14 @@ This repo keeps architecture in **`specs/`**, not `docs/architecture/`:
 
 Some agent definitions point at `docs/architecture/…`, which does not exist. Redirect them to `specs/` in the brief.
 
+## Branch discipline — never work on `main`
+
+Per `specs/roadmap.md` Phase 15, every phase ships on its own branch and reaches `main` **only through a PR**. Enforce this at the orchestrator level (the agents share your working tree and branch, so this covers them too):
+
+- **Before dispatching any agent**, run `git rev-parse --abbrev-ref HEAD`. If it returns `main`, **stop and create a feature branch first** — `git switch -c <type>/<phase-slug>` (e.g. `feat/phase-16-login-ux`, `chore/phase-15-pipeline`). Do not let the developer/tester/linter/docs agents run a single edit against `main`.
+- If already on a non-`main` branch, confirm it's the intended one and use it (or branch from it).
+- Name the branch in every agent brief and instruct agents explicitly: **do not `git checkout`/`git switch` to `main`, do not commit to `main`, do not merge.** Branching and committing are the orchestrator's job, on the user's say-so (see Finishing).
+
 ## The pipeline
 
 Run these **sequentially** — each stage's output is the next one's input, and they touch the same files. Never run developer and tester concurrently.
@@ -66,4 +74,5 @@ Implement the phase, not the phase plus improvements. When you find something ou
 2. Confirm the user's real data and credentials are untouched (`results/`, `.env` must never be staged, moved, or written by a test).
 3. Have `docs` mark the phase **Done** and tick its checkboxes.
 4. **Do not commit without explicit instruction** — `specs/roadmap.md` says so at the top. Report what shipped, flag anything held back, and ask.
-5. When committing, review the staged set. `git add -A` will sweep in unrelated untracked files (e.g. `.claude/`) — stage deliberately.
+5. When the user approves the commit, review the staged set. `git add -A` will sweep in unrelated untracked files (e.g. `.claude/`) — stage deliberately. Commit on the **feature branch** (never `main` — see Branch discipline).
+6. **Then open a PR automatically** — this is the sanctioned path to `main` (direct pushes are disallowed). Push the branch (`git push -u origin <branch>`) and run `gh pr create --base main --title "Phase N — <title>" --body "…"`. The body is a **concise bullet-point list of the changes** — one bullet per change, what shipped and why, no filler — followed by the version bump and a one-line "Validation: all criteria pass" note. End the PR body with the `🤖 Generated with [Claude Code]` trailer (per the repo's PR convention). Report the PR URL back to the user and **do not merge** — branch protection / the user decides that.
