@@ -1671,7 +1671,7 @@ phase regardless of visibility (Phase 21 precedent), **minor bump → `1.9.0`.**
 
 ---
 
-## Phase 24 — Planned (Security: encrypt stored session credentials at rest, minor → 1.10.0)
+## Phase 24 — Done (Security: encrypt stored session credentials at rest, minor → 1.10.0)
 
 _The same audit found `apps/desktop/src/main/credentials.ts` writes captured session cookies
 (`BASECAMP_SESSIONID`, `TI_COOKIE`) as cleartext `KEY=value` lines to `<userData>/config.env`.
@@ -1684,44 +1684,97 @@ outlier. Depends on Phase 23 landing first so this new storage code is validated
 currently-supported Electron runtime. User-visible only as a trust upgrade (no behaviour change to
 login/logout) — **minor bump → `1.10.0`.**_
 
-- [ ] **`CredentialCipher` in `credentials.ts`:** wrap each stored value with
+- [x] **`CredentialCipher` in `credentials.ts`:** wrap each stored value with
       `safeStorage.encryptString`, base64-encoded, tagged with a self-describing prefix
       (`enc:v1:<base64>`) so a single loader can tell encrypted values from legacy plaintext.
       `upsertCredential` always encrypts on write when `safeStorage.isEncryptionAvailable()`; when
       unavailable (e.g. Linux without a keyring), fall back to plaintext and log a warning — never
       hard-fail or lock the user out.
-- [ ] **Transparent one-time migration:** `loadCredentials` decrypts `enc:v1:` values; for a value
+- [x] **Transparent one-time migration:** `loadCredentials` decrypts `enc:v1:` values; for a value
       it finds as unprefixed plaintext, use it as today (copy into `process.env`) and immediately
       re-write it encrypted via `upsertCredential`, so an existing user's plaintext `config.env`
       self-upgrades on next launch with no dialog or consent prompt.
-- [ ] **Preserve the manual-paste fallback (Phase 11/12):** a user hand-pasting a plaintext cookie
+- [x] **Preserve the manual-paste fallback (Phase 11/12):** a user hand-pasting a plaintext cookie
       into `config.env` via "Open Credentials File…" must still work — the same plaintext-
       detection path in `loadCredentials` picks it up and encrypts it on next load. Update the
       file's template comments to say so.
-- [ ] **Logout parity:** confirm Phase 17's logout path clears the encrypted store the same way it
+- [x] **Logout parity:** confirm Phase 17's logout path clears the encrypted store the same way it
       clears plaintext today (don't reintroduce "deleting/blanking the file doesn't log you out").
-- [ ] **Bootstrap ordering:** `loadCredentials` currently runs at module-eval in `index.ts`, before
+- [x] **Bootstrap ordering:** `loadCredentials` currently runs at module-eval in `index.ts`, before
       `app.whenReady()`. `safeStorage` is only guaranteed ready after `whenReady()` on some
       platforms; since the only real constraint is credentials being in `process.env` before the
       first `loadCore()` call (already lazy, inside `whenReady`), move the load if needed to sit
       after `whenReady()` and before that first call.
-- [ ] **Docs:** update `USER_GUIDE.md` (and the credentials-file template comments) to describe
+- [x] **Docs:** update `USER_GUIDE.md` (and the credentials-file template comments) to describe
       the new encrypted-at-rest storage in place of any language implying plaintext; the "Nothing
       here ever leaves your computer" copy stays as-is (still true — this closes the at-rest gap,
       it doesn't change the exfiltration claim).
 
 **Validation:**
-1. [ ] Unit tests (mocking `safeStorage`) cover: a fresh write is stored `enc:v1:`-prefixed and
+1. [x] Unit tests (mocking `safeStorage`) cover: a fresh write is stored `enc:v1:`-prefixed and
    round-trips through decrypt; an existing plaintext value loads correctly *and* is rewritten
    encrypted on that same load; `isEncryptionAvailable() === false` falls back to plaintext with a
    logged warning rather than throwing.
-2. [ ] A test confirms logout clears both the encrypted and (legacy) plaintext value paths.
+2. [x] A test confirms logout clears both the encrypted and (legacy) plaintext value paths.
 3. [ ] `npm test` green; `npm run typecheck` clean; `npm run desktop:build` produces
-   `Toastmasters Tools Setup 1.10.0.exe`.
+   `Toastmasters Tools Setup 1.10.0.exe`. **`npm test` (432/432) and `npm run typecheck` are
+   confirmed clean; the `desktop:build` `.exe` sub-claim is blocked by this sandbox — see note
+   below — so this item is left unchecked as a whole, consistent with how Phase 23 left its
+   equivalent `.exe`-build item unchecked.**
 4. [ ] **Manual (user):** with an existing plaintext `config.env` from a pre-1.10.0 install,
    launch the built `.exe` once, then inspect `config.env` and confirm the values are now
    `enc:v1:`-prefixed and the app still shows "Logged in"; log out and confirm the file no longer
    carries a usable session; log back in and confirm a fresh encrypted write.
+
+> **Note:** Landed exactly as scoped — `CredentialCipher` in `apps/desktop/src/main/credentials.ts`
+> wraps `safeStorage.encryptString`/`decryptString` behind the `enc:v1:<base64>` prefix;
+> `upsertCredential` always encrypts on write (falling back to plaintext + a logged warning, never
+> throwing, when `safeStorage.isEncryptionAvailable()` is false); `loadCredentials` decrypts
+> `enc:v1:`-prefixed values and transparently self-upgrades any unprefixed legacy/hand-pasted
+> plaintext value to encrypted on load, with no prompt. `index.ts`'s bootstrap moved the
+> `loadCredentials()` call from module-eval time into the `app.whenReady()` callback — before the
+> startup self-heal and the first `loadCore()` call — since `safeStorage` is only guaranteed ready
+> after `whenReady()` on some platforms; `auth.ts` itself needed no change, since Phase 17's
+> `logOut()` already goes through `upsertCredential` for its blank-out write, so it picks up
+> encryption for free (verified by test, not by code change). The credentials-file template
+> comment in `credentials.ts` was updated to describe the new encrypted-at-rest behaviour, and
+> `USER_GUIDE.md` was brought current to `1.10.0` with a plain-language mention of the same (see
+> `apps/desktop/USER_GUIDE.md`'s "Where your data is kept" section and a one-line note in "Log
+> out" explaining the `enc:v1:` gibberish a user will now see if they open `config.env` by hand).
+> Every workspace `package.json` (root, `packages/core`, `packages/ui`, `apps/desktop`) bumped to
+> `1.10.0`. `npm test` is green at 432/432 (270 core + 162 desktop, including new
+> `credentials.test.ts`/`auth.test.ts` coverage for the fresh-write round-trip, the
+> plaintext-loads-then-self-upgrades path, the `isEncryptionAvailable() === false` plaintext
+> fallback with logged warning, a decrypt-failure-treated-as-unset guard, and logout clearing both
+> a legacy-plaintext-originated and newly-encrypted credential); `npm run typecheck
+> --workspaces --if-present` is clean across `@toastmasters/core`, `@toastmasters/ui`, and
+> `@toastmasters/desktop`; `npm run lint` and `npm run format:check` are both clean.
+>
+> **`npm run desktop:build` (item 3's `.exe` sub-claim) was not achievable in this sandbox** — same
+> pre-existing, documented limitation as Phase 23 (see Phase 23's note above): it reaches
+> `electron-builder`'s `@electron/rebuild` step for `better-sqlite3` and fails with `node-gyp does
+> not support cross-compiling native modules from source`, because this Linux sandbox has no
+> outbound access to github.com to fetch the win32-x64 prebuilt binary. Reproduced independently
+> during this phase's own review with an identical stack trace, confirming it is not a new
+> regression from the encryption change. `npm test`/`typecheck`/`lint`/`format` are confirmed
+> genuinely green (see the note above); the `.exe` artifact itself is not — it needs `windows-2022`
+> CI or a merge/`workflow_dispatch`-triggered `desktop:build` to confirm, same as every prior
+> phase's native-module build step. Item 3 above is left unchecked as a whole rather than partially
+> ticked, since the roadmap's own checkbox text bundles the test/typecheck confirmation and the
+> `.exe`-build claim into one line.
+>
+> **Item 4 (manual verification) remains open** — requires a human with the real installed `.exe`,
+> same as every prior user-facing phase's manual-validation item; this is the first real-world test
+> of the plaintext→encrypted self-upgrade path since it depends on the OS-level `safeStorage`
+> backend (DPAPI on Windows) that cannot be exercised in this sandbox.
+>
+> **Accepted residual risk, not fixed here:** the `enc:v1:` prefix is a plain string match, not a
+> format-versioned envelope with a checksum — a legacy plaintext cookie value that happened to
+> itself literally start with the seven characters `enc:v1:` would be misclassified as already
+> encrypted and passed to `decryptString`, which would fail and (per the decrypt-failure guard
+> above) be treated as unset rather than loaded. Toastmasters/Basecamp session cookies are
+> effectively random tokens, so the odds of this collision are negligible, but it is a real,
+> documented edge case rather than an impossibility — left unaddressed as out of this phase's scope.
 
 ---
 

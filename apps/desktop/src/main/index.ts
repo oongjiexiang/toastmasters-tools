@@ -26,7 +26,12 @@ import { logger } from "./logger";
 //
 // Steps 1 and 2 must complete before any core module is *evaluated*, because
 // core freezes DATA_DIR / DEFAULT_DB_PATH / SESSION_ID / TI_COOKIE into
-// module-level consts at import time.
+// module-level consts at import time. Step 1 happens here, at module-eval
+// time (fs-only, no Electron API readiness needed); step 2 happens inside the
+// app.whenReady() callback below, because it now decrypts credentials via
+// `safeStorage` (Phase 24), which some platforms only guarantee ready after
+// whenReady() — it still runs before the first loadCore() call, so the
+// ordering invariant above holds.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Without this, Electron derives userData from the package name and the database
@@ -39,7 +44,11 @@ process.env.TOASTMASTERS_DATA_DIR = USER_DATA_DIR;
 
 const CREDENTIALS_FILE = credentialsFile(USER_DATA_DIR);
 ensureCredentialsFile(CREDENTIALS_FILE);
-loadCredentials(CREDENTIALS_FILE);
+// loadCredentials() is NOT called here: it now depends on Electron's
+// `safeStorage` (Phase 24), which is only guaranteed ready after
+// app.whenReady() on some platforms. It runs first thing inside the
+// whenReady() callback below instead — still well before the first
+// loadCore(), which is the only real ordering constraint.
 
 type Core = typeof import("./core");
 
@@ -292,6 +301,14 @@ function createWindow(): void {
 void app.whenReady().then(async () => {
   registerIpcHandlers();
   createMenu();
+
+  // Load credentials into process.env first thing: safeStorage (Phase 24) is
+  // only guaranteed ready after whenReady() on some platforms, and this must
+  // run BEFORE the startup self-heal below (so a restored plaintext credential
+  // is already decrypted/re-encrypted before self-heal potentially overwrites
+  // it) and BEFORE the first loadCore() further down (while core's env-derived
+  // consts are still unfrozen).
+  loadCredentials(CREDENTIALS_FILE);
 
   // Startup self-heal: re-harvest from the persistent login partition and apply
   // any still-valid cookies to process.env + config.env, so a previous login

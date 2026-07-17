@@ -16,6 +16,14 @@ import { join } from "path";
  * auth.ts statically imports { BrowserWindow, session } from "electron", which does
  * not exist in a plain node test process, so electron is mocked at the module
  * boundary. The mock is proven engaged below before anything else runs.
+ *
+ * Phase 24 — every write auth.ts makes (`applyCookies`, `logOut`) now flows
+ * through `upsertCredential`, which encrypts via `safeStorage` (also mocked
+ * below, with a fake but non-identity, reversible cipher). Tests here that
+ * assert on config.env's exact on-disk contents therefore decrypt the stored
+ * value back via `CredentialCipher` rather than string-matching the raw
+ * plaintext, which is no longer what's on disk once safeStorage reports
+ * encryption as available (the default for the mock).
  */
 
 /**
@@ -102,9 +110,26 @@ const { FakeBrowserWindow, FakeWebContents } = vi.hoisted(() => {
   return { FakeBrowserWindow, FakeWebContents };
 });
 
+/**
+ * `safeStorage` mock (Phase 24): `upsertCredential` (via `CredentialCipher`)
+ * calls `safeStorage.isEncryptionAvailable()`/`encryptString`/`decryptString`
+ * on every write, so any auth.ts path that persists a cookie (applyCookies,
+ * logOut, runLoginFlow) now reaches into this mock too. Defaults to
+ * "encryption available" with a reversible identity-ish transform (prefix the
+ * plaintext with a tag, strip it back off) — none of the tests in this file
+ * care about the *cipher* itself, only that credentials.ts's own encrypt/
+ * decrypt/rewrite plumbing (covered directly in credentials.test.ts) doesn't
+ * blow up when auth.ts's write paths run through it.
+ */
+const FAKE_ENCRYPTED_TAG = "fake-encrypted:";
 vi.mock("electron", () => ({
   BrowserWindow: FakeBrowserWindow,
   session: { fromPartition: vi.fn() },
+  safeStorage: {
+    isEncryptionAvailable: vi.fn(() => true),
+    encryptString: vi.fn((value: string) => Buffer.from(`${FAKE_ENCRYPTED_TAG}${value}`, "utf-8")),
+    decryptString: vi.fn((buf: Buffer) => buf.toString("utf-8").slice(FAKE_ENCRYPTED_TAG.length)),
+  },
 }));
 
 import * as electron from "electron";
@@ -122,6 +147,19 @@ import {
   type HarvestedCookies,
   type NavigationSource,
 } from "../src/main/auth";
+import { CredentialCipher, loadCredentials } from "../src/main/credentials";
+
+/** Extracts the raw stored value for `key`'s line in a config.env's contents,
+ *  decrypting it first if it carries the Phase 24 `enc:v1:` prefix — the
+ *  round-trip counterpart to string-matching a plaintext value, since
+ *  `upsertCredential` now encrypts by default (the mocked safeStorage above
+ *  reports encryption as available unless a test overrides it). */
+function storedValue(fileContents: string, key: string): string {
+  const line = fileContents.split("\n").find((l) => l.startsWith(`${key}=`));
+  if (line === undefined) throw new Error(`no ${key}= line found`);
+  const raw = line.slice(key.length + 1);
+  return CredentialCipher.isEncrypted(raw) ? CredentialCipher.decrypt(raw) : raw;
+}
 
 /** A cookie source whose `.get({url})` returns a canned list keyed by URL. */
 function cookieSource(byUrl: Record<string, Array<{ name: string; value: string }>>): CookieSource {
@@ -331,10 +369,17 @@ describe("applyCookies never lets an empty harvest wipe a good credential", () =
 
     expect(applied).toEqual({ basecamp: true, ti: false });
     expect(process.env.BASECAMP_SESSIONID).toBe("new-sid");
-    // The untouched TI credential survives in both env and file.
+    // The untouched TI credential survives verbatim in both env and file —
+    // applyCookies never even calls upsertCredential for it here, so it was
+    // never re-encrypted either.
     expect(process.env.TI_COOKIE).toBe("good-ti");
-    expect(readFileSync(credsFile, "utf-8")).toContain("TI_COOKIE=good-ti");
-    expect(readFileSync(credsFile, "utf-8")).toContain("BASECAMP_SESSIONID=new-sid");
+    const written = readFileSync(credsFile, "utf-8");
+    expect(written).toContain("TI_COOKIE=good-ti");
+    // The Basecamp credential WAS written via upsertCredential, so (Phase 24)
+    // it is now encrypted on disk — decrypt it back to prove the right value
+    // landed, and separately prove it's genuinely encrypted (not left plain).
+    expect(storedValue(written, "BASECAMP_SESSIONID")).toBe("new-sid");
+    expect(written).not.toContain("BASECAMP_SESSIONID=new-sid");
   });
 
   it("applies only the TI cookie on a TI-only harvest", () => {
@@ -346,8 +391,12 @@ describe("applyCookies never lets an empty harvest wipe a good credential", () =
     expect(applied).toEqual({ basecamp: false, ti: true });
     expect(process.env.TI_COOKIE).toBe("a=1; b=2");
     expect(process.env.BASECAMP_SESSIONID).toBe("good-sid");
-    expect(readFileSync(credsFile, "utf-8")).toContain("BASECAMP_SESSIONID=good-sid");
-    expect(readFileSync(credsFile, "utf-8")).toContain("TI_COOKIE=a=1; b=2");
+    const written = readFileSync(credsFile, "utf-8");
+    // The untouched Basecamp credential was never re-written, so it stays
+    // plaintext exactly as it started.
+    expect(written).toContain("BASECAMP_SESSIONID=good-sid");
+    expect(storedValue(written, "TI_COOKIE")).toBe("a=1; b=2");
+    expect(written).not.toContain("TI_COOKIE=a=1; b=2");
   });
 
   it("applies both cookies and reports both flags when a full harvest arrives", () => {
@@ -362,8 +411,8 @@ describe("applyCookies never lets an empty harvest wipe a good credential", () =
     expect(process.env.BASECAMP_SESSIONID).toBe("sid-full");
     expect(process.env.TI_COOKIE).toBe("x=1; y=2");
     const written = readFileSync(credsFile, "utf-8");
-    expect(written).toContain("BASECAMP_SESSIONID=sid-full");
-    expect(written).toContain("TI_COOKIE=x=1; y=2");
+    expect(storedValue(written, "BASECAMP_SESSIONID")).toBe("sid-full");
+    expect(storedValue(written, "TI_COOKIE")).toBe("x=1; y=2");
   });
 });
 
@@ -499,16 +548,42 @@ describe("logOut clears the real session partition, not just config.env (Phase 1
     await logOut(credsFile, sess as unknown as Parameters<typeof logOut>[1]);
 
     const written = readFileSync(credsFile, "utf-8");
-    // Blanked (`KEY=`), not deleted: the key stays so a future login can
-    // upsert it again, and the file remains a valid template.
-    expect(written).toContain("BASECAMP_SESSIONID=\n");
-    expect(written).toContain("TI_COOKIE=\n");
+    // Blanked, not deleted: the key stays so a future login can upsert it
+    // again, and the file remains a valid template. Phase 24: `upsertCredential`
+    // always encrypts what it writes — even an empty string — so the line is
+    // no longer a literal "KEY=" blank; it's an enc:v1: line that DECRYPTS
+    // back to "".
+    expect(storedValue(written, "BASECAMP_SESSIONID")).toBe("");
+    expect(storedValue(written, "TI_COOKIE")).toBe("");
+    const sidLine = written.split("\n").find((l) => l.startsWith("BASECAMP_SESSIONID="));
+    const tiLine = written.split("\n").find((l) => l.startsWith("TI_COOKIE="));
+    expect(sidLine!.slice("BASECAMP_SESSIONID=".length).startsWith("enc:v1:")).toBe(true);
+    expect(tiLine!.slice("TI_COOKIE=".length).startsWith("enc:v1:")).toBe(true);
     expect(written).not.toContain("real-sid");
     expect(written).not.toContain("real-ti-cookie");
     // Unrelated lines survive verbatim — logOut must not touch anything it
     // doesn't own.
     expect(written).toContain("# setup instructions");
     expect(written).toContain("CLUB_ID=1234567");
+  });
+
+  it("Phase 24 logout parity: blanking via the new encrypted path is treated as unset on a fresh loadCredentials, exactly as a literal plaintext blank was before Phase 24", async () => {
+    const original = "BASECAMP_SESSIONID=real-sid\nTI_COOKIE=real-ti-cookie\n";
+    writeFileSync(credsFile, original, "utf-8");
+    const byUrl = { [BASECAMP_URL]: [], [TI_URL]: [] };
+    const sess = fakeSession(byUrl);
+
+    await logOut(credsFile, sess as unknown as Parameters<typeof logOut>[1]);
+
+    // Simulate a fresh app start reading the file back from scratch, as
+    // index.ts's bootstrap does — not just inspecting the in-memory
+    // process.env logOut already cleared directly.
+    delete process.env.BASECAMP_SESSIONID;
+    delete process.env.TI_COOKIE;
+    loadCredentials(credsFile);
+
+    expect(process.env.BASECAMP_SESSIONID).toBeUndefined();
+    expect(process.env.TI_COOKIE).toBeUndefined();
   });
 
   it("returns basecamp:false, ti:false derived from the session genuinely being empty after the clear", async () => {
