@@ -161,11 +161,15 @@ GitHub Actions (`.github/workflows/`) keep `main` releasable:
   PR into `main`. It needs no Toastmasters cookies — the tests mock the network.
 - **`release.yml`** builds the Windows installer on `windows-2022` when you push a **version
   tag** (e.g. `1.0`), push/merge to **`main`**, or trigger it manually. On a version tag it
-  creates a stable **GitHub Release** with the `.exe` attached. On a push to `main` it instead
+  creates a stable **GitHub Release** with the `.exe` attached. On a push to `main` it always
   publishes/refreshes a single **rolling pre-release** (tag `latest-main`) with the `.exe`
   attached, so there's always one obvious download link for the newest build between version
-  tags — see [`CONTRIBUTING.md`](CONTRIBUTING.md). A manual `workflow_dispatch` run just
-  uploads the installer as a workflow artifact, without publishing a Release.
+  tags. If that merge also bumped `package.json`'s version, the same job additionally checks
+  whether `v<version>` is already tagged on the remote and, if not, creates and pushes that tag
+  and publishes the matching **stable, versioned Release** automatically — no manual tagging or
+  hand-created Release needed. A merge with no version bump is a no-op for that last step (the
+  tag already exists) — see [`CONTRIBUTING.md`](CONTRIBUTING.md). A manual `workflow_dispatch`
+  run just uploads the installer as a workflow artifact, without publishing any Release.
 
 ## Title logic
 

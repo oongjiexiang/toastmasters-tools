@@ -201,6 +201,23 @@ describe("main turns unexpected failures into SERVER_ERROR rather than crashing"
     });
   });
 
+  it("returns CANCELLED (not SERVER_ERROR) when a refresh scraper throws a CancelledError", async () => {
+    // Checked by `.name`, not `instanceof` — main/index.ts must stay free of a
+    // static @toastmasters/core import, so a plain Error with the matching
+    // name stands in for core's real CancelledError here.
+    const cancelled = new Error("Cancelled");
+    cancelled.name = "CancelledError";
+    runFetch.mockRejectedValue(cancelled);
+
+    const result = await invoke(IPC.REFRESH_PROGRESS);
+
+    expect(result).toEqual({
+      ok: false,
+      code: "CANCELLED",
+      message: "Refresh cancelled.",
+    });
+  });
+
   it("rejects a missing email argument instead of querying with undefined", async () => {
     getMemberDetail.mockReturnValue({ ok: true, data: {} });
 
@@ -256,8 +273,9 @@ describe("main runs the refresh scrapers", () => {
     const result = await handler(event);
 
     expect(result).toEqual({ ok: true, data: null });
-    // The scraper is handed a reporter, and each line it emits is forwarded.
-    expect(runFetch).toHaveBeenCalledWith(expect.any(Function));
+    // The scraper is handed a reporter and an AbortSignal (Phase 22, for
+    // cancellation), and each line the reporter is called with is forwarded.
+    expect(runFetch).toHaveBeenCalledWith(expect.any(Function), expect.any(AbortSignal));
     expect(sent).toEqual([
       [IPC.REFRESH_LOG, "Step 1/3 — gathering the member overview list…"],
       [IPC.REFRESH_LOG, "Step 3/3 done — saved project details for 2 members."],
@@ -276,6 +294,30 @@ describe("main runs the refresh scrapers", () => {
 
     expect(result).toEqual({ ok: true, data: null });
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it("aborts the in-flight refresh's AbortSignal when REFRESH_CANCEL is invoked", async () => {
+    let capturedSignal: AbortSignal | undefined;
+    let resolveRun!: () => void;
+    const runPromise = new Promise<void>((resolve) => {
+      resolveRun = resolve;
+    });
+    runFetch.mockImplementation(async (_report: (line: string) => void, signal: AbortSignal) => {
+      capturedSignal = signal;
+      await runPromise;
+    });
+
+    const refreshPromise = invoke(IPC.REFRESH_PROGRESS);
+    // Let the handler run far enough to capture the signal before cancelling.
+    await new Promise((r) => setTimeout(r, 0));
+
+    const cancelResult = await invoke(IPC.REFRESH_CANCEL);
+
+    expect(cancelResult).toEqual({ ok: true, data: null });
+    expect(capturedSignal?.aborted).toBe(true);
+
+    resolveRun();
+    await refreshPromise;
   });
 
   it("returns data:null when the user cancels the CSV save dialog", async () => {

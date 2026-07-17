@@ -51,6 +51,11 @@ export async function refreshMembership(): Promise<void> {
   unwrap(await window.toastmasters.refreshMembership());
 }
 
+/** Aborts the in-flight refresh (progress or membership), if any is running. */
+export async function cancelRefresh(): Promise<void> {
+  unwrap(await window.toastmasters.cancelRefresh());
+}
+
 /** Saves the newest membership CSV. Resolves to null when the user cancels. */
 export async function downloadMembershipCsv(): Promise<string | null> {
   return unwrap(await window.toastmasters.downloadMembershipCsv());

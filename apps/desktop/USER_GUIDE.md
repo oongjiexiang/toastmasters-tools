@@ -4,7 +4,7 @@ A simple Windows app that shows each club member's Pathways progress in one plac
 
 ## Install the app
 
-1. Double-click **`Toastmasters Tools Setup 1.6.0.exe`**.
+1. Double-click **`Toastmasters Tools Setup 1.8.0.exe`**.
 2. Windows may show a blue **"Windows protected your PC"** warning about an
    unknown publisher. This is expected — the app is safe but not signed by a
    paid certificate. Click **More info**, then **Run anyway**.
@@ -121,11 +121,23 @@ On the dashboard, top right, there are two buttons:
 A small message appears at the bottom of the screen while it works, then tells
 you it succeeded or shows an error. Each refresh can take up to a minute.
 
-While it runs, a **progress panel** appears just under the buttons showing what
-the app is doing right now — for example "Step 1/3 — gathering the member
-overview list…" and then each member as it is fetched. This is just so you can
-see it is working and roughly how far along it is; you do not need to do anything
-with it. When it finishes, the table fills in (or updates).
+While it runs, a **progress console** appears showing what the app is doing
+right now — for example "Step 1/3 — gathering the member overview list…" and
+then each member as it is fetched. This is just so you can see it is working
+and roughly how far along it is; you do not need to do anything with it. When
+it finishes, the table fills in (or updates).
+
+The console stays on screen even if you navigate to a member's detail page and
+back — it does not disappear until you clear it by starting a new refresh.
+Click the little arrow in its top-right corner to collapse or expand it, and
+use the **Copy logs** button there to copy the full text to your clipboard —
+handy if you need to send it to whoever maintains the app when something goes
+wrong.
+
+Changed your mind partway through? Click **Cancel** in the console's header
+(only shown while a refresh is running) to stop it cleanly. Cancelling does
+not save any partial or corrupt data — anything already saved before you
+cancelled stays as it was.
 
 Run both whenever you want the latest numbers.
 
@@ -181,7 +193,7 @@ ever want to back up or reset the app's data.
 
 | Problem | Fix |
 | --- | --- |
-| A refresh says my session expired (or fails with a "not authorized" error) | Your login timed out. Click **Log in again** in the message that appears — after you sign in, the app retries the refresh for you. You can also just click **Log in** at the top right again. |
+| A refresh says "Your Toastmasters session has expired. Log out and log in again to continue." | Your login timed out. Click **Log in again** in the message that appears — after you sign in, the app retries the refresh for you. You can also just click **Log in** at the top right again. The full error details are also saved in the progress console, in case you need them. |
 | A refresh worked before but now fails | Same as above — sessions expire after a while. Click **Log in** (top right) and sign in again. |
 | I clicked Log in but nothing loaded | The login window closes itself only once sign-in actually succeeds — if the badge next to **Log in** still reads "Not logged in" (or only "Basecamp only" / "TI only"), the login did not fully complete. Click **Log in** and try again, making sure to finish every step (including any MFA code or the second Basecamp window). If it still won't work, use the manual fallback in [If login doesn't work](#if-login-doesnt-work-enter-cookies-manually-fallback). |
 | SmartScreen blocked the installer | Click **More info**, then **Run anyway**. The app is safe but unsigned. |

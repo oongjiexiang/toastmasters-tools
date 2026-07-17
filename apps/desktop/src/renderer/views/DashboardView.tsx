@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { CircleCheck, CircleDashed, Download, LogIn, LogOut } from "lucide-react";
 import { DashboardHeader } from "@/components/DashboardHeader";
@@ -17,7 +17,6 @@ import {
   IpcError,
   logIn,
   logOut,
-  onRefreshLog,
   refreshMembership,
   refreshProgress,
   type AuthStatus,
@@ -30,23 +29,35 @@ const AUTH_ERROR = /HTTP 40[13]/;
 
 interface DashboardViewProps {
   onSelectMember: (email: string, pathway: string) => void;
+  /**
+   * The refresh console's state, lifted to `App.tsx` (Phase 22) so it survives
+   * navigating away from this view. Reads/writes go through these props instead
+   * of local `useState` — the refresh orchestration below is unchanged. This
+   * view only ever *writes* the log (clearing it, or appending the full error
+   * text on an auth failure); the console that *reads* it back lives in
+   * `App.tsx`/`RefreshConsole`, so no `log` value prop is needed here.
+   */
+  setLog: React.Dispatch<React.SetStateAction<string[]>>;
+  refreshingProgress: boolean;
+  setRefreshingProgress: React.Dispatch<React.SetStateAction<boolean>>;
+  refreshingMembership: boolean;
+  setRefreshingMembership: React.Dispatch<React.SetStateAction<boolean>>;
+  /** Forces the console open when a new refresh starts. */
+  setConsoleCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
-export function DashboardView({ onSelectMember }: DashboardViewProps) {
+export function DashboardView({
+  onSelectMember,
+  setLog,
+  refreshingProgress,
+  setRefreshingProgress,
+  refreshingMembership,
+  setRefreshingMembership,
+  setConsoleCollapsed,
+}: DashboardViewProps) {
   const [members, setMembers] = useState<MemberSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [refreshingProgress, setRefreshingProgress] = useState(false);
-  const [refreshingMembership, setRefreshingMembership] = useState(false);
-  const [log, setLog] = useState<string[]>([]);
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
-
-  const refreshing = refreshingProgress || refreshingMembership;
-
-  // Subscribe once to the live progress stream; append each line to the console.
-  useEffect(() => {
-    const unsubscribe = onRefreshLog((line) => setLog((prev) => [...prev, line]));
-    return unsubscribe;
-  }, []);
 
   /**
    * Loads the member table. An empty database (SNAPSHOT_MISSING) is not an error
@@ -129,14 +140,18 @@ export function DashboardView({ onSelectMember }: DashboardViewProps) {
 
   /**
    * Reports a failed refresh. An auth-shaped failure (HTTP 401/403) means the
-   * session expired, so the toast offers a "Log in again" action that logs in and
-   * retries the same refresh.
+   * session expired: the full error text goes into the persistent log console
+   * (rather than being truncated in the toast) and the toast shows a fixed,
+   * friendly hint with the existing "Log in again" action that logs in and
+   * retries the same refresh. Non-auth failures are unchanged — still just the
+   * first line in the toast, nothing added to the log.
    */
   function reportRefreshError(id: string | number, e: unknown, retry: () => void) {
     const message = e instanceof Error ? e.message : "Refresh failed";
     const firstLine = message.split("\n")[0];
     if (AUTH_ERROR.test(message)) {
-      toast.error(firstLine, {
+      setLog((prev) => [...prev, ...message.split("\n")]);
+      toast.error("Your Toastmasters session has expired. Log out and log in again to continue.", {
         id,
         action: {
           label: "Log in again",
@@ -154,6 +169,7 @@ export function DashboardView({ onSelectMember }: DashboardViewProps) {
 
   async function handleRefreshProgress() {
     setLog([]);
+    setConsoleCollapsed(false);
     setRefreshingProgress(true);
     const id = toast.loading("Fetching progress from Basecamp...");
     try {
@@ -162,7 +178,11 @@ export function DashboardView({ onSelectMember }: DashboardViewProps) {
       await loadMembers();
       await loadAuthStatus();
     } catch (e) {
-      reportRefreshError(id, e, () => void handleRefreshProgress());
+      if (e instanceof IpcError && e.code === "CANCELLED") {
+        toast.info("Refresh cancelled", { id });
+      } else {
+        reportRefreshError(id, e, () => void handleRefreshProgress());
+      }
     } finally {
       setRefreshingProgress(false);
     }
@@ -170,6 +190,7 @@ export function DashboardView({ onSelectMember }: DashboardViewProps) {
 
   async function handleRefreshMembership() {
     setLog([]);
+    setConsoleCollapsed(false);
     setRefreshingMembership(true);
     const id = toast.loading("Downloading membership from TI...");
     try {
@@ -178,7 +199,11 @@ export function DashboardView({ onSelectMember }: DashboardViewProps) {
       await loadMembers();
       await loadAuthStatus();
     } catch (e) {
-      reportRefreshError(id, e, () => void handleRefreshMembership());
+      if (e instanceof IpcError && e.code === "CANCELLED") {
+        toast.info("Refresh cancelled", { id });
+      } else {
+        reportRefreshError(id, e, () => void handleRefreshMembership());
+      }
     } finally {
       setRefreshingMembership(false);
     }
@@ -271,7 +296,6 @@ export function DashboardView({ onSelectMember }: DashboardViewProps) {
         }
         themeControl={<ThemeToggle />}
       />
-      {(refreshing || log.length > 0) && <RefreshConsole lines={log} active={refreshing} />}
       {renderBody()}
     </main>
   );
@@ -295,48 +319,5 @@ function AuthStatusBadge({ status }: { status: AuthStatus | null }) {
       )}
       {label}
     </Badge>
-  );
-}
-
-/**
- * A live, auto-scrolling output panel for refresh progress. Shows the lines the
- * scrapers emit so the user can see the run advancing (and roughly how long it
- * will take) instead of staring at a spinner.
- */
-function RefreshConsole({ lines, active }: { lines: string[]; active: boolean }) {
-  const endRef = useRef<HTMLDivElement>(null);
-
-  // Keep the newest line in view as the stream grows.
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "nearest" });
-  }, [lines]);
-
-  return (
-    <div className="mb-6 rounded-md border bg-muted/40">
-      <div className="flex items-center gap-2 border-b px-3 py-2">
-        <span
-          className={
-            "h-2 w-2 rounded-full " +
-            (active ? "bg-green-500 dark:bg-green-400 animate-pulse" : "bg-muted-foreground/40")
-          }
-          aria-hidden
-        />
-        <span className="text-xs font-medium text-muted-foreground">
-          {active ? "Refreshing…" : "Last refresh"}
-        </span>
-      </div>
-      <div className="max-h-56 overflow-y-auto px-3 py-2 font-mono text-xs leading-relaxed">
-        {lines.length === 0 ? (
-          <p className="text-muted-foreground">Starting…</p>
-        ) : (
-          lines.map((line, i) => (
-            <div key={i} className="whitespace-pre-wrap text-foreground/80">
-              {line}
-            </div>
-          ))
-        )}
-        <div ref={endRef} />
-      </div>
-    </div>
   );
 }

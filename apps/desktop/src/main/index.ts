@@ -89,6 +89,11 @@ function handleAuth<T>(channel: string, handler: () => Promise<IpcResult<T>>): v
   });
 }
 
+// The AbortController backing the currently in-flight refresh, if any. Only one
+// refresh can run at a time (both Refresh buttons disable together already), so
+// a single module-level slot is enough — REFRESH_CANCEL just aborts it.
+let currentRefreshController: AbortController | null = null;
+
 /**
  * Registers a refresh handler that streams the scraper's progress lines back to
  * the calling renderer over REFRESH_LOG while it runs, then answers with the
@@ -96,18 +101,32 @@ function handleAuth<T>(channel: string, handler: () => Promise<IpcResult<T>>): v
  */
 function handleRefresh(
   channel: string,
-  run: (core: Core, report: (line: string) => void) => Promise<void>,
+  run: (core: Core, report: (line: string) => void, signal: AbortSignal) => Promise<void>,
 ): void {
   ipcMain.handle(channel, async (event) => {
+    const controller = new AbortController();
+    currentRefreshController = controller;
     const report = (line: string): void => {
       if (!event.sender.isDestroyed()) event.sender.send(IPC.REFRESH_LOG, line);
     };
     try {
-      await run(await loadCore(), report);
+      await run(await loadCore(), report, controller.signal);
       return { ok: true, data: null } satisfies IpcResult<null>;
     } catch (err) {
+      // Checked by `.name`, not `instanceof CancelledError` — this file must
+      // stay free of a static @toastmasters/core import (see loadCore()'s
+      // header comment above).
+      if (err instanceof Error && err.name === "CancelledError") {
+        return {
+          ok: false,
+          code: "CANCELLED",
+          message: "Refresh cancelled.",
+        } satisfies IpcResult<null>;
+      }
       const message = err instanceof Error ? err.message : String(err);
       return { ok: false, code: "SERVER_ERROR", message } satisfies IpcResult<null>;
+    } finally {
+      currentRefreshController = null;
     }
   });
 }
@@ -139,9 +158,16 @@ function registerIpcHandlers(): void {
 
   handle(IPC.GET_DIFF, async (core) => fromQuery(core.getDiff()));
 
-  handleRefresh(IPC.REFRESH_PROGRESS, (core, report) => core.runFetch(report));
+  handleRefresh(IPC.REFRESH_PROGRESS, (core, report, signal) => core.runFetch(report, signal));
 
-  handleRefresh(IPC.REFRESH_MEMBERSHIP, (core, report) => core.runMembership(report));
+  handleRefresh(IPC.REFRESH_MEMBERSHIP, (core, report, signal) =>
+    core.runMembership(report, signal),
+  );
+
+  handleAuth(IPC.REFRESH_CANCEL, async () => {
+    currentRefreshController?.abort();
+    return { ok: true, data: null };
+  });
 
   handle(IPC.DOWNLOAD_MEMBERSHIP_CSV, async (core) => {
     const source = core.findLatestMembershipFile(core.RESULTS_DIR);

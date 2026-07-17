@@ -18,6 +18,19 @@ export class HttpError extends Error {
   }
 }
 
+/**
+ * Thrown when an in-flight refresh is cancelled (via `AbortSignal`) rather than
+ * failing on its own. Callers (the Electron main process) check `.name` rather
+ * than `instanceof` where they must stay statically core-free — see
+ * `apps/desktop/src/main/index.ts`'s header comment on `loadCore()`.
+ */
+export class CancelledError extends Error {
+  constructor(message = "Cancelled") {
+    super(message);
+    this.name = "CancelledError";
+  }
+}
+
 function buildHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     Accept: "application/json",
@@ -30,8 +43,8 @@ function buildHeaders(): Record<string, string> {
   return headers;
 }
 
-async function fetchPage(url: string): Promise<ApiResponse> {
-  const response = await fetch(url, { headers: buildHeaders() });
+async function fetchPage(url: string, signal?: AbortSignal): Promise<ApiResponse> {
+  const response = await fetch(url, { headers: buildHeaders(), signal });
 
   if (!response.ok) {
     throw new HttpError(
@@ -57,14 +70,16 @@ async function fetchRemainingSequentially(
   count: number,
   allResults: MemberProgress[],
   report: (line: string) => void,
+  signal?: AbortSignal,
 ): Promise<MemberProgress[]> {
   let url: string | null = startUrl;
   let pageNum = startPageNum;
 
   while (url !== null) {
-    const page = await fetchPage(url);
+    const page = await fetchPage(url, signal);
     allResults.push(...page.results);
     report(`  Page ${pageNum}: ${allResults.length} of ${count} downloaded.`);
+    if (signal?.aborted) throw new CancelledError();
     url = page.next;
     pageNum++;
   }
@@ -74,14 +89,17 @@ async function fetchRemainingSequentially(
 
 export async function fetchAllProgress(
   report: (line: string) => void = console.log,
+  signal?: AbortSignal,
 ): Promise<MemberProgress[]> {
   const firstUrl = `${BASE_URL}?club=${CLUB_ID}&page=1`;
-  const page1 = await fetchPage(firstUrl);
+  const page1 = await fetchPage(firstUrl, signal);
   const count = page1.count;
   const pageSize = page1.results.length;
 
   report(`  Found ${count} members; downloading…`);
   report(`  Page 1: ${page1.results.length} of ${count} downloaded.`);
+
+  if (signal?.aborted) throw new CancelledError();
 
   if (page1.next === null) {
     return page1.results;
@@ -103,7 +121,7 @@ export async function fetchAllProgress(
     count > 0;
 
   if (!canParallelize) {
-    return fetchRemainingSequentially(page1.next, 2, count, [...page1.results], report);
+    return fetchRemainingSequentially(page1.next, 2, count, [...page1.results], report, signal);
   }
 
   const totalPages = Math.ceil(count / pageSize);
@@ -119,7 +137,7 @@ export async function fetchAllProgress(
 
   for (let i = 0; i < pageUrls.length; i += PROGRESS_CONCURRENCY) {
     const batch = pageUrls.slice(i, i + PROGRESS_CONCURRENCY);
-    const settled = await Promise.allSettled(batch.map((url) => fetchPage(url)));
+    const settled = await Promise.allSettled(batch.map((url) => fetchPage(url, signal)));
 
     for (const [j, result] of settled.entries()) {
       const index = i + j;
@@ -132,6 +150,8 @@ export async function fetchAllProgress(
         report(`  Warning: could not fetch page ${pageNum}: ${message}`);
       }
     }
+
+    if (signal?.aborted) throw new CancelledError();
   }
 
   const allResults: MemberProgress[] = [...page1.results];
@@ -147,9 +167,13 @@ export async function fetchAllProgress(
   return allResults;
 }
 
-export async function fetchDetail(courseId: string, username: string): Promise<DetailResponse> {
+export async function fetchDetail(
+  courseId: string,
+  username: string,
+  signal?: AbortSignal,
+): Promise<DetailResponse> {
   const url = `${BASE_URL}${courseId}/detail?user=${username}&page_size=5000`;
-  const response = await fetch(url, { headers: buildHeaders() });
+  const response = await fetch(url, { headers: buildHeaders(), signal });
 
   if (!response.ok) {
     throw new HttpError(
