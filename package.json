@@ -1,7 +1,7 @@
 {
   "name": "toastmasters-tools",
   "private": true,
-  "version": "1.11.1",
+  "version": "1.11.2",
   "description": "Fetch Toastmasters Basecamp member progress and serve a local dashboard",
   "type": "module",
   "workspaces": [
@@ -20,6 +20,7 @@
     "globals": "^17.7.0",
     "jsdom": "24.1.0",
     "prettier": "^3.9.5",
+    "typescript": "^5.0.0",
     "typescript-eslint": "^8.64.0"
   },
   "scripts": {

@@ -2029,7 +2029,7 @@ rationale for a change that doesn't alter the shipped binary._
 
 ---
 
-## Phase 27 — Not started (Add a typecheck gate to CI, patch → 1.11.2)
+## Phase 27 — Done (Add a typecheck gate to CI, patch → 1.11.2)
 
 _Phase 23's closing note flagged a concrete, evidenced CI gap: `.github/workflows/ci.yml`'s
 `test` job runs `npm test` only and **never** runs any workspace's `typecheck` script. That is
@@ -2053,42 +2053,74 @@ Phase 15 used for its pipeline-only patch._
 > required check would need a repo-admin branch-protection change out-of-band — folding typecheck
 > into `test` keeps the existing required gate covering it with no settings change.
 
-- [ ] **Add a typecheck step to `ci.yml`'s `test` job.** After `npm ci` (and alongside
+- [x] **Add a typecheck step to `ci.yml`'s `test` job.** After `npm ci` (and alongside
       `npm test`), run `npm run typecheck --workspaces --if-present` so a `tsc` error in
       `@toastmasters/core`, `@toastmasters/ui`, or `@toastmasters/desktop` fails the PR check.
       Keep it in the **same `test` job** so the branch-protection `test` context (`CONTRIBUTING.md`)
       already gates it — do **not** add a new job or a new required status check (that would need a
       repo-admin `gh api .../branches/main/protection` change, out of this codebase's scope).
-- [ ] **Confirm the current tree passes the new gate.** `npm run typecheck --workspaces
+      (confirmed: the new "Typecheck workspaces" step lives in the `test` job, after `npm ci`,
+      alongside — not replacing — `npm test`.)
+- [x] **Confirm the current tree passes the new gate.** `npm run typecheck --workspaces
       --if-present` must already exit 0 across all three workspaces (it does, per the Phase 24/25
       notes), so the step goes green on its first CI run rather than immediately red-lining `main`.
-- [ ] **(housekeeping, from the same Phase 23 finding) Hoist the `typescript` pin.** Optionally
+      (confirmed: exits 0 on `@toastmasters/core`, `@toastmasters/ui`, and `@toastmasters/desktop`.)
+- [x] **(housekeeping, from the same Phase 23 finding) Hoist the `typescript` pin.** Optionally
       add `typescript: ^5.0.0` to the **root** `package.json` `devDependencies` as a single source
       of truth, so a future dependency reshuffle can't silently hoist a different major into a
       workspace that lacks its own pin — the precise `packages/ui` failure mode above. Keep the
       per-workspace pins consistent; do not remove them unless the root pin demonstrably covers
-      every workspace's resolution.
-- [ ] **Structural guard (mirror the existing pattern).** Add a `ci.yml` structural test in the
+      every workspace's resolution. (confirmed: root `package.json` now pins `typescript: ^5.0.0`;
+      per-workspace pins left untouched.)
+- [x] **Structural guard (mirror the existing pattern).** Add a `ci.yml` structural test in the
       same shape as `packages/core/tests/release-workflow.test.ts` (js-yaml load + a negative
       control): assert the `test` job includes the `typecheck` invocation, with a control that
       fails against the pre-phase `ci.yml` shape so the gate can't be silently dropped later.
-- [ ] **Version bump:** patch-bump every workspace `package.json` `version` to `1.11.2`; after
+      (confirmed: `packages/core/tests/ci-workflow.test.ts`, 5 tests — the real-file contract plus
+      3 negative controls: pre-Phase-27 shape, typecheck-in-a-separate-job shape, and
+      typecheck-before-`npm ci` shape, all confirmed to throw.)
+- [x] **Version bump:** patch-bump every workspace `package.json` `version` to `1.11.2`; after
       validation, tag `v1.11.2` (or let the merge-to-`main` automation cut it).
 
 **Validation:**
-1. [ ] `grep -nE "typecheck" .github/workflows/ci.yml` — the `test` job runs a workspace
-      typecheck; the file still parses as valid YAML (js-yaml load).
-2. [ ] `npm run typecheck --workspaces --if-present` exits 0 across `@toastmasters/core`,
+1. [x] `grep -nE "typecheck" .github/workflows/ci.yml` — the `test` job runs a workspace
+      typecheck; the file still parses as valid YAML (js-yaml load). (confirmed.)
+2. [x] `npm run typecheck --workspaces --if-present` exits 0 across `@toastmasters/core`,
       `@toastmasters/ui`, and `@toastmasters/desktop` — the new gate is green on the current tree.
-3. [ ] `npm test` green (floor: the Phase 25 count, 447 — 272 core + 175 desktop) including the
+      (confirmed: exit 0 on all three, independently re-run.)
+3. [x] `npm test` green (floor: the Phase 25 count, 447 — 272 core + 175 desktop) including the
       new `ci.yml` structural test and its negative control (which must fail on the pre-phase
-      workflow shape).
-4. [ ] If the `typescript` pin was hoisted: `grep -n "typescript" package.json` shows the root
+      workflow shape). (confirmed: 452/452 — 277 core + 175 desktop, up from the 447 floor by
+      exactly the 5 new `ci-workflow.test.ts` cases.)
+4. [x] If the `typescript` pin was hoisted: `grep -n "typescript" package.json` shows the root
       pin and each workspace still resolves a `5.x` (no TS6 drift); `npm run typecheck` stays
-      clean.
-5. [ ] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
-      `1.11.2`.
+      clean. (confirmed: `npm ls typescript` shows every resolution deduped to `5.9.3`.)
+5. [x] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
+      `1.11.2`. (confirmed.)
 6. [ ] **Confirmed after push (requires a real PR run on GitHub, not headlessly verifiable —
       same caveat as Phase 15's item 2):** the PR's `test` check runs the typecheck step and stays
       the required context under branch protection; optionally, a deliberately-introduced `tsc`
       error on a throwaway branch turns the `test` check red, proving the gate bites.
+
+> **Note:** Independently re-verified against the live repo, not just the developer's own report.
+> `git diff .github/workflows/ci.yml package.json` confirms the "Typecheck workspaces" step
+> (`npm run typecheck --workspaces --if-present`) was added inside the existing `test` job, after
+> `npm ci`, alongside — not replacing — the `npm test` step, and that the root `package.json`
+> gained a `typescript: ^5.0.0` `devDependencies` pin with no other workspace's `package.json`
+> touched beyond the four `version` bumps. `npm run typecheck --workspaces --if-present` was
+> independently re-run and exits `0` on all three workspaces; `npm ls typescript` shows every
+> resolution — root, all three workspaces, and every transitive `typescript-eslint` dependency —
+> deduped to a single `5.9.3`, so no TS6 drift is possible. `npm test` reproduced 452/452 (277
+> core, up from Phase 26's 272 by exactly the 5 new `packages/core/tests/ci-workflow.test.ts`
+> cases; 175 desktop, unchanged), and `npm run lint` / `npm run format:check` were both
+> independently re-run clean. Every workspace `package.json` (root, `packages/core`,
+> `packages/ui`, `apps/desktop`) reads `1.11.2`. The new structural guard's three negative
+> controls (pre-Phase-27 shape, typecheck-in-a-separate-job shape, typecheck-before-`npm ci`
+> shape) were each read directly and confirmed to assert against genuinely broken fixture YAML,
+> not vacuous passes.
+>
+> **Validation item 6 (a real PR run on GitHub) remains open** — same category as Phase 15's item
+> 2 and Phase 25/26's manual-verification items: it requires exercising the actual GitHub Actions
+> infrastructure via a push/merge, which this cross-check pass does not perform. Structurally the
+> gate is correct (see items 1–5 above and the structural guard), but it has not yet been proven
+> against a real Actions run with branch protection in effect.

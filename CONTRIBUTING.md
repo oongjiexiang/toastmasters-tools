@@ -14,7 +14,9 @@ This repo uses a **branch-per-feature** workflow. There are no direct commits to
 
 3. Once a PR merges, `main` is always green (per (2)) and several things happen automatically —
    see [`release.yml`](.github/workflows/release.yml):
-   - `ci.yml` has already run the full test suite (core + desktop) on the PR itself.
+   - `ci.yml` has already run the full test suite (core + desktop) **and** a workspace typecheck
+     gate (`npm run typecheck --workspaces --if-present`) on the PR itself, both inside the same
+     `test` job so the single required `test` status context covers both.
    - `release.yml` builds the Windows installer on `windows-2022` and publishes/refreshes a
      **rolling pre-release** (tag `latest-main`, "Latest build from main") with the `.exe`
      attached, so there is always one obvious download link for the newest build between

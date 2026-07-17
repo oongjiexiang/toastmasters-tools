@@ -36,3 +36,11 @@ jobs:
       # electron-vite main bundle; no display or real Electron launch is needed.
       - name: Unit / API / bundle tests
         run: npm test
+
+      # vitest transpiles each file in isolation and does not perform a
+      # project-wide tsc --noEmit, so a workspace can be green under npm test
+      # and still fail a real typecheck (the Phase 23 packages/ui regression).
+      # This step runs in the same test job so branch protection's required
+      # `test` context already covers it.
+      - name: Typecheck workspaces
+        run: npm run typecheck --workspaces --if-present
