@@ -1,7 +1,7 @@
 {
   "name": "toastmasters-tools",
   "private": true,
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "Fetch Toastmasters Basecamp member progress and serve a local dashboard",
   "type": "module",
   "workspaces": [
