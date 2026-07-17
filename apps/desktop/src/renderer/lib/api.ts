@@ -7,9 +7,14 @@
  */
 
 import type { AuthStatus, IpcResult } from "../../shared/ipc";
-import type { DiffResult, MemberDetail, MemberSummary } from "@toastmasters/core/queries";
+import type {
+  DiffResult,
+  ListMembersResult,
+  MemberDetail,
+  MemberSummary,
+} from "@toastmasters/core/queries";
 
-export type { AuthStatus, DiffResult, MemberDetail, MemberSummary };
+export type { AuthStatus, DiffResult, ListMembersResult, MemberDetail, MemberSummary };
 
 /**
  * An IPC failure that carries the query's `code` (e.g. "SNAPSHOT_MISSING"), so
@@ -31,7 +36,7 @@ function unwrap<T>(result: IpcResult<T>): T {
   return result.data;
 }
 
-export async function getMembers(): Promise<MemberSummary[]> {
+export async function getMembers(): Promise<ListMembersResult> {
   return unwrap(await window.toastmasters.listMembers());
 }
 

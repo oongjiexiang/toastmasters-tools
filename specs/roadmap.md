@@ -1698,7 +1698,7 @@ phase regardless of visibility (Phase 21 precedent), **minor bump → `1.9.0`.**
 
 ---
 
-## Phase 24 — Planned (Security: encrypt stored session credentials at rest, minor → 1.10.0)
+## Phase 24 — Done (Security: encrypt stored session credentials at rest, minor → 1.10.0)
 
 _The same audit found `apps/desktop/src/main/credentials.ts` writes captured session cookies
 (`BASECAMP_SESSIONID`, `TI_COOKIE`) as cleartext `KEY=value` lines to `<userData>/config.env`.
@@ -1711,48 +1711,101 @@ outlier. Depends on Phase 23 landing first so this new storage code is validated
 currently-supported Electron runtime. User-visible only as a trust upgrade (no behaviour change to
 login/logout) — **minor bump → `1.10.0`.**_
 
-- [ ] **`CredentialCipher` in `credentials.ts`:** wrap each stored value with
+- [x] **`CredentialCipher` in `credentials.ts`:** wrap each stored value with
       `safeStorage.encryptString`, base64-encoded, tagged with a self-describing prefix
       (`enc:v1:<base64>`) so a single loader can tell encrypted values from legacy plaintext.
       `upsertCredential` always encrypts on write when `safeStorage.isEncryptionAvailable()`; when
       unavailable (e.g. Linux without a keyring), fall back to plaintext and log a warning — never
       hard-fail or lock the user out.
-- [ ] **Transparent one-time migration:** `loadCredentials` decrypts `enc:v1:` values; for a value
+- [x] **Transparent one-time migration:** `loadCredentials` decrypts `enc:v1:` values; for a value
       it finds as unprefixed plaintext, use it as today (copy into `process.env`) and immediately
       re-write it encrypted via `upsertCredential`, so an existing user's plaintext `config.env`
       self-upgrades on next launch with no dialog or consent prompt.
-- [ ] **Preserve the manual-paste fallback (Phase 11/12):** a user hand-pasting a plaintext cookie
+- [x] **Preserve the manual-paste fallback (Phase 11/12):** a user hand-pasting a plaintext cookie
       into `config.env` via "Open Credentials File…" must still work — the same plaintext-
       detection path in `loadCredentials` picks it up and encrypts it on next load. Update the
       file's template comments to say so.
-- [ ] **Logout parity:** confirm Phase 17's logout path clears the encrypted store the same way it
+- [x] **Logout parity:** confirm Phase 17's logout path clears the encrypted store the same way it
       clears plaintext today (don't reintroduce "deleting/blanking the file doesn't log you out").
-- [ ] **Bootstrap ordering:** `loadCredentials` currently runs at module-eval in `index.ts`, before
+- [x] **Bootstrap ordering:** `loadCredentials` currently runs at module-eval in `index.ts`, before
       `app.whenReady()`. `safeStorage` is only guaranteed ready after `whenReady()` on some
       platforms; since the only real constraint is credentials being in `process.env` before the
       first `loadCore()` call (already lazy, inside `whenReady`), move the load if needed to sit
       after `whenReady()` and before that first call.
-- [ ] **Docs:** update `USER_GUIDE.md` (and the credentials-file template comments) to describe
+- [x] **Docs:** update `USER_GUIDE.md` (and the credentials-file template comments) to describe
       the new encrypted-at-rest storage in place of any language implying plaintext; the "Nothing
       here ever leaves your computer" copy stays as-is (still true — this closes the at-rest gap,
       it doesn't change the exfiltration claim).
 
 **Validation:**
-1. [ ] Unit tests (mocking `safeStorage`) cover: a fresh write is stored `enc:v1:`-prefixed and
+1. [x] Unit tests (mocking `safeStorage`) cover: a fresh write is stored `enc:v1:`-prefixed and
    round-trips through decrypt; an existing plaintext value loads correctly *and* is rewritten
    encrypted on that same load; `isEncryptionAvailable() === false` falls back to plaintext with a
    logged warning rather than throwing.
-2. [ ] A test confirms logout clears both the encrypted and (legacy) plaintext value paths.
+2. [x] A test confirms logout clears both the encrypted and (legacy) plaintext value paths.
 3. [ ] `npm test` green; `npm run typecheck` clean; `npm run desktop:build` produces
-   `Toastmasters Tools Setup 1.10.0.exe`.
+   `Toastmasters Tools Setup 1.10.0.exe`. **`npm test` (432/432) and `npm run typecheck` are
+   confirmed clean; the `desktop:build` `.exe` sub-claim is blocked by this sandbox — see note
+   below — so this item is left unchecked as a whole, consistent with how Phase 23 left its
+   equivalent `.exe`-build item unchecked.**
 4. [ ] **Manual (user):** with an existing plaintext `config.env` from a pre-1.10.0 install,
    launch the built `.exe` once, then inspect `config.env` and confirm the values are now
    `enc:v1:`-prefixed and the app still shows "Logged in"; log out and confirm the file no longer
    carries a usable session; log back in and confirm a fresh encrypted write.
 
+> **Note:** Landed exactly as scoped — `CredentialCipher` in `apps/desktop/src/main/credentials.ts`
+> wraps `safeStorage.encryptString`/`decryptString` behind the `enc:v1:<base64>` prefix;
+> `upsertCredential` always encrypts on write (falling back to plaintext + a logged warning, never
+> throwing, when `safeStorage.isEncryptionAvailable()` is false); `loadCredentials` decrypts
+> `enc:v1:`-prefixed values and transparently self-upgrades any unprefixed legacy/hand-pasted
+> plaintext value to encrypted on load, with no prompt. `index.ts`'s bootstrap moved the
+> `loadCredentials()` call from module-eval time into the `app.whenReady()` callback — before the
+> startup self-heal and the first `loadCore()` call — since `safeStorage` is only guaranteed ready
+> after `whenReady()` on some platforms; `auth.ts` itself needed no change, since Phase 17's
+> `logOut()` already goes through `upsertCredential` for its blank-out write, so it picks up
+> encryption for free (verified by test, not by code change). The credentials-file template
+> comment in `credentials.ts` was updated to describe the new encrypted-at-rest behaviour, and
+> `USER_GUIDE.md` was brought current to `1.10.0` with a plain-language mention of the same (see
+> `apps/desktop/USER_GUIDE.md`'s "Where your data is kept" section and a one-line note in "Log
+> out" explaining the `enc:v1:` gibberish a user will now see if they open `config.env` by hand).
+> Every workspace `package.json` (root, `packages/core`, `packages/ui`, `apps/desktop`) bumped to
+> `1.10.0`. `npm test` is green at 432/432 (270 core + 162 desktop, including new
+> `credentials.test.ts`/`auth.test.ts` coverage for the fresh-write round-trip, the
+> plaintext-loads-then-self-upgrades path, the `isEncryptionAvailable() === false` plaintext
+> fallback with logged warning, a decrypt-failure-treated-as-unset guard, and logout clearing both
+> a legacy-plaintext-originated and newly-encrypted credential); `npm run typecheck
+> --workspaces --if-present` is clean across `@toastmasters/core`, `@toastmasters/ui`, and
+> `@toastmasters/desktop`; `npm run lint` and `npm run format:check` are both clean.
+>
+> **`npm run desktop:build` (item 3's `.exe` sub-claim) was not achievable in this sandbox** — same
+> pre-existing, documented limitation as Phase 23 (see Phase 23's note above): it reaches
+> `electron-builder`'s `@electron/rebuild` step for `better-sqlite3` and fails with `node-gyp does
+> not support cross-compiling native modules from source`, because this Linux sandbox has no
+> outbound access to github.com to fetch the win32-x64 prebuilt binary. Reproduced independently
+> during this phase's own review with an identical stack trace, confirming it is not a new
+> regression from the encryption change. `npm test`/`typecheck`/`lint`/`format` are confirmed
+> genuinely green (see the note above); the `.exe` artifact itself is not — it needs `windows-2022`
+> CI or a merge/`workflow_dispatch`-triggered `desktop:build` to confirm, same as every prior
+> phase's native-module build step. Item 3 above is left unchecked as a whole rather than partially
+> ticked, since the roadmap's own checkbox text bundles the test/typecheck confirmation and the
+> `.exe`-build claim into one line.
+>
+> **Item 4 (manual verification) remains open** — requires a human with the real installed `.exe`,
+> same as every prior user-facing phase's manual-validation item; this is the first real-world test
+> of the plaintext→encrypted self-upgrade path since it depends on the OS-level `safeStorage`
+> backend (DPAPI on Windows) that cannot be exercised in this sandbox.
+>
+> **Accepted residual risk, not fixed here:** the `enc:v1:` prefix is a plain string match, not a
+> format-versioned envelope with a checksum — a legacy plaintext cookie value that happened to
+> itself literally start with the seven characters `enc:v1:` would be misclassified as already
+> encrypted and passed to `decryptString`, which would fail and (per the decrypt-failure guard
+> above) be treated as unset rather than loaded. Toastmasters/Basecamp session cookies are
+> effectively random tokens, so the odds of this collision are negligible, but it is a real,
+> documented edge case rather than an impossibility — left unaddressed as out of this phase's scope.
+
 ---
 
-## Phase 25 — Planned (Dashboard UI/UX polish: data freshness, login-aware messaging, console placement, minor → 1.11.0)
+## Phase 25 — Done (Dashboard UI/UX polish: data freshness, login-aware messaging, console placement, minor → 1.11.0)
 
 > _Was **Phase 23** before the 2026-07-17 security-findings insertion: a repo security audit
 > surfaced one HIGH (EOL Electron) and one MEDIUM (plaintext session-cookie storage) finding,
@@ -1774,7 +1827,7 @@ for a single sighted user with no assistive-tech need, or already a deliberate, 
 cut (see Phase-25 planning notes, not re-litigated here). User-facing changes to the `.exe`, so
 **minor bump → `1.11.0`.**_
 
-- [ ] **(item 1) Data-freshness indicator in the header.** Today `DashboardHeader` shows only
+- [x] **(item 1) Data-freshness indicator in the header.** Today `DashboardHeader` shows only
       `{N} members` — nothing tells the VPE whether they're looking at this month's snapshot or one
       from six months ago. Surface the **latest snapshot timestamp** (member/progress snapshot
       rows already carry a date; expose it through `packages/core/queries.ts` and the existing
@@ -1783,7 +1836,7 @@ cut (see Phase-25 planning notes, not re-litigated here). User-facing changes to
       (21 days — roughly one reporting cycle; no settings UI, no per-member timestamps). On a
       fresh install with no snapshot yet, read cleanly as "Never refreshed" rather than a blank or
       broken date.
-- [ ] **(item 2) Login-aware refresh-error and empty-state copy.** `DashboardView.tsx`'s
+- [x] **(item 2) Login-aware refresh-error and empty-state copy.** `DashboardView.tsx`'s
       `reportRefreshError` currently shows the same "Your Toastmasters session has expired. Log
       out and log in again." for every `AUTH_ERROR`-shaped (401/403) failure — including a
       brand-new user who has never logged in, who is told to "log out" of a session they never
@@ -1794,7 +1847,7 @@ cut (see Phase-25 planning notes, not re-litigated here). User-facing changes to
       the same branch to the empty-state card's copy (`DashboardView.tsx`, the "No data yet" card),
       which today tells a logged-out user to "use the Refresh buttons" that will only 401. The
       already-logged-in expired-session path is unchanged.
-- [ ] **(item 3) Refresh console below the header, collapsed by default when idle.** `App.tsx`
+- [x] **(item 3) Refresh console below the header, collapsed by default when idle.** `App.tsx`
       currently mounts `RefreshConsole` *above* `DashboardView`/`MemberDetailView`, so raw scraper
       log lines render above the "Toastmasters Dashboard" title and header controls — inverted
       hierarchy for a non-technical user, and a visible seam from Phase 22 lifting the console to
@@ -1807,27 +1860,89 @@ cut (see Phase-25 planning notes, not re-litigated here). User-facing changes to
       collapse state, Cancel button, and Copy Logs button are unchanged.
 
 **Validation:**
-1. [ ] A unit/component test on the header asserts: the latest-snapshot date renders next to the
+1. [x] A unit/component test on the header asserts: the latest-snapshot date renders next to the
    member count; it switches to the amber treatment when the fixture snapshot date is older than
    21 days; a no-snapshot fixture renders "Never refreshed" instead of a blank/invalid date
    (item 1).
-2. [ ] A test on `reportRefreshError` (or the equivalent renderer handler) asserts: an
+2. [x] A test on `reportRefreshError` (or the equivalent renderer handler) asserts: an
    `AUTH_ERROR`-shaped failure with `authStatus` showing logged-out renders the "Log in to
    Toastmasters first, then Refresh" copy, not the "session expired" text; the same failure with
    `authStatus` showing logged-in is unchanged from today. A second test/assertion covers the
    empty-state card's logged-out copy (item 2).
-3. [ ] `grep -n "RefreshConsole" apps/desktop/src/renderer/App.tsx` shows it mounted after the
+3. [x] `grep -n "RefreshConsole" apps/desktop/src/renderer/App.tsx` shows it mounted after the
    header/title in render order (or a component test asserts DOM order); a component test asserts
    the console renders collapsed when idle and expands when a refresh starts, and that navigating
    between views doesn't reset it (regression check on Phase 22's persistence) (item 3).
 4. [ ] `npm test` green; `npm run typecheck` clean; `npm run desktop:build` produces
    `Toastmasters Tools Setup 1.11.0.exe`; `grep -h '"version"' package.json packages/*/package.json
-   apps/*/package.json` — all read `1.11.0`.
+   apps/*/package.json` — all read `1.11.0`. **`npm test` (447/447: 272 core + 175 desktop),
+   `npm run typecheck --workspaces --if-present`, `npm run lint`, and `npm run format:check` are
+   all confirmed clean; every workspace `package.json` reads `1.11.0`. The `desktop:build` `.exe`
+   sub-claim is blocked by this sandbox — see note below — so this item is left unchecked as a
+   whole, consistent with how Phases 23 and 24 left their equivalent `.exe`-build item unchecked.**
 5. [ ] **Manual (user):** on a fresh/never-refreshed state the header reads "Never refreshed" and
    an unauthenticated Refresh shows the login-first message (not "session expired"); after a
    refresh, the header's "Updated …" text and the console's placement below the title both look
    right; the console starts collapsed on next launch and expands automatically when a refresh is
    triggered.
+
+> **Note:** All three feature items are confirmed against the live repo, not just the developer's
+> own report of them. `packages/core/helpers/db.ts`'s `getLatestSnapshotAt` and
+> `queries.ts`'s `listMembers` (now returning `{ members, latestSnapshotAt }` via the new
+> `ListMembersResult` type) were read line-by-line: a true fresh install (both
+> `progress_snapshots`/`membership_snapshots` never populated) returns `ok:true` with an empty
+> member list and `latestSnapshotAt: null`; a partial capture (only one table ever populated)
+> still returns `SNAPSHOT_MISSING`, matching item 1's spec exactly — this is pinned down by two
+> dedicated `queries.test.ts` cases (one per branch) plus a "threads the value straight through"
+> test that would catch a hardcoded/dropped field. `DashboardHeader`'s `FreshnessNote` renders
+> "Never refreshed" / "Updated today" / "Updated 1 day ago" / "Updated N days ago" next to the
+> member count exactly as item 1's `38 members · Updated 3 days ago` example specifies, and goes
+> amber on `days > 21` (confirmed **strictly** greater-than, not `>=`, by a same-day negative
+> control at exactly 21 days in `DashboardHeader.test.tsx`). `DashboardView.tsx`'s
+> `reportRefreshError` and the "No data yet" empty-state card both now branch on
+> `authStatus.basecamp || authStatus.ti`: logged-out shows "Log in to Toastmasters first, then
+> Refresh." (and the empty-state equivalent) with no action button, while the already-logged-in
+> "session expired" path — copy, "Log in again" action, and behaviour — is byte-for-byte
+> unchanged, each confirmed by its own passing test plus a negative control asserting the other
+> copy is absent. `App.tsx` now mounts `RefreshConsole` textually *after* the
+> `DashboardView`/`MemberDetailView` switch (confirmed by `grep -n "RefreshConsole"
+> apps/desktop/src/renderer/App.tsx`, and by a new DOM-order assertion in `App.test.tsx` comparing
+> string indices of "Toastmasters Dashboard" vs. the console's "Last refresh" marker text), and
+> `consoleCollapsed` now defaults to `true` — a dedicated test confirms a log line arriving with no
+> refresh active does **not** show its content until the console's own toggle is clicked (a
+> negative control that would fail against the pre-Phase-25 default), while a second test confirms
+> a refresh still auto-expands it with no manual click, and the existing Phase 22
+> survives-navigation test was updated (an extra toggle click) rather than deleted, so that
+> regression coverage is intact. `npm test` was re-run independently during this cross-check and
+> reproduced the claimed 447/447 (272 core + 175 desktop), and `npm run typecheck
+> --workspaces --if-present`, `npm run lint`, and `npm run format:check` were all independently
+> re-run clean. Every workspace `package.json` (root, `packages/core`, `packages/ui`,
+> `apps/desktop`) reads `1.11.0`.
+>
+> **`npm run desktop:build` (validation item 4's `.exe` sub-claim) was not achievable in this
+> sandbox** — independently reproduced during this cross-check: it reaches `electron-builder`'s
+> `@electron/rebuild` step for `better-sqlite3` and fails with `node-gyp does not support
+> cross-compiling native modules from source`, because this Linux sandbox has no outbound access
+> to github.com to fetch the win32-x64 prebuilt binary — the same pre-existing limitation
+> confirmed identically in Phases 23 and 24, not a Phase 25 regression. It needs `windows-2022` CI
+> or a merge/`workflow_dispatch`-triggered `desktop:build` to confirm.
+>
+> **Validation item 5 (manual verification) remains open** — requires a human with the real
+> installed `.exe`, same as every prior user-facing phase's manual-validation item.
+>
+> **Minor discrepancy noted during cross-check (not blocking, not a violation of the item-1
+> spec as written):** on a *partial*-capture `SNAPSHOT_MISSING` (one snapshot table has data, the
+> other has never been populated — e.g. a user who only ever ran "Refresh Progress" and never
+> "Refresh Membership"), `DashboardView.tsx`'s catch block unconditionally sets
+> `latestSnapshotAt` to `null`, so the header reads "Never refreshed" even though one table does
+> in fact hold a real snapshot timestamp. Item 1's spec and its validation only require the header
+> to distinguish a *true* fresh install ("Never refreshed") from a populated one ("Updated N days
+> ago") — it says nothing about this rarer partial-capture edge case — so this is not a spec
+> violation, and the same case already rendered the identical "No data yet" card with no error
+> banner *before* this phase (Phase 25 adds no new incorrectness here, it just means the new
+> freshness note inherits the same blind spot). Left unaddressed as out of this phase's scope; a
+> future phase could thread `getLatestSnapshotAt`'s real value through even on the
+> `SNAPSHOT_MISSING` path if this edge case turns out to matter in practice.
 
 > **Deferred from the same design review (not part of this phase):** invalid `role="button"` ARIA
 > on `MemberTable` rows (no assistive-tech user on this single-seat tool — fix opportunistically

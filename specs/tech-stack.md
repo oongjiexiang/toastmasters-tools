@@ -141,6 +141,7 @@ Windows `.exe` instead._
 | Main ↔ renderer | IPC via `contextBridge` preload | Typed, sandboxed bridge; `nodeIntegration` stays off. Main process owns SQLite + scraping |
 | Packaging | **electron-builder** (NSIS target) | One-command Windows installer `.exe`; user double-clicks, no terminal |
 | Auth (Phase 12) | **In-app login** — user signs in on the genuine Toastmasters pages in an embedded window; the main process harvests the session cookies from a persistent Electron partition (`persist:toastmasters`) | The scrapers authenticate by a `Cookie` header; the main process's `session.cookies.get()` can read those cookies — including httpOnly auth cookies — with no manual copy. Manual `config.env` paste stays as a fallback |
+| Credential storage (Phase 24) | **Encrypted at rest** — `config.env` values are wrapped with Electron's `safeStorage.encryptString`/`decryptString` (OS-level encryption, DPAPI on Windows), base64-encoded and tagged `enc:v1:<base64>`; falls back to plaintext + a logged warning, never a hard failure, when `safeStorage.isEncryptionAvailable()` is false | Closes the one plaintext-at-rest outlier: the `persist:toastmasters` Chromium cookie jar was already OS-encrypted, but `config.env` — a durable copy of the same unauthenticated bearer tokens — was not |
 
 **Authentication (Phase 12).** The desktop app replaces cookie-pasting with an in-app login: the
 user authenticates on the real HTTPS Toastmasters pages inside a sandboxed `BrowserWindow`
@@ -155,13 +156,29 @@ cross-origin cookie isolation makes in-app login Electron-only; the CLI (and the
 own fallback) still use the manual paste. (`apps/web`, which also kept the manual paste, was
 removed in Phase 14.)
 
+**Credential storage (Phase 24).** `config.env` values are encrypted at rest, not stored as
+plaintext `KEY=value` lines. `CredentialCipher` (`apps/desktop/src/main/credentials.ts`) wraps
+each value with `safeStorage.encryptString`, base64-encodes it, and tags it `enc:v1:<base64>` so
+`loadCredentials` can tell an encrypted value from legacy plaintext without attempting a decrypt
+first. `upsertCredential` always encrypts on write; `loadCredentials` decrypts `enc:v1:` values
+and transparently rewrites any unprefixed plaintext value (a pre-Phase-24 `config.env`, or a
+fresh hand-paste via **Open Credentials File…**) as encrypted the next time it loads, with no
+prompt. When `safeStorage.isEncryptionAvailable()` is false (e.g. a Linux box with no keyring),
+writes fall back to plaintext with a logged warning rather than failing — a locked-out user is
+worse than a plaintext credential. `index.ts`'s bootstrap loads credentials inside the
+`app.whenReady()` callback rather than at module-eval time, since `safeStorage` is only
+guaranteed ready after `whenReady()` on some platforms.
+
 **Logout (Phase 17).** Because `config.env` is only ever a durable *copy* of whatever cookies
 `persist:toastmasters` holds — never the source of truth — a real logout has to clear the
 partition itself, not just blank the two lines in `config.env` (that alone is cosmetic: the
 startup self-heal re-harvests from the still-live partition on the very next launch and silently
 rewrites them back in). `logOut()` (`apps/desktop/src/main/auth.ts`) clears the partition's cookies
 scoped to the Basecamp and TI origins individually — never the whole partition — then clears
-`process.env` and blanks `config.env` to match.
+`process.env` and blanks `config.env` to match. Since Phase 24, that blank write goes through the
+same `upsertCredential`/`CredentialCipher` path as any other write, so the on-disk line is an
+`enc:v1:` value that _decrypts_ to an empty string, not a literal `KEY=` blank — `loadCredentials`
+still treats either form as unset.
 
 **Theming (Phase 19).** The app has a real light/dark/system toggle, not a forced light theme.
 `packages/ui/components/providers.tsx` sets `<ThemeProvider attribute="class"

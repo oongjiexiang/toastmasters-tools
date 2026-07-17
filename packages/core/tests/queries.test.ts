@@ -3,6 +3,7 @@ import {
   getLatestMembership,
   getLatestProgress,
   getLatestProjects,
+  getLatestSnapshotAt,
   getMembershipDiff,
   getProgressDiff,
 } from "../helpers/db";
@@ -23,6 +24,7 @@ vi.mock("../helpers/db", () => ({
   getLatestProgress: vi.fn(),
   getLatestMembership: vi.fn(),
   getLatestProjects: vi.fn(),
+  getLatestSnapshotAt: vi.fn(),
   getProgressDiff: vi.fn(),
   getMembershipDiff: vi.fn(),
 }));
@@ -94,6 +96,7 @@ function givenSnapshots(opts: {
   progress?: ProgressRow[] | null;
   membership?: ReturnType<typeof membershipRow>[] | null;
   projects?: ReturnType<typeof project>[];
+  latestSnapshotAt?: string | null;
 }): void {
   // `?? []` would be wrong here: an explicit `null` means "no snapshot exists" and
   // must reach the query unchanged. Only `undefined` defaults to empty.
@@ -103,6 +106,9 @@ function givenSnapshots(opts: {
   vi.mocked(getLatestProgress).mockReturnValue(progress as never);
   vi.mocked(getLatestMembership).mockReturnValue(membership as never);
   vi.mocked(getLatestProjects).mockReturnValue((opts.projects ?? []) as never);
+  vi.mocked(getLatestSnapshotAt).mockReturnValue(
+    opts.latestSnapshotAt === undefined ? "2026-07-14T00:00:00.000Z" : opts.latestSnapshotAt,
+  );
 }
 
 beforeEach(() => vi.clearAllMocks());
@@ -110,7 +116,10 @@ beforeEach(() => vi.clearAllMocks());
 // ── listMembers ──────────────────────────────────────────────────────────────
 
 describe("listMembers", () => {
-  it("fails with SNAPSHOT_MISSING when the progress snapshot is absent", () => {
+  it("fails with SNAPSHOT_MISSING when only the progress snapshot is absent (membership was captured)", () => {
+    // Partial capture — one table has data, the other never got a row — stays an
+    // error. This is distinct from the true fresh-install case below where *neither*
+    // table has ever been populated.
     givenSnapshots({ progress: null, membership: [membershipRow()] });
 
     const result = listMembers();
@@ -122,7 +131,7 @@ describe("listMembers", () => {
     });
   });
 
-  it("fails with SNAPSHOT_MISSING when the membership snapshot is absent", () => {
+  it("fails with SNAPSHOT_MISSING when only the membership snapshot is absent (progress was captured)", () => {
     givenSnapshots({ progress: [progressRow()], membership: null });
 
     const result = listMembers();
@@ -130,15 +139,53 @@ describe("listMembers", () => {
     expect(result).toMatchObject({ ok: false, code: "SNAPSHOT_MISSING" });
   });
 
-  it("returns one row per member with their full name", () => {
-    givenSnapshots({ progress: [progressRow()], membership: [membershipRow()] });
+  it("succeeds with an empty member list and a null timestamp on a true fresh install (neither table ever populated)", () => {
+    // Per helpers/db.ts, getLatestProgress/getLatestMembership both return `null`
+    // only when their table has never been written to (or the db file itself
+    // doesn't exist). When *both* are null at once, that's "never refreshed", not
+    // an error — this is the one real design decision in Phase 25, so pin it down
+    // precisely rather than trusting the developer's own report of it.
+    givenSnapshots({ progress: null, membership: null, latestSnapshotAt: null });
+
+    const result = listMembers();
+
+    expect(result).toEqual({
+      ok: true,
+      data: { members: [], latestSnapshotAt: null },
+    });
+  });
+
+  it("returns one row per member with their full name, alongside the latest snapshot timestamp", () => {
+    givenSnapshots({
+      progress: [progressRow()],
+      membership: [membershipRow()],
+      latestSnapshotAt: "2026-07-10T12:00:00.000Z",
+    });
 
     const result = listMembers();
 
     expect(result).toMatchObject({
       ok: true,
-      data: [{ email: "alice@example.com", name: "Alice Smith" }],
+      data: {
+        members: [{ email: "alice@example.com", name: "Alice Smith" }],
+        latestSnapshotAt: "2026-07-10T12:00:00.000Z",
+      },
     });
+  });
+
+  it("threads whatever getLatestSnapshotAt returns straight through to latestSnapshotAt", () => {
+    // Proves the mock is actually wired into listMembers's return value, not just
+    // called — a distinct fixture value per test would silently pass if the field
+    // were hardcoded or dropped.
+    givenSnapshots({
+      progress: [progressRow()],
+      membership: [membershipRow()],
+      latestSnapshotAt: "2019-01-01T00:00:00.000Z",
+    });
+
+    const result = listMembers();
+
+    expect(result.ok && result.data.latestSnapshotAt).toBe("2019-01-01T00:00:00.000Z");
   });
 
   it("sorts members by name", () => {
@@ -155,19 +202,20 @@ describe("listMembers", () => {
 
     const result = listMembers();
 
-    expect(result.ok && result.data.map((m) => m.name)).toEqual([
+    expect(result.ok && result.data.members.map((m) => m.name)).toEqual([
       "Bob Brown",
       "Zoe Adams",
     ]);
   });
 
-  it("passes the injected dbPath through to every db query", () => {
+  it("passes the injected dbPath through to every db query, including getLatestSnapshotAt", () => {
     givenSnapshots({ progress: [progressRow()], membership: [membershipRow()] });
 
     listMembers("/tmp/fixture.sqlite");
 
     expect(getLatestProgress).toHaveBeenCalledWith("/tmp/fixture.sqlite");
     expect(getLatestMembership).toHaveBeenCalledWith("/tmp/fixture.sqlite");
+    expect(getLatestSnapshotAt).toHaveBeenCalledWith("/tmp/fixture.sqlite");
     expect(getLatestProjects).toHaveBeenCalledWith(
       "alice@example.com",
       "Presentation Mastery",
@@ -187,7 +235,7 @@ describe("listMembers status computation", () => {
     });
     const result = listMembers();
     if (!result.ok) throw new Error("expected ok");
-    const member = result.data[0];
+    const member = result.data.members[0];
     if (!member) throw new Error("expected at least one member");
     const pathway = member.pathways[0];
     if (!pathway) throw new Error("expected at least one pathway");
@@ -305,7 +353,7 @@ describe("listMembers overall title", () => {
 
     const result = listMembers();
 
-    expect(result.ok && result.data[0]?.title).toBe("DTM");
+    expect(result.ok && result.data.members[0]?.title).toBe("DTM");
   });
 
   it("picks the highest level title across a member's pathways", () => {
@@ -325,8 +373,8 @@ describe("listMembers overall title", () => {
     const result = listMembers();
 
     // DL1 vs PM3 — the numeric suffix decides, not the alphabet.
-    expect(result.ok && result.data[0]?.title).toBe("PM3");
-    expect(result.ok && result.data[0]?.pathways.map((p) => p.title)).toEqual([
+    expect(result.ok && result.data.members[0]?.title).toBe("PM3");
+    expect(result.ok && result.data.members[0]?.pathways.map((p) => p.title)).toEqual([
       "DL1",
       "PM3",
     ]);
@@ -337,7 +385,7 @@ describe("listMembers overall title", () => {
 
     const result = listMembers();
 
-    expect(result.ok && result.data[0]?.title).toBe("");
+    expect(result.ok && result.data.members[0]?.title).toBe("");
   });
 
   it("derives the title from the pathway initials, ignoring a parenthesised suffix", () => {
@@ -354,7 +402,7 @@ describe("listMembers overall title", () => {
 
     const result = listMembers();
 
-    expect(result.ok && result.data[0]?.title).toBe("DL2");
+    expect(result.ok && result.data.members[0]?.title).toBe("DL2");
   });
 });
 
@@ -372,7 +420,7 @@ describe("listMembers UnpaidMember handling", () => {
 
     const result = listMembers();
 
-    expect(result.ok && result.data).toEqual([]);
+    expect(result.ok && result.data.members).toEqual([]);
   });
 
   it("keeps paid members when an unpaid member is present in the same snapshot", () => {
@@ -389,7 +437,7 @@ describe("listMembers UnpaidMember handling", () => {
 
     const result = listMembers();
 
-    expect(result.ok && result.data.map((m) => m.email)).toEqual(["bob@example.com"]);
+    expect(result.ok && result.data.members.map((m) => m.email)).toEqual(["bob@example.com"]);
   });
 
   it("keeps a member who has a progress row but no membership row at all", () => {
@@ -399,7 +447,7 @@ describe("listMembers UnpaidMember handling", () => {
 
     const result = listMembers();
 
-    expect(result.ok && result.data).toHaveLength(1);
+    expect(result.ok && result.data.members).toHaveLength(1);
   });
 });
 

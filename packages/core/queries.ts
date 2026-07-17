@@ -25,6 +25,7 @@ import {
   getLatestMembership,
   getLatestProgress,
   getLatestProjects,
+  getLatestSnapshotAt,
   getMembershipDiff,
   getProgressDiff,
   type MembershipDiff,
@@ -73,6 +74,18 @@ export interface MemberSummary {
   name: string;
   title: string;
   pathways: PathwaySummary[];
+}
+
+/**
+ * `listMembers`'s success payload. Bundles the member rows with the latest
+ * snapshot timestamp (across both the progress and membership tables) so the
+ * dashboard header can render a freshness indicator without a second IPC
+ * round-trip. `latestSnapshotAt` is `null` only on a fresh install that has
+ * never captured any snapshot at all.
+ */
+export interface ListMembersResult {
+  members: MemberSummary[];
+  latestSnapshotAt: string | null;
 }
 
 export interface LevelGroup {
@@ -134,9 +147,17 @@ function pickOverallTitle(pathways: PathwaySummary[], credentials: string): stri
 // ── Queries ───────────────────────────────────────────────────────────────────
 
 /** Every paid member, one row per member, with a summary per enrolled pathway. */
-export function listMembers(dbPath?: string): QueryResult<MemberSummary[]> {
+export function listMembers(dbPath?: string): QueryResult<ListMembersResult> {
   const progressRows = getLatestProgress(dbPath);
   const membershipRows = getLatestMembership(dbPath);
+
+  // A fresh install with no snapshot in either table at all is not an error —
+  // it's the "Never refreshed" state the header renders cleanly. Distinguish
+  // it from the (rarer, still-an-error) case where only one of the two tables
+  // has ever been populated, which stays SNAPSHOT_MISSING as before.
+  if (progressRows === null && membershipRows === null) {
+    return { ok: true, data: { members: [], latestSnapshotAt: null } };
+  }
 
   if (progressRows === null || membershipRows === null) {
     return SNAPSHOT_MISSING;
@@ -208,7 +229,7 @@ export function listMembers(dbPath?: string): QueryResult<MemberSummary[]> {
 
   results.sort((a, b) => a.name.localeCompare(b.name));
 
-  return { ok: true, data: results };
+  return { ok: true, data: { members: results, latestSnapshotAt: getLatestSnapshotAt(dbPath) } };
 }
 
 /** One member on one pathway, with every project grouped by level (1–5 + Path Completion). */

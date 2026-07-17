@@ -512,3 +512,31 @@ export function getLatestMembership(dbPath = DEFAULT_DB_PATH): MembershipSnapsho
   db.close();
   return rows;
 }
+
+/**
+ * The single most recent `captured_at` across both snapshot tables (progress
+ * and membership), or `null` when neither has ever been populated — the
+ * "Never refreshed" case on a fresh install. Used by `queries.ts#listMembers`
+ * to surface a data-freshness indicator in the header without adding a new
+ * IPC channel.
+ */
+export function getLatestSnapshotAt(dbPath = DEFAULT_DB_PATH): string | null {
+  if (!existsSync(dbPath)) return null;
+  const db = openDb(dbPath);
+
+  function latestOf(table: "progress_snapshots" | "membership_snapshots"): string | null {
+    const row = db
+      .prepare(`SELECT captured_at FROM ${table} ORDER BY captured_at DESC LIMIT 1`)
+      .get() as { captured_at: string } | undefined;
+    return row?.captured_at ?? null;
+  }
+
+  const progress = latestOf("progress_snapshots");
+  const membership = latestOf("membership_snapshots");
+
+  db.close();
+
+  if (progress === null) return membership;
+  if (membership === null) return progress;
+  return progress > membership ? progress : membership;
+}

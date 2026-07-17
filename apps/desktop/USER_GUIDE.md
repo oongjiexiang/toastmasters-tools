@@ -4,7 +4,7 @@ A simple Windows app that shows each club member's Pathways progress in one plac
 
 ## Install the app
 
-1. Double-click **`Toastmasters Tools Setup 1.8.0.exe`**.
+1. Double-click **`Toastmasters Tools Setup 1.10.0.exe`**.
 2. Windows may show a blue **"Windows protected your PC"** warning about an
    unknown publisher. This is expected — the app is safe but not signed by a
    paid certificate. Click **More info**, then **Run anyway**.
@@ -71,6 +71,11 @@ does **not** sign you out. The app keeps your login separately from that file,
 and it will quietly restore the values into `config.env` the next time it
 starts. Always use the **Log out** button or **File → Log out** to actually
 end your session.
+
+If you open `config.env` after using the app once, the saved values will look
+like scrambled text rather than a cookie you'd recognize — that's the
+automatic protection described in [Where your data is kept](#where-your-data-is-kept)
+working as expected, not a sign that something is broken.
 
 ## If login doesn't work: enter cookies manually (fallback)
 
@@ -188,6 +193,11 @@ next time you open the app.
 Click **File → Open Data Folder** to open the folder that holds the app's
 database and your `config.env` logins file. This is also where you go if you
 ever want to back up or reset the app's data.
+
+Your login details in that file are protected automatically — the app
+scrambles them so they can't be read as plain text, even by someone who opens
+the file directly. This happens on its own; there is nothing you need to set
+up or turn on.
 
 ## Troubleshooting
 
