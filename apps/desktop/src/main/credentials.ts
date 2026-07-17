@@ -14,7 +14,7 @@
  */
 
 import { safeStorage } from "electron";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 // logger.ts is core-free too (see its header comment) — safe to import
 // statically here for the same reason `auth.ts` does.
@@ -42,6 +42,15 @@ CLUB_ID=
  *  scheme, so a loader can tell an encrypted value from legacy plaintext at a
  *  glance without attempting (and failing) a decrypt first. */
 const ENCRYPTED_PREFIX = "enc:v1:";
+
+/**
+ * Keys that stay plaintext even though {@link upsertCredential} runs every
+ * other key through {@link CredentialCipher}. `CLUB_ID` is a non-secret UUID,
+ * and this file is the only place a user can set or inspect it (there is no
+ * UI field for it) — encrypting it would turn the one hand-editable fallback
+ * for that value into unreadable, unrecoverable-without-blanking gibberish.
+ */
+const PLAINTEXT_KEYS = new Set(["CLUB_ID"]);
 
 /**
  * Wraps Electron's `safeStorage.encryptString`/`decryptString` (OS-level
@@ -139,7 +148,21 @@ export function loadCredentials(file: string): void {
       }
     } else {
       value = rawValue;
-      upsertCredential(file, key, value);
+      try {
+        upsertCredential(file, key, value);
+      } catch (err) {
+        // A failed self-upgrade write (a locked file, a full disk, a transient
+        // OS error) must never crash the app or block startup — the plaintext
+        // value already parsed above still applies to process.env for this
+        // run; the file just stays plaintext until a future write succeeds.
+        logger.warn(
+          "failed to persist auto-upgraded (encrypted) credential; continuing with the plaintext value for this run",
+          {
+            key,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        );
+      }
     }
 
     if (value && !(key in process.env)) {
@@ -156,17 +179,22 @@ export function loadCredentials(file: string): void {
  * they survive a restart, without core ever being imported here (see the header
  * comment and `auth.ts`).
  *
- * `value` is always run through {@link CredentialCipher} before being written,
- * whatever it is — including `CLUB_ID` (a non-secret, so encrypting it too is
- * harmless) and an empty string (logout blanks a credential this way; the
- * resulting `enc:v1:` line still decrypts back to `""`, which `loadCredentials`
- * treats as unset, same as blanking it in plaintext did).
+ * `value` is run through {@link CredentialCipher} before being written for
+ * every key except {@link PLAINTEXT_KEYS} — including an empty string (logout
+ * blanks a credential this way; the resulting `enc:v1:` line still decrypts
+ * back to `""`, which `loadCredentials` treats as unset, same as blanking it
+ * in plaintext did).
+ *
+ * The rewrite itself is atomic: the new content is written to a sibling
+ * `.tmp` file and renamed over `file`, so a mid-write crash/kill/power-loss
+ * can never leave `config.env` truncated — the rename is all-or-nothing on
+ * both POSIX and same-volume Windows filesystems.
  */
 export function upsertCredential(file: string, key: string, value: string): void {
   ensureCredentialsFile(file);
   const lines = readFileSync(file, "utf-8").split("\n");
   const prefix = `${key}=`;
-  const stored = CredentialCipher.encrypt(value);
+  const stored = PLAINTEXT_KEYS.has(key) ? value : CredentialCipher.encrypt(value);
 
   let replaced = false;
   for (let i = 0; i < lines.length; i++) {
@@ -184,5 +212,8 @@ export function upsertCredential(file: string, key: string, value: string): void
   }
 
   if (!replaced) lines.push(`${key}=${stored}`);
-  writeFileSync(file, lines.join("\n"), "utf-8");
+
+  const tmpFile = `${file}.tmp`;
+  writeFileSync(tmpFile, lines.join("\n"), "utf-8");
+  renameSync(tmpFile, file);
 }

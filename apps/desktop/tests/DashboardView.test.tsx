@@ -152,6 +152,14 @@ describe("DashboardView — reportRefreshError, AUTH_ERROR branch, logged-in (Ph
     refreshProgress.mockRejectedValue(new Error(fullMessage));
     const { setLog } = renderDashboard();
 
+    // `authStatus` loads asynchronously (its own useEffect/getAuthStatus()
+    // call, independent of the member table's). Waiting only for the Refresh
+    // button — which is always present — would let the click race ahead of
+    // that state update and fire reportRefreshError while authStatus is still
+    // its initial `null`, which reads as logged-out. Waiting for the "Log
+    // out" button (rendered only once authStatus resolves logged-in) proves
+    // the state has actually landed before the refresh fires.
+    await screen.findByRole("button", { name: /Log out/i });
     const refreshButton = await screen.findByRole("button", { name: /Refresh Progress/i });
     fireEvent.click(refreshButton);
 
