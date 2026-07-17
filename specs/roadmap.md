@@ -1641,20 +1641,47 @@ phase regardless of visibility (Phase 21 precedent), **minor bump → `1.9.0`.**
 > existing `electron-builder.yml` — `npm run desktop:build` reaches the identical
 > `@electron/rebuild electronVersion=43.1.1` invocation and the same pre-existing cross-compile
 > wall as 25.x did, with no new/earlier failure point. `npm test` re-confirmed at 423/423
-> afterward. The review's other two findings were left as explicitly non-blocking and are not
-> addressed here: a MODERATE `esbuild`/`vite` advisory reachable via `electron-vite` (dev-server
-> only — `npm run desktop:dev`, not the shipped artifact) and a suggestion to hoist the
-> `typescript: ^5.0.0` pin to the root `package.json` as a single source of truth. Both remain
-> open for a future phase; the 7 remaining `npm audit` findings after this fix are all in that
-> same out-of-scope `vitest`/`vite`/`esbuild`/`electron-vite` cluster, pre-existing and unrelated
-> to this phase's Electron bump.
+> afterward. A MODERATE `esbuild`/`vite` advisory reachable via `electron-vite` (dev-server only —
+> `npm run desktop:dev`, not the shipped artifact) was left as explicitly non-blocking and remains
+> open for a future phase; the remaining `npm audit` findings are all in that same out-of-scope
+> `vitest`/`vite`/`esbuild`/`electron-vite` cluster, pre-existing and unrelated to this phase's
+> Electron bump.
 >
-> **Gap found, not fixed here:** `.github/workflows/ci.yml` runs `npm test` only — it never runs
-> any workspace's `typecheck` script. That is how the `packages/ui` regression above slipped past
-> this phase's own initial validation (which only checked `npm run typecheck -w
-> @toastmasters/desktop`, the one workspace this phase's text mentions) until an independent
-> cross-check ran `npm run typecheck --workspaces --if-present`. Worth a future phase adding a
-> `typecheck` step to `ci.yml`; left unaddressed here as out of this phase's scope.
+> **Second review (architecture/dependency) fixed three more items, left one open by design:**
+> (1) `.github/workflows/ci.yml`'s `test` job now runs `npm run typecheck --workspaces
+> --if-present` before the test suite — closes the exact gap that let the `packages/ui`
+> regression above slip past this phase's own initial (narrower) validation. (2) The
+> per-workspace `typescript: ^5.0.0` pins alone didn't stop the ROOT-hoisted transitive
+> `typescript` from drifting again on a future install; added `"typescript": "5.9.3"` (exact,
+> matching the `jsdom`/`cssstyle` style already in that block) to the root `package.json`'s
+> `overrides` — the per-workspace pins stay as declarations of intent, the override is what
+> actually enforces it repo-wide now (`npm ls typescript --all` confirms every workspace and
+> transitive consumer resolves to `5.9.3`). (3) `electron-builder` changed from `^26.15.3` to an
+> exact `26.15.3` pin, matching `electron`'s own exact pin, for a reproducible installer build.
+> `apps/desktop/tests/electron-version.test.ts`'s `require("electron/package.json")` also now
+> fails with a clear message (`"electron is not installed/resolvable — run npm install first"`)
+> instead of an opaque module-resolution stack trace if electron somehow isn't installed —
+> assertions unchanged. **Left open, deliberately:** the review raised a credible concern that
+> `electron-builder`'s v26 `node-module-collector` (26.0.4+) has documented issues in npm-
+> workspaces monorepos, citing issue numbers this sandbox couldn't independently verify (GitHub
+> API access to `electron-userland/electron-builder` is out of this session's repo scope). A web
+> search corroborated the general shape (electron-builder issues #7103, #8938, #9366, #9665 all
+> describe real v26-collector/monorepo pain) — but the specific failure mode cited (`workspace:`
+> protocol dependencies) doesn't apply here: `apps/desktop/package.json`'s only real
+> `dependencies` entry is `better-sqlite3`, a plain npm-registry package, not a
+> `workspace:*`-protocol one (`@toastmasters/core`/`@toastmasters/ui` are `devDependencies`,
+> bundled by `electron-vite` at build time, never reaching electron-builder's collector at all).
+> Whether the v26 collector correctly resolves `better-sqlite3` when it's hoisted to the ROOT
+> `node_modules` (this repo's actual layout) remains **genuinely unverified** — not because of a
+> code gap, but because this sandbox's build attempt fails at an earlier step
+> (`@electron/rebuild`'s native rebuild, blocked by no GitHub network egress) before ever reaching
+> the collector. This was already true before this review; the review just sharpens why it
+> matters. No branch-protection/CI change was made to force a pre-merge Windows build — that would
+> be a bigger process change than this fix pass, and matches every prior phase's pattern of
+> confirming the `.exe` post-merge via `release.yml`'s `windows-2022` job. **Flagging explicitly
+> for the human merging this PR:** after merge, check that `release.yml`'s build actually contains
+> `better-sqlite3` in the packaged `.exe` (not just that the workflow exits 0) before trusting the
+> installer.
 >
 > **`npm run desktop:build` (item 2) was not achievable in this sandbox:** it reaches
 > `electron-builder`'s `@electron/rebuild` step for `better-sqlite3` and fails with `node-gyp does
