@@ -25,7 +25,10 @@ function todayDateString(): string {
   return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 }
 
-export async function main(report: (line: string) => void = console.log): Promise<void> {
+export async function main(
+  report: (line: string) => void = console.log,
+  signal?: AbortSignal,
+): Promise<void> {
   if (!getTiCookie()) {
     throw new Error(
       "TI_COOKIE is not set.\n" +
@@ -45,6 +48,7 @@ export async function main(report: (line: string) => void = console.log): Promis
       "User-Agent": "Mozilla/5.0",
       Cookie: getTiCookie(),
     },
+    signal,
   });
 
   if (!response.ok) {
@@ -52,6 +56,23 @@ export async function main(report: (line: string) => void = console.log): Promis
   }
 
   const csv = await response.text();
+
+  // An expired/invalid TI_COOKIE doesn't fail this endpoint with a 401/403 —
+  // Toastmasters answers 200 OK with an HTML login/error page instead. Left
+  // unchecked, that "csv" gets written to disk and handed to csv-parse, which
+  // fails with a cryptic parser error ("Invalid Opening Quote...") instead of
+  // a recognizable auth failure. Detect it up front and surface it in the same
+  // "HTTP 40x" shape the renderer's AUTH_ERROR check already looks for, so the
+  // cookie-expiry UX (toast hint + full detail in the log console) applies
+  // here too — before anything is written or reported as a success.
+  if (looksLikeHtml(csv)) {
+    throw new HttpError(
+      401,
+      "HTTP 401 — TI_COOKIE appears to be expired or invalid (Toastmasters returned an HTML " +
+        "page instead of the CSV export). Log out and log in again.",
+    );
+  }
+
   // RESULTS_DIR is absolute, so the CSV lands in the repo's results/ directory
   // regardless of which workspace the script was invoked from.
   const outputFile = resolve(RESULTS_DIR, `membership-${todayDateString()}.csv`);
@@ -59,6 +80,12 @@ export async function main(report: (line: string) => void = console.log): Promis
   writeFileSync(outputFile, csv, "utf-8");
   report("Roster downloaded — saved and recorded.");
   snapshotMembership(csv);
+}
+
+/** True if `body` is an HTML document rather than the expected CSV export. */
+function looksLikeHtml(body: string): boolean {
+  const head = body.trimStart().slice(0, 100).toLowerCase();
+  return head.startsWith("<!doctype html") || head.startsWith("<html");
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

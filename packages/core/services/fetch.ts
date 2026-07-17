@@ -1,5 +1,5 @@
 import { fileURLToPath } from "url";
-import { fetchAllProgress, fetchDetail } from "../helpers/api";
+import { CancelledError, fetchAllProgress, fetchDetail } from "../helpers/api";
 import { snapshotProgress, snapshotProjects } from "../helpers/db";
 import { getSessionId } from "../config";
 import { DetailResponse, MemberProgress } from "../types";
@@ -15,7 +15,10 @@ const DETAIL_CONCURRENCY = 5;
  */
 export type ProgressReporter = (line: string) => void;
 
-export async function main(report: ProgressReporter = console.log): Promise<void> {
+export async function main(
+  report: ProgressReporter = console.log,
+  signal?: AbortSignal,
+): Promise<void> {
   if (!getSessionId()) {
     throw new Error(
       "BASECAMP_SESSIONID is not set.\n" +
@@ -28,7 +31,7 @@ export async function main(report: ProgressReporter = console.log): Promise<void
 
   // Step 1: Fetch all overview data and snapshot to SQLite
   report("Step 1/3 — gathering the member overview list…");
-  const members = await fetchAllProgress(report);
+  const members = await fetchAllProgress(report, signal);
   snapshotProgress(members);
   report(`Step 1/3 done — ${members.length} members found.`);
 
@@ -42,7 +45,7 @@ export async function main(report: ProgressReporter = console.log): Promise<void
   for (let i = 0; i < members.length; i += DETAIL_CONCURRENCY) {
     const batch = members.slice(i, i + DETAIL_CONCURRENCY);
     const results = await Promise.allSettled(
-      batch.map((member) => fetchDetail(member.course_id, member.user.username)),
+      batch.map((member) => fetchDetail(member.course_id, member.user.username, signal)),
     );
 
     for (const [j, member] of batch.entries()) {
@@ -63,7 +66,11 @@ export async function main(report: ProgressReporter = console.log): Promise<void
         );
       }
     }
+
+    if (signal?.aborted) throw new CancelledError();
   }
+
+  if (signal?.aborted) throw new CancelledError();
 
   // Step 3: Snapshot project detail to SQLite
   snapshotProjects(detailEntries);

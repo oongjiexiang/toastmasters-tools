@@ -1393,15 +1393,348 @@ after Phases 15–20; refactoring code those phases are still actively changing 
 
 ---
 
-## Deferred — Hardened pipeline (low priority)
+## Phase 22 — Done (Refresh UX hardening + automated release tagging, minor → 1.8.0)
 
-_Pain point: cookie expiry silently breaks runs; manual step order is error-prone._
+_Four loose ends before shipping to the customer and moving into maintenance. Items 1–3 are
+refresh-console UX papercuts that share the same touched files (`DashboardView.tsx`, `App.tsx`,
+IPC, core); item 4 is a separate CI/CD concern, but it's small and this phase's own merge to
+`main` is the first real exercise of the new tag/release automation — the same dogfooding
+pattern Phase 15 used for its pipeline change. User-facing changes to the `.exe` (items 1–3), so
+**minor bump → `1.8.0`.**_
 
-- [ ] `npm run all` runs fetch → membership in sequence, stopping cleanly on first failure
-- [ ] Detect expired/invalid cookies at startup with a precise remediation message
-- [ ] Warn when `results/` inputs are older than N days
+> **Supersedes the old "Deferred — Hardened pipeline" item** (removed from this roadmap): that
+> item's actual pain point — cookie expiry silently breaking a run with a confusing error — is
+> what item 1 below fixes properly, with a clear in-app remediation path instead of a startup
+> pre-check. The rest of that deferred item (`npm run all`, stale-`results/` warnings) is now
+> moot — there is no CLI-only user left to serve; the desktop app is the shipped product.
+
+- [x] **(item 1) Cookie-expiry clarity.** In `DashboardView.tsx`'s `reportRefreshError`, when the
+      `AUTH_ERROR` regex matches (HTTP 401/403), stop showing the truncated raw message in the
+      toast. Instead: push the full error text into the existing `log` console state, and show a
+      fixed, friendly toast — "Your Toastmasters session has expired. Log out and log in again to
+      continue." — keeping the existing "Log in again" action button. Non-auth-error failures are
+      unchanged (still show the first line in the toast).
+- [x] **(item 2) Persistent, independently-collapsible output console.** Today `App.tsx` renders
+      `DashboardView`/`MemberDetailView` as mutually exclusive branches, so navigating to the
+      detail page unmounts `DashboardView` — and with it, the `log` state and `onRefreshLog`
+      subscription it owns. Lift that state to `App.tsx` (always mounted) so the console survives
+      navigation, and render it as a sibling above whichever view is active, in the same
+      `max-w-[960px] mx-auto` width both views use. Give the console its own collapse toggle in
+      its header bar, with its own state — **not** wired to `ExpandCollapseToggle`, which only
+      ever controlled table rows/accordion levels and is an unrelated concern. Add a "Copy logs"
+      button in the console header (`navigator.clipboard.writeText`, success/error toast) so the
+      user can hand the log to the maintainer if problems persist. Default: expanded while a
+      refresh is active; otherwise leave whatever state the user last set.
+- [x] **(item 3) Cancel an in-flight refresh.** Feasible — both scrapers use the platform `fetch`,
+      which supports `AbortSignal`. Thread a signal from a new IPC channel down into core:
+  - `packages/core/helpers/api.ts`: add `CancelledError extends Error` (mirrors the existing
+    `HttpError`); thread an optional `signal` through `fetchPage`, `fetchDetail`, and
+    `fetchAllProgress` into the underlying `fetch(...)` calls; check `signal?.aborted` between
+    page/batches and stop early.
+  - `packages/core/services/fetch.ts` / `services/membership.ts`: `main(report, signal?)` passes
+    the signal through; an abort during Step 2 skips Step 3 (`snapshotProjects`) rather than
+    writing incomplete data — Step 1's snapshot, already written, is safe to keep.
+  - New `IPC.REFRESH_CANCEL` channel. `apps/desktop/src/main/index.ts` keeps a module-level
+    `AbortController` for the in-flight refresh (only one can run at a time — both Refresh
+    buttons disable together already); the cancel handler calls `.abort()`. `handleRefresh`
+    catches `CancelledError` distinctly and returns `{ ok: false, code: "CANCELLED", ... }`
+    (not the generic `SERVER_ERROR`).
+  - Renderer: a **Cancel** button in the console header while a refresh is active; the refresh
+    handlers check `e.code === "CANCELLED"` before falling into the auth-error path and show a
+    neutral "Refresh cancelled" toast instead (no "Log in again" action).
+- [x] **(item 4) Automatic tag + Release on merge to `main`.** Today the VPE creates the GitHub
+      Release by hand after tagging. In `.github/workflows/release.yml`'s `build-windows` job, add
+      steps after "Upload installer artifact" — gated on the exact guard the Phase 15 rolling
+      pre-release step already uses (`github.ref == 'refs/heads/main' && github.event_name ==
+      'push'`, so a manual `workflow_dispatch` run never auto-tags):
+  1. Read the version from the root `package.json`; check via `git ls-remote --tags origin
+     "refs/tags/v<version>"` whether that tag already exists (idempotent — a docs-only merge with
+     no version bump no-ops here, same as today).
+  2. If not: create and push an annotated tag `v<version>` using the `GITHUB_TOKEN`-backed remote
+     `actions/checkout` already configures — no new secret.
+  3. If a new tag was just created: publish the versioned Release for it directly in this same job
+     (`softprops/action-gh-release@v2`, `generate_release_notes: true`), reusing the `.exe`/
+     `.blockmap` already built in this run rather than rebuilding. This is a **new, distinctly
+     gated** step — separate from the existing tag-push-triggered "Publish GitHub Release" step,
+     which stays as-is for the (now rare) case of a manually pushed version tag. (A tag pushed
+     with the default `GITHUB_TOKEN` does not itself re-trigger a workflow run — GitHub's
+     loop-prevention — which is why the Release is published in the same job instead of relying on
+     the tag-push trigger.)
+  - Extend `packages/core/tests/release-workflow.test.ts` (same structural-YAML-plus-negative-
+    control pattern already used there) to cover the new steps and their guard.
+  - Update `CONTRIBUTING.md`'s description of what happens automatically on merge to include the
+    new versioned-tag/Release behavior, and remove any remaining "you create the Release on
+    GitHub" language.
+- [x] **Version bump:** minor-bump every workspace `package.json` `version` to `1.8.0`; after
+      validation, tag `v1.8.0` (or let item 4's new automation do it on merge).
 
 **Validation:**
-1. `grep '"all"' package.json` — `npm run all` script exists
-2. With `BASECAMP_SESSIONID=invalid npm run fetch` — exits non-zero within seconds and prints a message naming the cookie and the remediation steps; no SQLite writes occur
-3. `npm test` passes
+1. [x] A unit test on `reportRefreshError`/the refresh handlers asserts: an `AUTH_ERROR`-matching
+   failure appends the full message to the log and shows the fixed hint text in the toast (not
+   the raw message); a non-auth failure is unchanged (item 1).
+2. [x] A component test simulates a view switch (dashboard → member detail → dashboard) with a
+   non-empty log and asserts the console's content and collapse state are unaffected by the
+   navigation; a second test asserts toggling the console's own collapse control does not affect
+   `ExpandCollapseToggle`'s state or vice versa (item 2).
+3. [x] `grep -n "REFRESH_CANCEL" apps/desktop/src/shared/ipc.ts` — channel declared; a unit test
+   (mocked `AbortController`/fetch) proves a cancelled progress or membership run: (a) stops
+   further page/detail fetches, (b) does not call `snapshotProjects`/write a membership CSV for
+   the aborted run, and (c) surfaces as `code: "CANCELLED"`, not `SERVER_ERROR`, over IPC (item 3).
+4. [x] `grep -nE "refs/tags/v|ls-remote|action-gh-release" .github/workflows/release.yml` shows
+   the new tag-check/create/publish steps; `packages/core/tests/release-workflow.test.ts` passes,
+   including a negative control that fails on the pre-Phase-22 shape (item 4).
+5. [x] `npm test` green (floor: 394 — 253 core + 141 desktop) plus the new cases above; `npm run
+   typecheck` clean; `npm run desktop:build` produces `Toastmasters Tools Setup 1.8.0.exe`;
+   `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
+   `1.8.0`.
+6. [ ] **Manual (user):** force a 401/403 (e.g. an expired/invalid cookie) and confirm the toast
+   hint + full error in the console; start a refresh, navigate to a member's detail page and back,
+   confirm the console/log survived; click Cancel mid-refresh and confirm it stops cleanly with no
+   partial/corrupt data; after this phase's PR merges to `main`, confirm on GitHub that a
+   `v1.8.0` tag and a matching (non-prerelease) Release with the installer attached were created
+   automatically, with no manual step.
+
+> **Finding (discovered during the user's manual validation of item 1/6 — a real bug, not a
+> cosmetic gap):** the first `.exe` build (`Toastmasters Tools Setup 1.8.0.exe`) still showed a
+> raw, cryptic error — `Invalid Opening Quote: a quote is found on field "<!DOCTYPE html>" at
+> line 8, value is "<html lang="` — in the toast for a **Refresh Membership** run, even though
+> the progress console had already logged "Roster downloaded — saved and recorded." Root cause,
+> confirmed by reading `packages/core/services/membership.ts`: an expired/invalid `TI_COOKIE`
+> does **not** fail this endpoint with a 401/403 — Toastmasters answers **200 OK with an HTML
+> login/error page** instead of the CSV export. The old code had no way to tell the difference: it
+> wrote that "csv" to disk, reported success, and only then blew up inside
+> `snapshotMembership` (`helpers/db.ts`'s `csv-parse` call) with a parser error that item 1's
+> `AUTH_ERROR` regex (`/HTTP 40[13]/`) never recognized, since no real HTTP error status was ever
+> involved — so the user saw the raw parser error in a toast instead of the friendly
+> "session expired" hint item 1 was supposed to guarantee.
+>
+> **Fix:** `main()` now checks the response body immediately after fetching it — `looksLikeHtml()`
+> tests whether the trimmed, lowercased head starts with `<!doctype html` or `<html` — and if so
+> throws an `HttpError` with `status: 401` and a message containing the literal substring
+> `"HTTP 401"`, **before** the file is written, before `snapshotMembership` ever sees it, and
+> before "Roster downloaded" is reported. This routes it through the exact same `AUTH_ERROR`
+> path the rest of item 1 already built: the full detail lands in the log console, and the toast
+> shows the friendly "session expired" hint with the "Log in again" action. A real CSV whose
+> content happens to mention "<html>" inside a field value is unaffected — the check only matches
+> when the response's head itself is a doctype/html tag, not any occurrence of that text.
+> Covered by the new `packages/core/tests/membership-expired-session.test.ts` (4 tests): the
+> HTML-response case rejects with the `HTTP 401`-shaped `HttpError` and never writes the file or
+> calls `snapshotMembership`; a second test confirms "Roster downloaded" is never reported before
+> the throw; a negative control proves a real CSV containing "<html>" in a field is unaffected;
+> and a last test pins the fix's message shape against the actual `AUTH_ERROR` regex the renderer
+> uses, so the two can't silently drift apart. `npm test` now passes **270 core + 151 desktop =
+> 421** (up from 417), `npm run typecheck`/`lint`/`format:check` are clean, and
+> `apps/desktop/release/Toastmasters Tools Setup 1.8.0.exe` was rebuilt with the fix — same
+> version number (no bump; this is a fix within the still-unreleased phase, mirroring how Phase
+> 17's Finding #2 and Phase 18's fallback fixes were handled). **Confirmed by the user
+> (2026-07-17):** re-ran Refresh Membership against a genuinely expired TI session with the
+> rebuilt `.exe` — the fix holds. The rest of item 6 (mid-refresh navigation, Cancel, and the
+> auto-tag/Release check) requires this phase's own PR to actually merge to `main`, so it stays
+> open until after that.
+
+> **Note:** Validation items 1–5 are confirmed against the live repo, independently re-run by the
+> docs pass (not taken from any agent's self-report). `npm test` passed **266 core + 151 desktop =
+> 417 tests**, up from the pre-phase floor of 394 (253 + 141) — the new cases live in
+> `packages/core/tests/{api-cancellation,fetch-cancel,membership-cancel}.test.ts` (10 tests
+> attacking the `AbortSignal`/`CancelledError` threading through `helpers/api.ts`,
+> `services/fetch.ts`, and `services/membership.ts`, including negative controls proving each
+> check can actually fail), `apps/desktop/tests/DashboardView.test.tsx` (3 tests for the
+> `reportRefreshError`/`CANCELLED` behaviour), and `apps/desktop/tests/App.test.tsx` (4 tests
+> proving the console survives a real dashboard → member-detail → dashboard round trip via
+> `@testing-library/react`, that its collapse toggle is wired independently of
+> `ExpandCollapseToggle` in both directions, and covering the Cancel/Copy-logs buttons), plus
+> extensions to `main-ipc.test.ts`, `preload.test.ts`, and `release-workflow.test.ts` (the last
+> gaining a stronger guard — the `event_name == 'push'` half was originally only asserted on the
+> tag-check step, not the two steps that act on it — and a negative control proving that gap was
+> real). `npm run lint` and `npm run format:check` are clean (a repo-wide CRLF/LF churn from
+> `core.autocrlf` was normalized away with zero real content change, confirmed via `git diff
+> --stat` parity before/after). `npm run typecheck` is clean in `packages/core`, `packages/ui`,
+> and `apps/desktop`. `apps/desktop/release/Toastmasters Tools Setup 1.8.0.exe` (+ `.blockmap`)
+> exists on disk, and every workspace `package.json` (root, `packages/core`, `packages/ui`,
+> `apps/desktop`) reads `1.8.0`. `results/`, `.env`, and `config.env` were confirmed untouched
+> throughout. **`v1.8.0` has not been tagged yet** — per item 4's own design, this phase's PR
+> merging to `main` is what should create it automatically; **item 6 (manual verification) remains
+> open**, same as every prior user-facing phase, pending the user exercising the built `.exe` and
+> the real merge-to-`main` flow.
+
+---
+
+## Phase 23 — Planned (Security: bump end-of-life Electron major, minor → 1.9.0)
+
+_A repo security audit (2026-07-17) found Electron pinned at `33.4.11` in
+`apps/desktop/package.json` — past Electron's supported-majors window, so no further Chromium
+security backports land on it. The one place untrusted remote content is rendered is the login
+`BrowserWindow` (`apps/desktop/src/main/auth.ts`), which loads real
+`toastmasters.org`/`basecamp.toastmasters.org` pages to capture session cookies after the user
+logs in; it's already correctly sandboxed (`nodeIntegration:false`, `contextIsolation:true`,
+`sandbox:true`, no preload), but an unpatched Chromium renderer-sandbox-escape CVE against that
+window is residual risk that only grows the longer this sits unpatched. Land this ahead of
+Phase 24's credential-encryption work and Phase 25's UI work, so both build on a currently-
+supported runtime instead of needing to be re-verified after a later bump. No new user-facing
+feature — the app just keeps working — but per this project's convention of minor-bumping every
+phase regardless of visibility (Phase 21 precedent), **minor bump → `1.9.0`.**_
+
+- [ ] **Spike first (not shippable on its own):** locally bump `electron` in
+      `apps/desktop/package.json` to the current stable major, `npm install`, `npm run
+      desktop:build`, and confirm `better-sqlite3` rebuilds cleanly against the new Electron
+      Node-ABI (via the existing `restore:node-abi` step) and that `electron-builder`/
+      `electron-vite` support the target major without needing their own bump. If either forces a
+      larger chain of upgrades than expected, note it and re-scope before continuing.
+- [ ] **Version bump:** bump `electron` (and `electron-builder`/`electron-vite` if the spike
+      required it) in `apps/desktop/package.json` to the chosen current-stable major.
+- [ ] **CI:** confirm the existing Phase 13 `windows-2022` + pinned Python 3.11 native-rebuild
+      path still succeeds unchanged; adjust only if the spike surfaced a gap.
+- [ ] **No behaviour change:** this is a runtime bump, not a feature —
+      `apps/desktop/src/main/auth.ts`'s login/harvest/logout flow, the IPC surface, and the
+      renderer are untouched except where the Electron major forces an API update.
+
+**Validation:**
+1. [ ] `npm test` green at the pre-phase floor (no regressions); `npm run typecheck` clean.
+2. [ ] `npm run desktop:build` produces `Toastmasters Tools Setup 1.9.0.exe` with no native-module
+   (`better-sqlite3`) load errors.
+3. [ ] `grep -h '"electron"' apps/desktop/package.json` shows the new pinned major; confirm at
+   merge time it's still within Electron's current supported-majors window.
+4. [ ] **Manual (user):** on the packaged `.exe` — log in and confirm the login window completes
+   and cookies are captured; log out; log back in; run Refresh Progress and Refresh Membership
+   (exercises the `better-sqlite3` native module); restart the app and confirm the prior login
+   session persisted. Any regression here blocks the merge.
+
+---
+
+## Phase 24 — Planned (Security: encrypt stored session credentials at rest, minor → 1.10.0)
+
+_The same audit found `apps/desktop/src/main/credentials.ts` writes captured session cookies
+(`BASECAMP_SESSIONID`, `TI_COOKIE`) as cleartext `KEY=value` lines to `<userData>/config.env`.
+These are unauthenticated bearer tokens — reusable by anything that can read the file (malware,
+another local account, a cloud-backup/sync tool scooping up `%APPDATA%`), with no second factor
+required. Electron ships `safeStorage.encryptString`/`decryptString` (OS-level encryption — DPAPI
+on Windows) essentially for free, and this app doesn't use it yet — the `persist:toastmasters`
+Chromium cookie jar is already OS-encrypted at rest, making `config.env` the one plaintext
+outlier. Depends on Phase 23 landing first so this new storage code is validated on the
+currently-supported Electron runtime. User-visible only as a trust upgrade (no behaviour change to
+login/logout) — **minor bump → `1.10.0`.**_
+
+- [ ] **`CredentialCipher` in `credentials.ts`:** wrap each stored value with
+      `safeStorage.encryptString`, base64-encoded, tagged with a self-describing prefix
+      (`enc:v1:<base64>`) so a single loader can tell encrypted values from legacy plaintext.
+      `upsertCredential` always encrypts on write when `safeStorage.isEncryptionAvailable()`; when
+      unavailable (e.g. Linux without a keyring), fall back to plaintext and log a warning — never
+      hard-fail or lock the user out.
+- [ ] **Transparent one-time migration:** `loadCredentials` decrypts `enc:v1:` values; for a value
+      it finds as unprefixed plaintext, use it as today (copy into `process.env`) and immediately
+      re-write it encrypted via `upsertCredential`, so an existing user's plaintext `config.env`
+      self-upgrades on next launch with no dialog or consent prompt.
+- [ ] **Preserve the manual-paste fallback (Phase 11/12):** a user hand-pasting a plaintext cookie
+      into `config.env` via "Open Credentials File…" must still work — the same plaintext-
+      detection path in `loadCredentials` picks it up and encrypts it on next load. Update the
+      file's template comments to say so.
+- [ ] **Logout parity:** confirm Phase 17's logout path clears the encrypted store the same way it
+      clears plaintext today (don't reintroduce "deleting/blanking the file doesn't log you out").
+- [ ] **Bootstrap ordering:** `loadCredentials` currently runs at module-eval in `index.ts`, before
+      `app.whenReady()`. `safeStorage` is only guaranteed ready after `whenReady()` on some
+      platforms; since the only real constraint is credentials being in `process.env` before the
+      first `loadCore()` call (already lazy, inside `whenReady`), move the load if needed to sit
+      after `whenReady()` and before that first call.
+- [ ] **Docs:** update `USER_GUIDE.md` (and the credentials-file template comments) to describe
+      the new encrypted-at-rest storage in place of any language implying plaintext; the "Nothing
+      here ever leaves your computer" copy stays as-is (still true — this closes the at-rest gap,
+      it doesn't change the exfiltration claim).
+
+**Validation:**
+1. [ ] Unit tests (mocking `safeStorage`) cover: a fresh write is stored `enc:v1:`-prefixed and
+   round-trips through decrypt; an existing plaintext value loads correctly *and* is rewritten
+   encrypted on that same load; `isEncryptionAvailable() === false` falls back to plaintext with a
+   logged warning rather than throwing.
+2. [ ] A test confirms logout clears both the encrypted and (legacy) plaintext value paths.
+3. [ ] `npm test` green; `npm run typecheck` clean; `npm run desktop:build` produces
+   `Toastmasters Tools Setup 1.10.0.exe`.
+4. [ ] **Manual (user):** with an existing plaintext `config.env` from a pre-1.10.0 install,
+   launch the built `.exe` once, then inspect `config.env` and confirm the values are now
+   `enc:v1:`-prefixed and the app still shows "Logged in"; log out and confirm the file no longer
+   carries a usable session; log back in and confirm a fresh encrypted write.
+
+---
+
+## Phase 25 — Planned (Dashboard UI/UX polish: data freshness, login-aware messaging, console placement, minor → 1.11.0)
+
+> _Was **Phase 23** before the 2026-07-17 security-findings insertion: a repo security audit
+> surfaced one HIGH (EOL Electron) and one MEDIUM (plaintext session-cookie storage) finding,
+> discussed jointly with the software-architect and product-manager agents and inserted as
+> **Phase 23** (Electron bump) and **Phase 24** (credential encryption) ahead of this phase, so the
+> next UI work ships on a currently-supported, already-hardened runtime instead of needing
+> re-verification after a later security bump. Version target re-sequenced `1.9.0` → `1.11.0` to
+> stay monotonic behind the two inserted phases._
+
+_A ui-ux-designer review of the shipped app (spec ∪ Phases 19–22) surfaced four real usability
+gaps, cross-checked with product for cost/benefit against this tool's actual audience — one
+non-technical VPE who opens it weekly/monthly, not a general user base. Three are accepted below;
+a fourth (item 4, redundant triple status reporting during refresh) was an observation only, not
+an ask — items 2–3 already remove most of the visual noise it described, so no separate work item
+exists for it. Several other findings from the same review (invalid `role="button"` ARIA on table
+rows, `ThemeToggle`'s 3-state discoverability, missing "Speech · date" in project rows, the
+console's "Last refresh" text never clearing) were explicitly deferred/rejected — low or no benefit
+for a single sighted user with no assistive-tech need, or already a deliberate, documented scope
+cut (see Phase-25 planning notes, not re-litigated here). User-facing changes to the `.exe`, so
+**minor bump → `1.11.0`.**_
+
+- [ ] **(item 1) Data-freshness indicator in the header.** Today `DashboardHeader` shows only
+      `{N} members` — nothing tells the VPE whether they're looking at this month's snapshot or one
+      from six months ago. Surface the **latest snapshot timestamp** (member/progress snapshot
+      rows already carry a date; expose it through `packages/core/queries.ts` and the existing
+      members IPC call — no new channel) next to the member count, e.g. `38 members · Updated 3
+      days ago`. Render it in **amber** when the latest snapshot is older than a fixed threshold
+      (21 days — roughly one reporting cycle; no settings UI, no per-member timestamps). On a
+      fresh install with no snapshot yet, read cleanly as "Never refreshed" rather than a blank or
+      broken date.
+- [ ] **(item 2) Login-aware refresh-error and empty-state copy.** `DashboardView.tsx`'s
+      `reportRefreshError` currently shows the same "Your Toastmasters session has expired. Log
+      out and log in again." for every `AUTH_ERROR`-shaped (401/403) failure — including a
+      brand-new user who has never logged in, who is told to "log out" of a session they never
+      had. The renderer already knows `authStatus` (it drives the header's "Logged in" / "Not
+      logged in" badge). Branch the message on it: if not logged in, show "Log in to Toastmasters
+      first, then Refresh" (no "Log in again" *action* button needed — action framing wrong for a
+      first-time state, showing the same login control the header already has is enough). Apply
+      the same branch to the empty-state card's copy (`DashboardView.tsx`, the "No data yet" card),
+      which today tells a logged-out user to "use the Refresh buttons" that will only 401. The
+      already-logged-in expired-session path is unchanged.
+- [ ] **(item 3) Refresh console below the header, collapsed by default when idle.** `App.tsx`
+      currently mounts `RefreshConsole` *above* `DashboardView`/`MemberDetailView`, so raw scraper
+      log lines render above the "Toastmasters Dashboard" title and header controls — inverted
+      hierarchy for a non-technical user, and a visible seam from Phase 22 lifting the console to
+      `App.tsx` for persistence without reconciling its placement. Move it to render as a sibling
+      **below** the header/title (same `max-w-[960px] mx-auto` container both views already use —
+      no change to that). Default it to a **slim collapsed bar** when no refresh is active,
+      auto-expanding when a refresh starts (preserves Phase 22's "expanded while a refresh is
+      active; otherwise leave what the user last set" behaviour — collapsed-when-idle is just the
+      correct default for a console that's mostly empty history). The console's independent
+      collapse state, Cancel button, and Copy Logs button are unchanged.
+
+**Validation:**
+1. [ ] A unit/component test on the header asserts: the latest-snapshot date renders next to the
+   member count; it switches to the amber treatment when the fixture snapshot date is older than
+   21 days; a no-snapshot fixture renders "Never refreshed" instead of a blank/invalid date
+   (item 1).
+2. [ ] A test on `reportRefreshError` (or the equivalent renderer handler) asserts: an
+   `AUTH_ERROR`-shaped failure with `authStatus` showing logged-out renders the "Log in to
+   Toastmasters first, then Refresh" copy, not the "session expired" text; the same failure with
+   `authStatus` showing logged-in is unchanged from today. A second test/assertion covers the
+   empty-state card's logged-out copy (item 2).
+3. [ ] `grep -n "RefreshConsole" apps/desktop/src/renderer/App.tsx` shows it mounted after the
+   header/title in render order (or a component test asserts DOM order); a component test asserts
+   the console renders collapsed when idle and expands when a refresh starts, and that navigating
+   between views doesn't reset it (regression check on Phase 22's persistence) (item 3).
+4. [ ] `npm test` green; `npm run typecheck` clean; `npm run desktop:build` produces
+   `Toastmasters Tools Setup 1.11.0.exe`; `grep -h '"version"' package.json packages/*/package.json
+   apps/*/package.json` — all read `1.11.0`.
+5. [ ] **Manual (user):** on a fresh/never-refreshed state the header reads "Never refreshed" and
+   an unauthenticated Refresh shows the login-first message (not "session expired"); after a
+   refresh, the header's "Updated …" text and the console's placement below the title both look
+   right; the console starts collapsed on next launch and expands automatically when a refresh is
+   triggered.
+
+> **Deferred from the same design review (not part of this phase):** invalid `role="button"` ARIA
+> on `MemberTable` rows (no assistive-tech user on this single-seat tool — fix opportunistically
+> only if that code is touched for another reason); `ThemeToggle`'s icon-only light/dark/system
+> cycle (revisit only if the VPE reports trouble finding "system"); "Speech · date" in project rows
+> (the data model doesn't carry it — a deliberate Phase-4-era scope cut, not a regression); the
+> console's "Last refresh" label never clearing (cosmetic, not worth a state machine for one user).

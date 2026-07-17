@@ -15,6 +15,7 @@ export const IPC = {
   GET_DIFF: "toastmasters:diff:get",
   REFRESH_PROGRESS: "toastmasters:refresh:progress",
   REFRESH_MEMBERSHIP: "toastmasters:refresh:membership",
+  REFRESH_CANCEL: "toastmasters:refresh:cancel",
   DOWNLOAD_MEMBERSHIP_CSV: "toastmasters:membership:download",
   AUTH_LOGIN: "toastmasters:auth:login",
   AUTH_STATUS: "toastmasters:auth:status",
@@ -43,6 +44,8 @@ export interface ToastmastersBridge {
   getDiff(): Promise<IpcResult<DiffResult>>;
   refreshProgress(): Promise<IpcResult<null>>;
   refreshMembership(): Promise<IpcResult<null>>;
+  /** Aborts the in-flight refresh (progress or membership), if any is running. */
+  cancelRefresh(): Promise<IpcResult<null>>;
   /** Resolves to the saved file path, or null when the user cancels the dialog. */
   downloadMembershipCsv(): Promise<IpcResult<string | null>>;
   /** Runs the in-app login flow; resolves to which credentials were obtained. */

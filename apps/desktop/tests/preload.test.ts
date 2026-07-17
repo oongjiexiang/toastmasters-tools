@@ -36,15 +36,15 @@ describe("preload contextBridge surface", () => {
     expect(key).toBe("toastmasters");
   });
 
-  it("exposes exactly the ten documented functions and nothing else", async () => {
+  it("exposes exactly the eleven documented functions and nothing else", async () => {
     const { bridge } = await loadPreload();
 
-    // A literal list on purpose: adding an eleventh function to the bridge (i.e.
+    // A literal list on purpose: adding a twelfth function to the bridge (i.e.
     // widening what the renderer can reach into Node) must fail this test until
     // someone widens the contract deliberately. Phase 12 added the two Electron-
     // only auth calls (`login` / `authStatus`) to the original six data calls;
     // the live-refresh-log work added the one-way `onRefreshLog` subscription;
-    // Phase 17 added the `logout` call.
+    // Phase 17 added the `logout` call; Phase 22 added `cancelRefresh`.
     expect(Object.keys(bridge).sort()).toEqual(
       [
         "listMembers",
@@ -52,6 +52,7 @@ describe("preload contextBridge surface", () => {
         "getDiff",
         "refreshProgress",
         "refreshMembership",
+        "cancelRefresh",
         "downloadMembershipCsv",
         "login",
         "authStatus",
@@ -71,8 +72,8 @@ describe("preload contextBridge surface", () => {
     expect(nonFunctions).toEqual([]);
   });
 
-  it("declares exactly ten IPC channels", () => {
-    expect(Object.values(IPC)).toHaveLength(10);
+  it("declares exactly eleven IPC channels", () => {
+    expect(Object.values(IPC)).toHaveLength(11);
   });
 
   it("namespaces every channel under toastmasters:", () => {
@@ -124,6 +125,14 @@ describe("preload bridges each function to its IPC channel", () => {
     bridge.refreshMembership();
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IPC.REFRESH_MEMBERSHIP);
+  });
+
+  it("cancelRefresh invokes the refresh:cancel channel", async () => {
+    const { bridge } = await loadPreload();
+
+    bridge.cancelRefresh();
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IPC.REFRESH_CANCEL);
   });
 
   it("downloadMembershipCsv invokes the membership:download channel", async () => {
