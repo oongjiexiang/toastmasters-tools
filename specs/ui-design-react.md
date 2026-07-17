@@ -159,12 +159,12 @@ Notes wired to real data:
 | Search box | `Input` | V1-optional; client-side filter only. |
 | Pathway / Status filters | `Select` or `DropdownMenu` | V1-optional. |
 | All-levels accordion | `Accordion` (`type="multiple"`) | `multiple` so several stay open; default `defaultValue` = all level ids. |
-| Expand all / Collapse all | `Button` (`variant="outline"`, `size="sm"`) | Controls the accordion's open set (see §5). |
+| Expand all / Collapse all | `Button` (`variant="outline"`, `size="sm"`) | Controls the accordion's open set (see §6). |
 | Per-level progress count | plain text + `Badge` | `done / total`. |
 | Path progress meter | `Progress` (optional) or text | "2 of 5 levels approved". |
 | Project rows | plain list / `div` rows | Not a `Table` — single column with right-aligned meta. |
 | Back link | `Button` (`variant="link"`) or `<a>` | Routes to Screen 1. |
-| Empty / error states | `Card` + muted text | See §6. |
+| Empty / error states | `Card` + muted text | See §7. |
 | Loading | `Skeleton` | Table-row and accordion skeletons. |
 | Toast (refresh / errors) | `Sonner` (shadcn toast) | Optional; for async refresh feedback. |
 
@@ -246,7 +246,47 @@ text label, so the amber "Ready" vs "In progress" pair is distinguishable withou
 
 ---
 
-## 5. Interaction spec
+## 5. Typography
+
+Formalizes classes already in production use across `packages/ui/components/**` and
+`apps/desktop/src/renderer/**` — this is documentation of what shipped, not a redesign. Added
+2026-07-17 after a ui-ux-designer review; product-manager-aligned as doc-only (no code change).
+
+**Font family.** No custom stack. Body/UI text inherits Tailwind/shadcn's default `--font-sans`
+(system UI stack) via `packages/ui/globals.css`'s `html { @apply font-sans; }`. `font-mono`
+(default system mono stack) is reserved for machine-ish content only: title badges (`[PM3]`,
+`[DTM]`) and the refresh console's log output — never for prose.
+
+**Type roles:**
+
+| Role | Tailwind class | ~px | Weight | Used in |
+|---|---|---|---|---|
+| Page title (H1) | `text-2xl font-semibold` | 24 | 600 | `DashboardHeader`, `MemberDetailView` header |
+| Section / card title | `text-base font-medium` | 16 | 500 | shadcn `CardTitle` (`leading-snug`) |
+| Body / table text | `text-sm` | 14 | 400 | table cells, card descriptions, error/empty-state copy |
+| Emphasis label | `text-sm font-medium` | 14 | 500 | table header cells, level-accordion labels, `DiffSection` section labels |
+| Secondary / muted | `text-sm` + `text-muted-foreground` | 14 | 400 | subtext, descriptions |
+| Small label / badge | `text-xs` (badges add `font-medium`) | 12 | 400/500 | badges, elective tags, `xs` button size, console header label |
+| Monospace / code | `font-mono text-xs`–`text-sm` | 12–14 | 400 | title badges, console log lines |
+
+Line-height and letter-spacing are Tailwind defaults throughout (plus `leading-snug` on card
+titles) — no custom values are set anywhere.
+
+> **Badge size is component-baked, not a per-use knob.** shadcn's `Badge` base variant
+> (`packages/ui/components/ui/badge.tsx`) already hardcodes `text-xs font-medium` — every badge
+> renders at that size regardless of what callers pass. `MemberTable.tsx`'s `TitleBadge` adds a
+> redundant explicit `text-xs`; `MemberDetailView.tsx`'s badge omits it and renders identically.
+> This was checked as a candidate fix during the 2026-07-17 review and found to be a false
+> positive — both already match. Do not "fix" the redundant class into a divergence.
+
+> **Extending the scale.** Seven roles is enough for this app's surface area (one dashboard, one
+> detail view, one console). Before adding an eighth, check whether an existing role already
+> fits — a new size/weight combination should only be introduced for a genuinely new kind of
+> content, not to fine-tune an existing one's visual weight.
+
+---
+
+## 6. Interaction spec
 
 ### Screen 1 — Member List
 
@@ -263,7 +303,7 @@ text label, so the amber "Ready" vs "In progress" pair is distinguishable withou
   focusable `button` with `aria-expanded`. Visible focus ring (SC 2.4.7).
 - **Sort (V1):** default name A→Z. Optional: click column headers to sort (V1-optional).
 - **Search/filter (V1-optional):** client-side, case-insensitive name contains; pathway and
-  status `Select`. Filtering empties → zero-result state (§6).
+  status `Select`. Filtering empties → zero-result state (§7).
 
 ### Screen 2 — Member Detail
 
@@ -284,7 +324,7 @@ text label, so the amber "Ready" vs "In progress" pair is distinguishable withou
 
 ---
 
-## 6. Empty, loading & error states
+## 7. Empty, loading & error states
 
 All states reuse the muted-card pattern; copy mirrors the current server messages so behaviour
 is unchanged.
@@ -301,7 +341,7 @@ is unchanged.
 
 ---
 
-## 7. Responsive & scope guardrails
+## 8. Responsive & scope guardrails
 
 - **Laptop-only**, light-only, one user — per project constraints. No mobile breakpoints, no
   dark mode, no theming. A single max-width container (~`960px`, matching current `max-width`)
@@ -314,7 +354,7 @@ is unchanged.
 
 ---
 
-## 8. Developer handoff checklist
+## 9. Developer handoff checklist
 
 - [ ] Extend `SummaryRow` with `status` + `pathways[]` (§3); derive in
       `packages/core/helpers/pathway.ts`, not in React.
@@ -327,11 +367,11 @@ is unchanged.
 - [ ] Status rendered with **icon + text + colour** (never colour alone).
 - [ ] Chevron hit area ≥ 24×24 px; `stopPropagation` vs row navigation.
 - [ ] `prefers-reduced-motion` disables the accordion height animation.
-- [ ] All empty/loading/error states from §6 implemented.
+- [ ] All empty/loading/error states from §7 implemented.
 
 ---
 
-## 9. Acceptance criteria (testable)
+## 10. Acceptance criteria (testable)
 
 1. A member with Level 4 + Level 5 data shows **all six sections** (L1–L5 + Path Completion) in
    detail — none hidden. (Fixes the core bug.)
@@ -342,5 +382,5 @@ is unchanged.
 4. A completed-path member shows **"Completed" + Trophy**, green, and is still clickable.
 5. "Collapse all" then "Expand all" returns every section to open; manual toggles stay in sync.
 6. Every status is distinguishable with colour disabled (icon + label present).
-7. Empty (no data), zero-result (filtered), and error states each render their §6 copy and never
+7. Empty (no data), zero-result (filtered), and error states each render their §7 copy and never
    show a bare empty table.
