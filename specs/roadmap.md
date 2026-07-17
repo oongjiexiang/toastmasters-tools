@@ -2044,8 +2044,8 @@ the shipped `.exe` is byte-identical** — so a **patch bump → `1.11.2`**, the
 Phase 15 used for its pipeline-only patch._
 
 > **Finding (grounds the scope):** all three workspaces already expose a `typecheck` script
-> (`packages/core`, `packages/ui`, `apps/desktop`), and `npm run typecheck --workspaces
-> --if-present` runs all three — but `ci.yml`'s `test` job invokes none of them. `npm test`'s
+> (`packages/core`, `packages/ui`, `apps/desktop`), and `npm run typecheck --workspaces`
+> runs all three — but `ci.yml`'s `test` job invokes none of them. `npm test`'s
 > vitest transpiles each file in isolation and does **not** perform a project-wide `tsc --noEmit`,
 > so a workspace can be green under `npm test` and still fail a real typecheck (the exact Phase 23
 > failure mode). The fix belongs **inside the existing `test` job**, not as a new job/check:
@@ -2054,47 +2054,77 @@ Phase 15 used for its pipeline-only patch._
 > into `test` keeps the existing required gate covering it with no settings change.
 
 - [x] **Add a typecheck step to `ci.yml`'s `test` job.** After `npm ci` (and alongside
-      `npm test`), run `npm run typecheck --workspaces --if-present` so a `tsc` error in
-      `@toastmasters/core`, `@toastmasters/ui`, or `@toastmasters/desktop` fails the PR check.
-      Keep it in the **same `test` job** so the branch-protection `test` context (`CONTRIBUTING.md`)
-      already gates it — do **not** add a new job or a new required status check (that would need a
-      repo-admin `gh api .../branches/main/protection` change, out of this codebase's scope).
+      `npm test`), run a workspace typecheck so a `tsc` error in `@toastmasters/core`,
+      `@toastmasters/ui`, or `@toastmasters/desktop` fails the PR check. Keep it in the **same
+      `test` job** so the branch-protection `test` context (`CONTRIBUTING.md`) already gates it —
+      do **not** add a new job or a new required status check (that would need a repo-admin
+      `gh api .../branches/main/protection` change, out of this codebase's scope).
       (confirmed: the new "Typecheck workspaces" step lives in the `test` job, after `npm ci`,
-      alongside — not replacing — `npm test`.)
-- [x] **Confirm the current tree passes the new gate.** `npm run typecheck --workspaces
-      --if-present` must already exit 0 across all three workspaces (it does, per the Phase 24/25
-      notes), so the step goes green on its first CI run rather than immediately red-lining `main`.
+      alongside — not replacing — `npm test`. **Post-review:** the step runs
+      `npm run typecheck --workspaces` **without** `--if-present` — a pre-merge review correctly
+      flagged that flag as reintroducing this exact phase's "green but unchecked" failure mode for
+      any future workspace that forgets a `typecheck` script; dropped, since all three current
+      workspaces already have one and a missing script should now hard-fail, not be silently
+      skipped.)
+- [x] **Confirm the current tree passes the new gate.** `npm run typecheck --workspaces` must
+      already exit 0 across all three workspaces (it does, per the Phase 24/25 notes), so the step
+      goes green on its first CI run rather than immediately red-lining `main`.
       (confirmed: exits 0 on `@toastmasters/core`, `@toastmasters/ui`, and `@toastmasters/desktop`.)
 - [x] **(housekeeping, from the same Phase 23 finding) Hoist the `typescript` pin.** Optionally
       add `typescript: ^5.0.0` to the **root** `package.json` `devDependencies` as a single source
       of truth, so a future dependency reshuffle can't silently hoist a different major into a
       workspace that lacks its own pin — the precise `packages/ui` failure mode above. Keep the
       per-workspace pins consistent; do not remove them unless the root pin demonstrably covers
-      every workspace's resolution. (confirmed: root `package.json` now pins `typescript: ^5.0.0`;
-      per-workspace pins left untouched.)
+      every workspace's resolution. (confirmed: root `package.json` pins `typescript: ^5.0.0` in
+      `devDependencies`; per-workspace pins left untouched. **Post-review:** a pre-merge review
+      correctly pointed out the bare devDependency pin didn't yet make the claim true — today's
+      compatibility only held because every workspace already happened to declare the same
+      `^5.0.0` range, not because the root pin structurally won. Fixed by also adding
+      `typescript: ^5.0.0` to root `overrides` (which turned out load-bearing for an unrelated
+      reason too — see the `npm ci` fix below): npm's `overrides` mechanism forces every
+      resolution in the tree, root or transitive, onto that range regardless of what any
+      individual `package.json` requests, which is what makes "single source of truth" actually
+      true rather than just true-today. Now enforced by a lockfile resolution test — see the
+      structural-guard item below.)
 - [x] **Structural guard (mirror the existing pattern).** Add a `ci.yml` structural test in the
       same shape as `packages/core/tests/release-workflow.test.ts` (js-yaml load + a negative
       control): assert the `test` job includes the `typecheck` invocation, with a control that
       fails against the pre-phase `ci.yml` shape so the gate can't be silently dropped later.
-      (confirmed: `packages/core/tests/ci-workflow.test.ts`, 5 tests — the real-file contract plus
-      3 negative controls: pre-Phase-27 shape, typecheck-in-a-separate-job shape, and
-      typecheck-before-`npm ci` shape, all confirmed to throw.)
+      (confirmed: `packages/core/tests/ci-workflow.test.ts`, originally 5 tests — the real-file
+      contract plus 3 negative controls: pre-Phase-27 shape, typecheck-in-a-separate-job shape,
+      and typecheck-before-`npm ci` shape, all confirmed to throw. **Post-review, now 10 tests:**
+      a pre-merge review found two independent gaps and both were fixed rather than deferred —
+      (1) the job-shape assertion originally pinned `Object.keys(workflow.jobs)` to exactly
+      `["test"]`, which would false-fail on any future unrelated sibling job; relaxed to "the
+      typecheck command lives in `test` and in no other job," with a new positive control (a
+      benign sibling job doesn't trip it) and a new negative control (the command leaking into an
+      unrelated job does); (2) the guard only ever tested `ci.yml`'s *shape*, never whether
+      `typescript` actually resolves to a 5.x — the literal Phase 23 bug — so a second
+      describe block now reads `package-lock.json` directly and asserts every resolved
+      `typescript` entry is a `5.x`, with its own negative control asserting against a
+      hand-crafted lockfile fixture containing a `6.x` entry. Also normalized loose vs. strict
+      string matching across all step-content checks (`.trim().includes(...)` everywhere) per
+      review, so trivial YAML reformatting (e.g. a block-scalar `run: |`) can't spuriously break
+      the guard.)
 - [x] **Version bump:** patch-bump every workspace `package.json` `version` to `1.11.2`; after
       validation, tag `v1.11.2` (or let the merge-to-`main` automation cut it).
 
 **Validation:**
 1. [x] `grep -nE "typecheck" .github/workflows/ci.yml` — the `test` job runs a workspace
       typecheck; the file still parses as valid YAML (js-yaml load). (confirmed.)
-2. [x] `npm run typecheck --workspaces --if-present` exits 0 across `@toastmasters/core`,
+2. [x] `npm run typecheck --workspaces` exits 0 across `@toastmasters/core`,
       `@toastmasters/ui`, and `@toastmasters/desktop` — the new gate is green on the current tree.
-      (confirmed: exit 0 on all three, independently re-run.)
+      (confirmed: exit 0 on all three, independently re-run after every post-review fix below.)
 3. [x] `npm test` green (floor: the Phase 25 count, 447 — 272 core + 175 desktop) including the
       new `ci.yml` structural test and its negative control (which must fail on the pre-phase
-      workflow shape). (confirmed: 452/452 — 277 core + 175 desktop, up from the 447 floor by
-      exactly the 5 new `ci-workflow.test.ts` cases.)
+      workflow shape). (confirmed: **457/457** — 282 core + 175 desktop, up from the 447 floor by
+      the 10 `ci-workflow.test.ts` cases — grew from an initial 5 to 10 during the post-review
+      pass, see the structural-guard item above.)
 4. [x] If the `typescript` pin was hoisted: `grep -n "typescript" package.json` shows the root
       pin and each workspace still resolves a `5.x` (no TS6 drift); `npm run typecheck` stays
-      clean. (confirmed: `npm ls typescript` shows every resolution deduped to `5.9.3`.)
+      clean. (confirmed: `npm ls typescript` shows every resolution deduped to `5.9.3`, and this
+      is now also mechanically enforced by `ci-workflow.test.ts`'s lockfile resolution guard, not
+      just a one-off `npm ls` check.)
 5. [x] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
       `1.11.2`. (confirmed.)
 6. [ ] **Confirmed after push (requires a real PR run on GitHub, not headlessly verifiable —
@@ -2104,20 +2134,53 @@ Phase 15 used for its pipeline-only patch._
 
 > **Note:** Independently re-verified against the live repo, not just the developer's own report.
 > `git diff .github/workflows/ci.yml package.json` confirms the "Typecheck workspaces" step
-> (`npm run typecheck --workspaces --if-present`) was added inside the existing `test` job, after
-> `npm ci`, alongside — not replacing — the `npm test` step, and that the root `package.json`
-> gained a `typescript: ^5.0.0` `devDependencies` pin with no other workspace's `package.json`
-> touched beyond the four `version` bumps. `npm run typecheck --workspaces --if-present` was
-> independently re-run and exits `0` on all three workspaces; `npm ls typescript` shows every
-> resolution — root, all three workspaces, and every transitive `typescript-eslint` dependency —
-> deduped to a single `5.9.3`, so no TS6 drift is possible. `npm test` reproduced 452/452 (277
-> core, up from Phase 26's 272 by exactly the 5 new `packages/core/tests/ci-workflow.test.ts`
-> cases; 175 desktop, unchanged), and `npm run lint` / `npm run format:check` were both
-> independently re-run clean. Every workspace `package.json` (root, `packages/core`,
-> `packages/ui`, `apps/desktop`) reads `1.11.2`. The new structural guard's three negative
-> controls (pre-Phase-27 shape, typecheck-in-a-separate-job shape, typecheck-before-`npm ci`
-> shape) were each read directly and confirmed to assert against genuinely broken fixture YAML,
-> not vacuous passes.
+> (`npm run typecheck --workspaces`) was added inside the existing `test` job, after `npm ci`,
+> alongside — not replacing — the `npm test` step, and that the root `package.json` gained a
+> `typescript: ^5.0.0` `devDependencies` pin with no other workspace's `package.json` touched
+> beyond the four `version` bumps. `npm run typecheck --workspaces` was independently re-run and
+> exits `0` on all three workspaces; `npm ls typescript` shows every resolution — root, all three
+> workspaces, and every transitive `typescript-eslint` dependency — deduped to a single `5.9.3`,
+> so no TS6 drift is possible.
+>
+> **Real `npm ci` failure found and fixed before merge (not caught by the developer/tester/linter
+> stages — none of them ran a fully clean `npm ci` from an empty `node_modules`).** This PR's own
+> CI run failed at the `npm ci` step with `EUSAGE`/`EOVERRIDE`: `Override for typescript@^5.0.0
+> conflicts with direct dependency`. Root cause, reproduced locally in an isolated worktree: once
+> `typescript` became a **root direct `devDependency`** (the housekeeping item above), npm's
+> `Node.assertRootOverrides` check requires that if a package name is also a direct root
+> dependency, the effective resolved spec must exactly match the raw declared spec — and with the
+> pre-existing `overrides` block present (`jsdom`, `cssstyle`) but no matching `typescript` entry
+> in it, npm's own resolution machinery computed a spec/rawSpec mismatch for the new `typescript`
+> edge, which `npm ci`/`npm install --dry-run` reject outright the moment `overrides` exists at
+> all on the root. This is exactly why the `npm ci` job on GitHub Actions failed while every local
+> validation up to that point had passed: this sandbox's `node_modules` was never rebuilt from
+> scratch after the housekeeping item landed, so the mismatch never surfaced locally until a truly
+> clean install was forced. Fixed by adding a matching `"typescript": "^5.0.0"` entry to root
+> `overrides` (alongside `devDependencies`) — which, as a side benefit, is what makes the
+> housekeeping item's "single source of truth" claim structurally true rather than
+> true-by-coincidence (see that item above). Verified with a from-scratch `rm -rf node_modules &&
+> npm ci` (not `npm install`) in both an isolated worktree and the real branch — clean both times
+> — plus a full `npm run typecheck --workspaces`, `npm test`, `npm run lint`, and
+> `npm run format:check` re-run after the fix, all green.
+>
+> **Post-review fixes (5 findings from a pre-merge architecture/CI-pipeline review, all
+> addressed, none blocking the current tree's correctness):** dropped `--if-present` from the
+> typecheck invocation (silently skips a workspace lacking the script — the same "green but
+> unchecked" class this phase closes); relaxed `ci-workflow.test.ts`'s job-shape assertion from
+> "exactly one job total" to "typecheck lives in `test` and nowhere else" (the original pinned
+> total job count would false-fail on any unrelated future job); added a lockfile-level guard
+> asserting every resolved `typescript` is a `5.x` (the guard previously only checked `ci.yml`'s
+> shape, never the dependency-resolution invariant that was the actual Phase 23 bug); normalized
+> all step-content string matching in the test to `.trim().includes(...)` (was an inconsistent mix
+> of exact-`===` and loose-`includes`, brittle to harmless YAML reformatting); and strengthened the
+> root `typescript` pin from a bare `devDependencies` entry to also include a matching `overrides`
+> entry (described above — this fix and the `npm ci` fix turned out to be the same change). The
+> structural guard grew from 5 to 10 tests as a result — see the structural-guard item above for
+> the full breakdown. The new structural guard's negative controls (pre-Phase-27 shape,
+> typecheck-in-a-separate-job shape, typecheck-before-`npm ci` shape, typecheck-leaking-into-an-
+> unrelated-job shape, and a hoisted-`typescript@6.x` lockfile shape) were each read directly and
+> confirmed to assert against genuinely broken fixtures, not vacuous passes; a new positive control
+> confirms a benign unrelated sibling job does not false-fail the relaxed job-shape check.
 >
 > **Validation item 6 (a real PR run on GitHub) remains open** — same category as Phase 15's item
 > 2 and Phase 25/26's manual-verification items: it requires exercising the actual GitHub Actions

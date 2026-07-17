@@ -41,6 +41,8 @@ jobs:
       # project-wide tsc --noEmit, so a workspace can be green under npm test
       # and still fail a real typecheck (the Phase 23 packages/ui regression).
       # This step runs in the same test job so branch protection's required
-      # `test` context already covers it.
+      # `test` context already covers it. No --if-present: every workspace is
+      # expected to declare a typecheck script, and a future workspace that
+      # omits one should hard-fail this step, not be silently skipped.
       - name: Typecheck workspaces
-        run: npm run typecheck --workspaces --if-present
+        run: npm run typecheck --workspaces
