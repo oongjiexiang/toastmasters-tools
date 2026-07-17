@@ -1559,7 +1559,7 @@ pattern Phase 15 used for its pipeline change. User-facing changes to the `.exe`
 
 ---
 
-## Phase 23 — Planned (Security: bump end-of-life Electron major, minor → 1.9.0)
+## Phase 23 — Done (Security: bump end-of-life Electron major, minor → 1.9.0)
 
 _A repo security audit (2026-07-17) found Electron pinned at `33.4.11` in
 `apps/desktop/package.json` — past Electron's supported-majors window, so no further Chromium
@@ -1574,30 +1574,127 @@ supported runtime instead of needing to be re-verified after a later bump. No ne
 feature — the app just keeps working — but per this project's convention of minor-bumping every
 phase regardless of visibility (Phase 21 precedent), **minor bump → `1.9.0`.**_
 
-- [ ] **Spike first (not shippable on its own):** locally bump `electron` in
+- [x] **Spike first (not shippable on its own):** locally bump `electron` in
       `apps/desktop/package.json` to the current stable major, `npm install`, `npm run
       desktop:build`, and confirm `better-sqlite3` rebuilds cleanly against the new Electron
       Node-ABI (via the existing `restore:node-abi` step) and that `electron-builder`/
       `electron-vite` support the target major without needing their own bump. If either forces a
       larger chain of upgrades than expected, note it and re-scope before continuing.
-- [ ] **Version bump:** bump `electron` (and `electron-builder`/`electron-vite` if the spike
+- [x] **Version bump:** bump `electron` (and `electron-builder`/`electron-vite` if the spike
       required it) in `apps/desktop/package.json` to the chosen current-stable major.
-- [ ] **CI:** confirm the existing Phase 13 `windows-2022` + pinned Python 3.11 native-rebuild
+- [x] **CI:** confirm the existing Phase 13 `windows-2022` + pinned Python 3.11 native-rebuild
       path still succeeds unchanged; adjust only if the spike surfaced a gap.
-- [ ] **No behaviour change:** this is a runtime bump, not a feature —
+- [x] **No behaviour change:** this is a runtime bump, not a feature —
       `apps/desktop/src/main/auth.ts`'s login/harvest/logout flow, the IPC surface, and the
       renderer are untouched except where the Electron major forces an API update.
 
 **Validation:**
-1. [ ] `npm test` green at the pre-phase floor (no regressions); `npm run typecheck` clean.
+1. [x] `npm test` green at the pre-phase floor (no regressions); `npm run typecheck` clean.
 2. [ ] `npm run desktop:build` produces `Toastmasters Tools Setup 1.9.0.exe` with no native-module
    (`better-sqlite3`) load errors.
-3. [ ] `grep -h '"electron"' apps/desktop/package.json` shows the new pinned major; confirm at
+3. [x] `grep -h '"electron"' apps/desktop/package.json` shows the new pinned major; confirm at
    merge time it's still within Electron's current supported-majors window.
 4. [ ] **Manual (user):** on the packaged `.exe` — log in and confirm the login window completes
    and cookies are captured; log out; log back in; run Refresh Progress and Refresh Membership
    (exercises the `better-sqlite3` native module); restart the app and confirm the prior login
    session persisted. Any regression here blocks the merge.
+
+> **Note:** Landed as `electron: 33.4.11 → 43.1.1` (exact pin, matching the pre-existing format),
+> confirmed against `npm view electron dist-tags` at validation time (2026-07-17) — `latest` was
+> `43.1.1`; `44.x` exists only as `alpha` prereleases, so `43.1.1` was the correct current-stable
+> target, not a partial bump. The spike confirmed `electron-builder` and `electron-vite` needed no
+> *compatibility* bump — `npm run desktop:build` gets past `electron-vite build` and into
+> `electron-builder`'s `@electron/rebuild` step (`electronVersion=43.1.1`) with no
+> version-incompatibility complaint from either tool (`electron-builder` was separately bumped for
+> an unrelated security finding — see below). `.github/workflows/release.yml`'s
+> `windows-2022` job needed no changes: its Python 3.11 pin exists for `node-gyp`/`distutils`
+> during the `better-sqlite3` native rebuild and is unrelated to the Electron major, and the job
+> otherwise just runs `npm ci && npm run desktop:build` generically. Every workspace
+> `package.json` (root, `packages/core`, `packages/ui`, `apps/desktop`) bumped to `1.9.0`. A
+> negative-control test, `apps/desktop/tests/electron-version.test.ts`, reads the real installed
+> `electron` package (no mock) and asserts the major is `43` and matches the exact pin in
+> `package.json`, guarding against a future dependency bump silently re-pinning back to an EOL
+> major.
+>
+> **Regression found and fixed during validation:** the Electron bump's `npm install` reshuffled
+> npm's hoisting and bumped the root-hoisted `typescript` from `5.9.3` to `6.0.3`.
+> `packages/core` and `apps/desktop` already pinned `typescript: ^5.0.0` in their own
+> `devDependencies`, so they got local 5.x copies and were shielded; `packages/ui` (whose
+> `tsconfig.json`/`typecheck` script was added in Phase 21) had no explicit `typescript`
+> devDependency and silently inherited the hoisted `6.0.3`, which flags `packages/ui/tsconfig.json`'s
+> `baseUrl` option as deprecated (`TS5101`). Fixed by adding `typescript: ^5.0.0` to
+> `packages/ui/package.json`, matching its sibling workspaces, and resyncing `package-lock.json` —
+> not by suppressing the warning. `npm run typecheck --workspaces --if-present` is clean across
+> `@toastmasters/core`, `@toastmasters/ui`, and `@toastmasters/desktop` as a result.
+>
+> **Security-review finding fixed post-PR:** a review on this phase's PR (#8) flagged that
+> `electron-builder@^25.1.8` (pre-existing pin, unchanged by the Electron bump itself) resolves
+> inside a HIGH-severity `tar` path-traversal / hardlink-symlink arbitrary-file-write range
+> (`app-builder-lib`/`@electron/rebuild` → `tar`), reachable from exactly the native-module
+> extraction step `npm run desktop:build` invokes on `windows-2022` CI to produce the shipped
+> `.exe` — a real build-time supply-chain-integrity risk, in scope because this phase's own spike
+> explicitly evaluated `electron-builder` compatibility with the new Electron major. Fixed by
+> bumping `electron-builder` to `^26.15.3` (`npm audit`'s own `fixAvailable` pointer); confirmed
+> via `npm audit --json` that the entire `electron-builder`/`app-builder-lib`/`@electron/rebuild`/
+> `tar`/`cacache`/`dmg-builder` HIGH-severity chain is gone afterward (16 → 7 total vulnerabilities
+> repo-wide), and that `electron-builder` 26.x's config schema is fully compatible with the
+> existing `electron-builder.yml` — `npm run desktop:build` reaches the identical
+> `@electron/rebuild electronVersion=43.1.1` invocation and the same pre-existing cross-compile
+> wall as 25.x did, with no new/earlier failure point. `npm test` re-confirmed at 423/423
+> afterward. A MODERATE `esbuild`/`vite` advisory reachable via `electron-vite` (dev-server only —
+> `npm run desktop:dev`, not the shipped artifact) was left as explicitly non-blocking and remains
+> open for a future phase; the remaining `npm audit` findings are all in that same out-of-scope
+> `vitest`/`vite`/`esbuild`/`electron-vite` cluster, pre-existing and unrelated to this phase's
+> Electron bump.
+>
+> **Second review (architecture/dependency) fixed three more items, left one open by design:**
+> (1) `.github/workflows/ci.yml`'s `test` job now runs `npm run typecheck --workspaces
+> --if-present` before the test suite — closes the exact gap that let the `packages/ui`
+> regression above slip past this phase's own initial (narrower) validation. (2) The
+> per-workspace `typescript: ^5.0.0` pins alone didn't stop the ROOT-hoisted transitive
+> `typescript` from drifting again on a future install; added `"typescript": "5.9.3"` (exact,
+> matching the `jsdom`/`cssstyle` style already in that block) to the root `package.json`'s
+> `overrides` — the per-workspace pins stay as declarations of intent, the override is what
+> actually enforces it repo-wide now (`npm ls typescript --all` confirms every workspace and
+> transitive consumer resolves to `5.9.3`). (3) `electron-builder` changed from `^26.15.3` to an
+> exact `26.15.3` pin, matching `electron`'s own exact pin, for a reproducible installer build.
+> `apps/desktop/tests/electron-version.test.ts`'s `require("electron/package.json")` also now
+> fails with a clear message (`"electron is not installed/resolvable — run npm install first"`)
+> instead of an opaque module-resolution stack trace if electron somehow isn't installed —
+> assertions unchanged. **Left open, deliberately:** the review raised a credible concern that
+> `electron-builder`'s v26 `node-module-collector` (26.0.4+) has documented issues in npm-
+> workspaces monorepos, citing issue numbers this sandbox couldn't independently verify (GitHub
+> API access to `electron-userland/electron-builder` is out of this session's repo scope). A web
+> search corroborated the general shape (electron-builder issues #7103, #8938, #9366, #9665 all
+> describe real v26-collector/monorepo pain) — but the specific failure mode cited (`workspace:`
+> protocol dependencies) doesn't apply here: `apps/desktop/package.json`'s only real
+> `dependencies` entry is `better-sqlite3`, a plain npm-registry package, not a
+> `workspace:*`-protocol one (`@toastmasters/core`/`@toastmasters/ui` are `devDependencies`,
+> bundled by `electron-vite` at build time, never reaching electron-builder's collector at all).
+> Whether the v26 collector correctly resolves `better-sqlite3` when it's hoisted to the ROOT
+> `node_modules` (this repo's actual layout) remains **genuinely unverified** — not because of a
+> code gap, but because this sandbox's build attempt fails at an earlier step
+> (`@electron/rebuild`'s native rebuild, blocked by no GitHub network egress) before ever reaching
+> the collector. This was already true before this review; the review just sharpens why it
+> matters. No branch-protection/CI change was made to force a pre-merge Windows build — that would
+> be a bigger process change than this fix pass, and matches every prior phase's pattern of
+> confirming the `.exe` post-merge via `release.yml`'s `windows-2022` job. **Flagging explicitly
+> for the human merging this PR:** after merge, check that `release.yml`'s build actually contains
+> `better-sqlite3` in the packaged `.exe` (not just that the workflow exits 0) before trusting the
+> installer.
+>
+> **`npm run desktop:build` (item 2) was not achievable in this sandbox:** it reaches
+> `electron-builder`'s `@electron/rebuild` step for `better-sqlite3` and fails with `node-gyp does
+> not support cross-compiling native modules from source`. Root cause: this Linux sandbox has no
+> outbound access to github.com, so the win32-x64 prebuilt binary can never be fetched and
+> node-gyp falls back to a from-source build it cannot cross-compile for Windows — reproduced
+> identically against the old, pre-bump `33.4.11` pin, confirming this is a pre-existing
+> sandbox/network limitation, not a regression from this phase. The real confirmation happens on
+> `windows-2022` in CI (`.github/workflows/release.yml`) once this branch's PR triggers `ci.yml`,
+> or via a merge/`workflow_dispatch`-triggered `desktop:build`. **Item 2 (the built `.exe`
+> artifact) and item 4 (manual login/logout/refresh verification on the packaged `.exe`) remain
+> open** — the latter requires a human with the real installed `.exe`, same as every prior
+> user-facing phase's manual-validation item.
 
 ---
 
