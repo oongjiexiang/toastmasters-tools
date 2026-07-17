@@ -129,13 +129,14 @@ On the dashboard, top right, there are two buttons:
 A small message appears at the bottom of the screen while it works, then tells
 you it succeeded or shows an error. Each refresh can take up to a minute.
 
-There is a **progress console** just below the title — a slim bar that
-normally sits collapsed out of the way. The moment you start a refresh, it opens up on
-its own and shows what the app is doing right now — for example "Step 1/3 —
-gathering the member overview list…" and then each member as it is fetched.
-This is just so you can see it is working and roughly how far along it is; you
-do not need to do anything with it. When it finishes, the table fills in (or
-updates).
+The first time you click a refresh button, a **progress console** opens up
+further down the page, below the member table, showing what the app is doing
+right now — for example "Step 1/3 — gathering the member overview list…" and
+then each member as it is fetched. This is just so you can see it is working
+and roughly how far along it is; you do not need to do anything with it. When
+it finishes, the table fills in (or updates). After that, the console stays
+visible for the rest of the session — you can collapse it to a slim bar with
+the arrow described below, though a new refresh always pops it back open.
 
 The console stays in place even if you navigate to a member's detail page and
 back. Click the little arrow in its top-right corner to collapse it back down
@@ -157,7 +158,8 @@ the data was last refreshed — "Updated today," "Updated 1 day ago," "Updated N
 days ago," or, on a fresh install before you've run a refresh, "Never
 refreshed." Nothing to do here most of the time — but the note turns
 orange/amber-colored once it's been a while (about three weeks) since your
-last refresh, as a nudge that it's worth clicking Refresh again soon.
+last refresh, as a nudge that it's worth clicking **Refresh Progress** or
+**Refresh Membership** again soon.
 
 The table lists every member with these columns:
 
