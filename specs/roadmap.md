@@ -1923,3 +1923,172 @@ cut (see Phase-25 planning notes, not re-litigated here). User-facing changes to
 > cycle (revisit only if the VPE reports trouble finding "system"); "Speech · date" in project rows
 > (the data model doesn't carry it — a deliberate Phase-4-era scope cut, not a regression); the
 > console's "Last refresh" label never clearing (cosmetic, not worth a state machine for one user).
+
+---
+
+## Phase 26 — Done (User Guide refresh: freshness note, login-aware copy, console default, patch → 1.11.1)
+
+_Phase 25 shipped three user-facing changes to the `.exe` — the header data-freshness note
+("`38 members · Updated 3 days ago`" / "Never refreshed"), login-aware refresh-error and
+empty-state copy, and the refresh console moved below the header and collapsed-by-default when
+idle — but its own PR flagged `apps/desktop/USER_GUIDE.md` as now stale in two places, and a
+read of the shipped guide confirms three concrete drifts plus a stale installer filename. The
+guide is the only doc the non-technical VPE actually reads, so it drifting behind the app is a
+real gap. **Docs-only — the shipped `.exe` is byte-identical** (the guide is a repo doc, not
+compiled into the installer) — so a **patch bump → `1.11.1`**, mirroring Phase 15's patch
+rationale for a change that doesn't alter the shipped binary._
+
+> **Finding (grounds the scope — read directly off `apps/desktop/USER_GUIDE.md`, not assumed):**
+> the current guide (1) never mentions the header freshness note from Phase 25 item 1 — its "Read
+> the dashboard" section documents the five table columns but nothing about "Updated N days ago"
+> or the amber stale treatment; (2) its Troubleshooting only carries the already-logged-in
+> "session expired" copy and tells an empty-dashboard user to "click Refresh," never the Phase 25
+> item 2 logged-out branch ("Log in to Toastmasters first, then Refresh") that a never-logged-in
+> user now sees; (3) its "Load your data" console description says the console "appears" only
+> "while it runs" and "does not disappear until you clear it," which predates the Phase 25 item 3
+> collapsed-when-idle slim bar that now sits below the header full-time; and (4) its install step
+> still names `Toastmasters Tools Setup 1.10.0.exe`, a version behind the shipped 1.11.0. This is
+> a confirm-and-correct doc pass, not a rewrite.
+
+- [x] **(item 1) Document the freshness indicator.** In "Read the dashboard", describe the
+      header note next to the member count — "`Updated N days ago`" (and "Updated today" / "1 day
+      ago"), that it turns **amber** once the latest snapshot is older than about three weeks (one
+      reporting cycle) as a nudge to refresh, and that a fresh install reads "Never refreshed" —
+      matching Phase 25 item 1's behaviour. Plain language, no thresholds-as-jargon.
+- [x] **(item 2) Login-aware copy in Troubleshooting.** Add the logged-out case: if the badge
+      reads "Not logged in" and Refresh fails, the app now says "Log in to Toastmasters first,
+      then Refresh" (not "session expired / Log out and log in again", which only fits an
+      already-authenticated session). Correct the existing "The dashboard is empty" row so a
+      not-logged-in user is told to **Log in** first, not just to click Refresh (which would only
+      401). Leave the already-logged-in "session expired" row as-is — it is still correct for that
+      state.
+- [x] **(item 3) Correct the console description.** Update "Load your data" so it matches the
+      Phase 25 item 3 behaviour: the progress console lives **below** the title/header as a slim
+      bar that is **collapsed by default when idle** and **auto-expands when a refresh starts**
+      (rather than "appears only while it runs"). Keep the accurate parts — it survives navigation,
+      the collapse arrow, Copy logs, and Cancel are unchanged.
+- [x] **(item 4) Un-stale the installer filename.** Update the "Double-click
+      `Toastmasters Tools Setup 1.10.0.exe`" step to the version this phase ships, and add a short
+      note that the filename tracks the current version so a reader on a newer build isn't thrown
+      by a mismatch — so this line stops silently drifting every release.
+- [x] **(item 5) No code change.** This phase touches only `apps/desktop/USER_GUIDE.md` (and
+      `README.md` **only** if a matching claim there is likewise stale). No renderer, IPC,
+      `packages/core`, or `packages/ui` change belongs here. If any item appears to need a code
+      change, stop and flag it — that means the app, not the doc, is wrong, and it belongs in a
+      different phase.
+- [x] **Version bump:** patch-bump every workspace `package.json` `version` to `1.11.1`; after
+      validation, tag `v1.11.1` (or let the merge-to-`main` automation cut it).
+
+**Validation:**
+1. [x] `grep -nE "Updated|Never refreshed" apps/desktop/USER_GUIDE.md` — the freshness note is
+   documented (item 1).
+2. [x] `grep -n "Log in to Toastmasters first" apps/desktop/USER_GUIDE.md` — the logged-out
+   Troubleshooting branch is present, and the "dashboard is empty" row now mentions logging in
+   first (item 2).
+3. [x] `grep -nE "collaps|below" apps/desktop/USER_GUIDE.md` — the console section describes the
+   collapsed-when-idle bar below the header, not "appears only while it runs" (item 3).
+4. [x] `grep -c "1.10.0" apps/desktop/USER_GUIDE.md` — `0` (no stale installer version); the
+   install step names the shipped version (item 4).
+5. [x] `git diff --name-only` touches **only** `apps/desktop/USER_GUIDE.md` (and at most
+   `README.md`) plus the four workspace `package.json` version lines — no source or test file
+   changed (item 5); `npm test` is unchanged and green (floor: the Phase 25 count, 447 — 272 core
+   + 175 desktop); `grep -h '"version"' package.json packages/*/package.json apps/*/package.json`
+   — all read `1.11.1`.
+6. [ ] **Manual (user):** skim the guide against the running `.exe` and confirm the freshness
+   note, the logged-out refresh message, and the collapsed-console-below-the-header all read the
+   way the app actually behaves.
+
+> **Note:** Independently audited against the live repo, not just the developer's own report.
+> File scope is confirmed exactly as claimed — the diff touches only `apps/desktop/USER_GUIDE.md`
+> and the four workspace `package.json` version lines; `README.md` was checked and correctly left
+> untouched, since it references the installer generically rather than naming a hardcoded version
+> (no matching stale claim to fix). Negative control: `grep -c "1.10.0" apps/desktop/USER_GUIDE.md`
+> returns `0`. Each of the guide's four rewritten sections was cross-checked against the actual
+> Phase 25 source it describes, not just against the phase's own "Finding" — the freshness-note
+> wording matches `DashboardHeader.tsx`'s `FreshnessNote` output ("Updated N days ago" / "Updated
+> today" / "Never refreshed", amber past ~21 days); the login-aware Troubleshooting copy matches
+> `DashboardView.tsx`'s `reportRefreshError` and empty-state branch on `authStatus` ("Log in to
+> Toastmasters first, then Refresh." for the logged-out case, with the pre-existing logged-in
+> "session expired" row left untouched as specified); and the console description matches
+> `App.tsx`'s post-Phase-25 mount order and default (`RefreshConsole` rendered below the
+> header/title, collapsed by default when idle, auto-expanding on refresh). `npm test` reproduced
+> 447/447 (272 core + 175 desktop), unchanged from Phase 25 as expected for a docs-only phase, and
+> `npm run lint`, `npm run format:check`, and `npm run typecheck --workspaces --if-present` were
+> all independently re-run clean. Every workspace `package.json` (root, `packages/core`,
+> `packages/ui`, `apps/desktop`) reads `1.11.1`.
+>
+> **Known limitation of validation item 1's grep, not a defect:** because of a markdown line-wrap
+> in the guide's source, the literal phrase "Never refreshed" is split across two lines at the
+> point it appears, so it does not match as a contiguous string on its own — the item 1 grep only
+> passes via its "Updated" alternative. The guide still renders correctly for a reader (Markdown
+> reflows line-wraps), so this is a phrasing gap in the validation check itself, not an unaddressed
+> content gap in the guide.
+>
+> **Validation item 6 (manual verification) remains open** — requires a human with the real
+> running `.exe`, same as every prior user-facing phase's manual-validation item.
+
+---
+
+## Phase 27 — Not started (Add a typecheck gate to CI, patch → 1.11.2)
+
+_Phase 23's closing note flagged a concrete, evidenced CI gap: `.github/workflows/ci.yml`'s
+`test` job runs `npm test` only and **never** runs any workspace's `typecheck` script. That is
+exactly how a real type regression reached the Phase 23 branch undetected — `packages/ui`, which
+had no explicit `typescript` pin, silently inherited a hoisted `typescript@6.x` and failed
+`tsc --noEmit` with `TS5101` on its `tsconfig.json` `baseUrl`, and it slipped past the phase's
+own validation until an out-of-band `npm run typecheck --workspaces --if-present` caught it.
+Phase 23 fixed that specific error but explicitly left closing the gate itself to "a future
+phase." This is that phase: put `typecheck` into the same CI gate as the tests, so a `tsc` error
+in any workspace fails the PR check instead of a green `npm test` masking it. **Pipeline-only —
+the shipped `.exe` is byte-identical** — so a **patch bump → `1.11.2`**, the same rationale
+Phase 15 used for its pipeline-only patch._
+
+> **Finding (grounds the scope):** all three workspaces already expose a `typecheck` script
+> (`packages/core`, `packages/ui`, `apps/desktop`), and `npm run typecheck --workspaces
+> --if-present` runs all three — but `ci.yml`'s `test` job invokes none of them. `npm test`'s
+> vitest transpiles each file in isolation and does **not** perform a project-wide `tsc --noEmit`,
+> so a workspace can be green under `npm test` and still fail a real typecheck (the exact Phase 23
+> failure mode). The fix belongs **inside the existing `test` job**, not as a new job/check:
+> branch protection requires the `test` context only (`CONTRIBUTING.md`), and adding a *new*
+> required check would need a repo-admin branch-protection change out-of-band — folding typecheck
+> into `test` keeps the existing required gate covering it with no settings change.
+
+- [ ] **Add a typecheck step to `ci.yml`'s `test` job.** After `npm ci` (and alongside
+      `npm test`), run `npm run typecheck --workspaces --if-present` so a `tsc` error in
+      `@toastmasters/core`, `@toastmasters/ui`, or `@toastmasters/desktop` fails the PR check.
+      Keep it in the **same `test` job** so the branch-protection `test` context (`CONTRIBUTING.md`)
+      already gates it — do **not** add a new job or a new required status check (that would need a
+      repo-admin `gh api .../branches/main/protection` change, out of this codebase's scope).
+- [ ] **Confirm the current tree passes the new gate.** `npm run typecheck --workspaces
+      --if-present` must already exit 0 across all three workspaces (it does, per the Phase 24/25
+      notes), so the step goes green on its first CI run rather than immediately red-lining `main`.
+- [ ] **(housekeeping, from the same Phase 23 finding) Hoist the `typescript` pin.** Optionally
+      add `typescript: ^5.0.0` to the **root** `package.json` `devDependencies` as a single source
+      of truth, so a future dependency reshuffle can't silently hoist a different major into a
+      workspace that lacks its own pin — the precise `packages/ui` failure mode above. Keep the
+      per-workspace pins consistent; do not remove them unless the root pin demonstrably covers
+      every workspace's resolution.
+- [ ] **Structural guard (mirror the existing pattern).** Add a `ci.yml` structural test in the
+      same shape as `packages/core/tests/release-workflow.test.ts` (js-yaml load + a negative
+      control): assert the `test` job includes the `typecheck` invocation, with a control that
+      fails against the pre-phase `ci.yml` shape so the gate can't be silently dropped later.
+- [ ] **Version bump:** patch-bump every workspace `package.json` `version` to `1.11.2`; after
+      validation, tag `v1.11.2` (or let the merge-to-`main` automation cut it).
+
+**Validation:**
+1. [ ] `grep -nE "typecheck" .github/workflows/ci.yml` — the `test` job runs a workspace
+      typecheck; the file still parses as valid YAML (js-yaml load).
+2. [ ] `npm run typecheck --workspaces --if-present` exits 0 across `@toastmasters/core`,
+      `@toastmasters/ui`, and `@toastmasters/desktop` — the new gate is green on the current tree.
+3. [ ] `npm test` green (floor: the Phase 25 count, 447 — 272 core + 175 desktop) including the
+      new `ci.yml` structural test and its negative control (which must fail on the pre-phase
+      workflow shape).
+4. [ ] If the `typescript` pin was hoisted: `grep -n "typescript" package.json` shows the root
+      pin and each workspace still resolves a `5.x` (no TS6 drift); `npm run typecheck` stays
+      clean.
+5. [ ] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
+      `1.11.2`.
+6. [ ] **Confirmed after push (requires a real PR run on GitHub, not headlessly verifiable —
+      same caveat as Phase 15's item 2):** the PR's `test` check runs the typecheck step and stays
+      the required context under branch protection; optionally, a deliberately-introduced `tsc`
+      error on a throwaway branch turns the `test` check red, proving the gate bites.
