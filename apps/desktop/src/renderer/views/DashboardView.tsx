@@ -56,6 +56,7 @@ export function DashboardView({
   setConsoleCollapsed,
 }: DashboardViewProps) {
   const [members, setMembers] = useState<MemberSummary[] | null>(null);
+  const [latestSnapshotAt, setLatestSnapshotAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
 
@@ -66,11 +67,14 @@ export function DashboardView({
    */
   async function loadMembers() {
     try {
-      setMembers(await getMembers());
+      const { members: rows, latestSnapshotAt: snapshotAt } = await getMembers();
+      setMembers(rows);
+      setLatestSnapshotAt(snapshotAt);
       setError(null);
     } catch (e) {
       if (e instanceof IpcError && e.code === "SNAPSHOT_MISSING") {
         setMembers([]);
+        setLatestSnapshotAt(null);
         setError(null);
       } else {
         setError(e instanceof Error ? e.message : "Failed to load data");
@@ -139,29 +143,46 @@ export function DashboardView({
   }
 
   /**
-   * Reports a failed refresh. An auth-shaped failure (HTTP 401/403) means the
-   * session expired: the full error text goes into the persistent log console
-   * (rather than being truncated in the toast) and the toast shows a fixed,
-   * friendly hint with the existing "Log in again" action that logs in and
-   * retries the same refresh. Non-auth failures are unchanged — still just the
-   * first line in the toast, nothing added to the log.
+   * Reports a failed refresh. An auth-shaped failure (HTTP 401/403) means
+   * either the session expired, or the user never logged in at all — those
+   * are different situations and get different copy:
+   *
+   *   - Not logged in: "Log in to Toastmasters first, then Refresh", with no
+   *     action button (an "action" framing is wrong for a first-time state;
+   *     the header's own "Log in" button is the call to action).
+   *   - Already logged in (session genuinely expired): today's message,
+   *     unchanged, with the "Log in again" action that logs in and retries
+   *     the same refresh.
+   *
+   * Either way, the full error text goes into the persistent log console
+   * (rather than being truncated in the toast). Non-auth failures are
+   * unchanged — still just the first line in the toast, nothing added to
+   * the log.
    */
   function reportRefreshError(id: string | number, e: unknown, retry: () => void) {
     const message = e instanceof Error ? e.message : "Refresh failed";
     const firstLine = message.split("\n")[0];
     if (AUTH_ERROR.test(message)) {
       setLog((prev) => [...prev, ...message.split("\n")]);
-      toast.error("Your Toastmasters session has expired. Log out and log in again to continue.", {
-        id,
-        action: {
-          label: "Log in again",
-          onClick: () => {
-            void (async () => {
-              if (await handleLogin()) retry();
-            })();
+      const loggedIn = authStatus?.basecamp || authStatus?.ti;
+      if (loggedIn) {
+        toast.error(
+          "Your Toastmasters session has expired. Log out and log in again to continue.",
+          {
+            id,
+            action: {
+              label: "Log in again",
+              onClick: () => {
+                void (async () => {
+                  if (await handleLogin()) retry();
+                })();
+              },
+            },
           },
-        },
-      });
+        );
+      } else {
+        toast.error("Log in to Toastmasters first, then Refresh.", { id });
+      }
     } else {
       toast.error(firstLine, { id });
     }
@@ -240,7 +261,8 @@ export function DashboardView({
         </div>
       );
 
-    if (members.length === 0)
+    if (members.length === 0) {
+      const loggedIn = authStatus?.basecamp || authStatus?.ti;
       return (
         <Card>
           <CardHeader>
@@ -248,11 +270,14 @@ export function DashboardView({
           </CardHeader>
           <CardContent>
             <p className="text-muted-foreground text-sm">
-              Use the refresh buttons above to fetch data.
+              {loggedIn
+                ? "Use the refresh buttons above to fetch data."
+                : "Log in to Toastmasters first, then use the refresh buttons above to fetch data."}
             </p>
           </CardContent>
         </Card>
       );
+    }
 
     return (
       <>
@@ -268,6 +293,7 @@ export function DashboardView({
     <main className="max-w-[960px] mx-auto py-8 px-4">
       <DashboardHeader
         memberCount={members?.length ?? null}
+        latestSnapshotAt={latestSnapshotAt}
         refreshingProgress={refreshingProgress}
         refreshingMembership={refreshingMembership}
         onRefreshProgress={() => void handleRefreshProgress()}

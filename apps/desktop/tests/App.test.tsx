@@ -100,7 +100,10 @@ const memberDetail: MemberDetail = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  getMembers.mockResolvedValue([singlePathwayMember]);
+  getMembers.mockResolvedValue({
+    members: [singlePathwayMember],
+    latestSnapshotAt: "2026-07-10T00:00:00.000Z",
+  });
   getAuthStatus.mockResolvedValue({ basecamp: false, ti: false });
   getMember.mockResolvedValue(memberDetail);
 });
@@ -128,6 +131,11 @@ describe("App — the refresh console survives navigating to member detail and b
 
     emitLogLine("Step 1/3 — gathering the member overview list…");
     emitLogLine("Step 1/3 done — 1 members found.");
+
+    // The console starts collapsed by default (Phase 25 item 3) even though a
+    // log line has arrived — no refresh was started through the dashboard's own
+    // buttons, so nothing forced it open. Expand it to inspect its content.
+    fireEvent.click(screen.getByLabelText("Expand console"));
 
     expect(screen.getByText("Step 1/3 — gathering the member overview list…")).toBeInTheDocument();
     expect(screen.getByText("Step 1/3 done — 1 members found.")).toBeInTheDocument();
@@ -174,16 +182,34 @@ describe("App — the console's own collapse toggle is independent of ExpandColl
         },
       ],
     };
-    getMembers.mockResolvedValue([singlePathwayMember, multiPathwayMember]);
+    getMembers.mockResolvedValue({
+      members: [singlePathwayMember, multiPathwayMember],
+      latestSnapshotAt: "2026-07-10T00:00:00.000Z",
+    });
 
     render(<App />);
     await screen.findByText("Bob Jones");
 
     emitLogLine("Step 1/3 — gathering the member overview list…");
 
+    // The console mounts (a log line exists) but stays collapsed by default
+    // (Phase 25 item 3) — no refresh was ever started via
+    // handleRefreshProgress/handleRefreshMembership, so nothing forced it open.
+    expect(screen.getByLabelText("Expand console")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Step 1/3 — gathering the member overview list…"),
+    ).not.toBeInTheDocument();
+
     // Expand the table's multi-pathway rows via ExpandCollapseToggle.
     fireEvent.click(screen.getByRole("button", { name: "Expand all" }));
     expect(screen.getByText("Dynamic Leadership")).toBeInTheDocument();
+
+    // Expand the console via its OWN toggle — must be independent of the
+    // table's own expand/collapse-all toggle above.
+    fireEvent.click(screen.getByLabelText("Expand console"));
+    expect(screen.getByText("Step 1/3 — gathering the member overview list…")).toBeInTheDocument();
+    expect(screen.getByText("Dynamic Leadership")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Collapse all" })).toBeInTheDocument();
 
     // Collapse the console via its OWN toggle — the table's expanded rows
     // must be unaffected.
@@ -202,6 +228,71 @@ describe("App — the console's own collapse toggle is independent of ExpandColl
     fireEvent.click(screen.getByRole("button", { name: "Collapse all" }));
     expect(screen.queryByText("Dynamic Leadership")).not.toBeInTheDocument();
     expect(screen.getByText("Step 1/3 — gathering the member overview list…")).toBeInTheDocument();
+  });
+});
+
+describe("App — RefreshConsole placement below the header, collapsed by default when idle (Phase 25 item 3)", () => {
+  it("renders the console's marker text after the dashboard header/title in DOM order", async () => {
+    render(<App />);
+    await screen.findByText("Alice Smith");
+
+    emitLogLine("Step 1/3 — gathering the member overview list…");
+    fireEvent.click(screen.getByLabelText("Expand console"));
+    await screen.findByText("Step 1/3 — gathering the member overview list…");
+
+    // Compare positions in the rendered HTML: the header/title must come
+    // before the console's own marker text ("Last refresh"), proving
+    // RefreshConsole is mounted as a sibling *below* DashboardView rather
+    // than above it (the pre-Phase-25 layout).
+    const html = document.body.innerHTML;
+    const titleIndex = html.indexOf("Toastmasters Dashboard");
+    const consoleIndex = html.indexOf("Last refresh");
+    expect(titleIndex).toBeGreaterThan(-1);
+    expect(consoleIndex).toBeGreaterThan(-1);
+    expect(titleIndex).toBeLessThan(consoleIndex);
+  });
+
+  it("mounts the console collapsed (no log content visible) when a log line arrives outside of an active refresh", async () => {
+    render(<App />);
+    await screen.findByText("Alice Smith");
+
+    // Before Phase 25, the console defaulted to expanded — this exact fixture
+    // (a log line with no in-flight refresh) would have shown the line
+    // immediately. Asserting it's absent here is the negative control: it
+    // would fail against that old default.
+    emitLogLine("Step 1/3 — gathering the member overview list…");
+
+    expect(screen.getByLabelText("Expand console")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Collapse console")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Step 1/3 — gathering the member overview list…"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("auto-expands the console when a refresh starts, without any manual toggle click", async () => {
+    let resolveRefresh!: () => void;
+    refreshProgress.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRefresh = resolve;
+        }),
+    );
+
+    render(<App />);
+    await screen.findByText("Alice Smith");
+
+    fireEvent.click(screen.getByRole("button", { name: /Refresh Progress/i }));
+
+    // handleRefreshProgress calls setConsoleCollapsed(false) as soon as the
+    // refresh starts (Phase 22 behaviour, preserved by item 3) — the console
+    // should already be expanded, with no click on its own toggle.
+    await screen.findByLabelText("Collapse console");
+    expect(screen.queryByLabelText("Expand console")).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveRefresh();
+      await Promise.resolve();
+    });
   });
 });
 

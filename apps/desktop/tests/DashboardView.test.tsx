@@ -95,7 +95,7 @@ function renderDashboard() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  getMembers.mockResolvedValue([]);
+  getMembers.mockResolvedValue({ members: [], latestSnapshotAt: null });
   getAuthStatus.mockResolvedValue({ basecamp: false, ti: false });
 });
 
@@ -103,8 +103,50 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("DashboardView — reportRefreshError, AUTH_ERROR branch (Phase 22 item 1)", () => {
-  it("shows the fixed hint toast (not the raw message) and appends the FULL error text to the log console", async () => {
+describe("DashboardView — reportRefreshError, AUTH_ERROR branch, logged-out (Phase 25 item 2)", () => {
+  // `beforeEach` above already sets `getAuthStatus` to logged-out
+  // (`{ basecamp: false, ti: false }`) — a brand-new user who has never
+  // logged in. Before Phase 25, this exact fixture showed the "session
+  // expired" copy (wrong: they never had a session to expire). Asserting the
+  // new logged-out copy here, and asserting the old copy is ABSENT, is the
+  // negative control that would have failed against the pre-Phase-25 code
+  // (which always showed the "session expired" text for any AUTH_ERROR).
+  it("shows the logged-out 'log in first' hint (not 'session expired'), with no 'Log in again' action, and still appends the FULL error text to the log console", async () => {
+    const fullMessage =
+      "HTTP 401 Unauthorized for https://basecamp.toastmasters.org/api/bcm/progress/?club=abc&page=1";
+    refreshProgress.mockRejectedValue(new Error(fullMessage));
+    const { setLog } = renderDashboard();
+
+    const refreshButton = await screen.findByRole("button", { name: /Refresh Progress/i });
+    fireEvent.click(refreshButton);
+
+    await screen.findByText("Log in to Toastmasters first, then Refresh.");
+
+    // Negative controls: neither the old always-on "session expired" copy nor
+    // its "Log in again" action button may appear for a logged-out user.
+    expect(
+      screen.queryByText(
+        "Your Toastmasters session has expired. Log out and log in again to continue.",
+      ),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Log in again" })).not.toBeInTheDocument();
+    // Negative control: the raw/truncated message must NOT be in the toast.
+    expect(screen.queryByText(fullMessage)).not.toBeInTheDocument();
+
+    await waitFor(() => expect(setLog).toHaveBeenCalledTimes(2));
+    // First call clears the log at refresh start (setLog([])); the second is
+    // the functional updater appending the full error text — unchanged
+    // regardless of which copy the toast shows.
+    const secondCallArg = setLog.mock.calls[1][0];
+    expect(typeof secondCallArg).toBe("function");
+    const appended = secondCallArg([]);
+    expect(appended.join("\n")).toBe(fullMessage);
+  });
+});
+
+describe("DashboardView — reportRefreshError, AUTH_ERROR branch, logged-in (Phase 25 item 2, unchanged path)", () => {
+  it("still shows the 'session expired' toast with its 'Log in again' action, and appends the FULL error text to the log console", async () => {
+    getAuthStatus.mockResolvedValue({ basecamp: true, ti: false });
     const fullMessage =
       "HTTP 401 Unauthorized for https://basecamp.toastmasters.org/api/bcm/progress/?club=abc&page=1";
     refreshProgress.mockRejectedValue(new Error(fullMessage));
@@ -116,12 +158,17 @@ describe("DashboardView — reportRefreshError, AUTH_ERROR branch (Phase 22 item
     await screen.findByText(
       "Your Toastmasters session has expired. Log out and log in again to continue.",
     );
+    expect(screen.getByRole("button", { name: "Log in again" })).toBeInTheDocument();
+
+    // Negative control: the logged-out copy must NOT appear for an
+    // already-logged-in user whose session genuinely expired.
+    expect(
+      screen.queryByText("Log in to Toastmasters first, then Refresh."),
+    ).not.toBeInTheDocument();
     // Negative control: the raw/truncated message must NOT be in the toast.
     expect(screen.queryByText(fullMessage)).not.toBeInTheDocument();
 
     await waitFor(() => expect(setLog).toHaveBeenCalledTimes(2));
-    // First call clears the log at refresh start (setLog([])); the second is
-    // the functional updater appending the full error text.
     const secondCallArg = setLog.mock.calls[1][0];
     expect(typeof secondCallArg).toBe("function");
     const appended = secondCallArg([]);
@@ -172,5 +219,39 @@ describe("DashboardView — a CANCELLED refresh bypasses the auth-retry path ent
     // only sees the initial "clear the log" call from handleRefreshProgress.
     await waitFor(() => expect(setLog).toHaveBeenCalledTimes(1));
     expect(setLog).toHaveBeenCalledWith([]);
+  });
+});
+
+describe("DashboardView — 'No data yet' empty-state copy branches on authStatus (Phase 25 item 2)", () => {
+  it("tells a logged-out user to log in first, not to just 'use the refresh buttons'", async () => {
+    // beforeEach already resolves getMembers to an empty list and authStatus
+    // to logged-out.
+    renderDashboard();
+
+    await screen.findByText("No data yet");
+    await screen.findByText(
+      "Log in to Toastmasters first, then use the refresh buttons above to fetch data.",
+    );
+
+    // Negative control: the logged-in copy (which would 401 for this user)
+    // must not appear.
+    expect(
+      screen.queryByText("Use the refresh buttons above to fetch data."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("tells an already-logged-in user to just use the refresh buttons", async () => {
+    getAuthStatus.mockResolvedValue({ basecamp: true, ti: false });
+    renderDashboard();
+
+    await screen.findByText("No data yet");
+    await screen.findByText("Use the refresh buttons above to fetch data.");
+
+    // Negative control: the logged-out copy must not appear once logged in.
+    expect(
+      screen.queryByText(
+        "Log in to Toastmasters first, then use the refresh buttons above to fetch data.",
+      ),
+    ).not.toBeInTheDocument();
   });
 });

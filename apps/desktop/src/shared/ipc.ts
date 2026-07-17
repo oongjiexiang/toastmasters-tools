@@ -7,7 +7,12 @@
  * into the preload or renderer bundle.
  */
 
-import type { DiffResult, MemberDetail, MemberSummary } from "@toastmasters/core/queries";
+import type {
+  DiffResult,
+  ListMembersResult,
+  MemberDetail,
+  MemberSummary,
+} from "@toastmasters/core/queries";
 
 export const IPC = {
   LIST_MEMBERS: "toastmasters:members:list",
@@ -39,7 +44,7 @@ export type IpcResult<T> = { ok: true; data: T } | { ok: false; code: string; me
 
 /** The typed surface exposed on `window.toastmasters` by the preload script. */
 export interface ToastmastersBridge {
-  listMembers(): Promise<IpcResult<MemberSummary[]>>;
+  listMembers(): Promise<IpcResult<ListMembersResult>>;
   getMember(email: string, pathway: string): Promise<IpcResult<MemberDetail>>;
   getDiff(): Promise<IpcResult<DiffResult>>;
   refreshProgress(): Promise<IpcResult<null>>;
@@ -61,4 +66,4 @@ export interface ToastmastersBridge {
   onRefreshLog(listener: (line: string) => void): () => void;
 }
 
-export type { DiffResult, MemberDetail, MemberSummary };
+export type { DiffResult, ListMembersResult, MemberDetail, MemberSummary };

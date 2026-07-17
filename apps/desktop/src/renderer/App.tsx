@@ -24,7 +24,12 @@ export function App() {
   const [log, setLog] = useState<string[]>([]);
   const [refreshingProgress, setRefreshingProgress] = useState(false);
   const [refreshingMembership, setRefreshingMembership] = useState(false);
-  const [consoleCollapsed, setConsoleCollapsed] = useState(false);
+  // Collapsed by default when idle (Phase 25, item 3) — a console that's
+  // mostly empty history shouldn't demand attention on every launch. Forced
+  // open via `setConsoleCollapsed(false)` when a refresh starts (see
+  // `DashboardView.tsx`'s `handleRefreshProgress`/`handleRefreshMembership`);
+  // otherwise left at whatever the user last toggled.
+  const [consoleCollapsed, setConsoleCollapsed] = useState(true);
 
   const refreshing = refreshingProgress || refreshingMembership;
 
@@ -36,17 +41,6 @@ export function App() {
 
   return (
     <Providers>
-      {(log.length > 0 || refreshing) && (
-        <div className="max-w-[960px] mx-auto px-4 pt-8">
-          <RefreshConsole
-            lines={log}
-            active={refreshing}
-            collapsed={consoleCollapsed}
-            onToggleCollapsed={() => setConsoleCollapsed((prev) => !prev)}
-            onCancel={() => void cancelRefresh().catch(() => {})}
-          />
-        </div>
-      )}
       {view.name === "dashboard" ? (
         <DashboardView
           onSelectMember={(email, pathway) => setView({ name: "member", email, pathway })}
@@ -63,6 +57,20 @@ export function App() {
           pathway={view.pathway}
           onBack={() => setView({ name: "dashboard" })}
         />
+      )}
+      {/* Below the header/title in DOM order (Phase 25, item 3) — rendered here,
+          as a sibling of the two views, so it keeps surviving navigation between
+          them (Phase 22) instead of being remounted along with DashboardView. */}
+      {(log.length > 0 || refreshing) && (
+        <div className="max-w-[960px] mx-auto px-4 pb-8">
+          <RefreshConsole
+            lines={log}
+            active={refreshing}
+            collapsed={consoleCollapsed}
+            onToggleCollapsed={() => setConsoleCollapsed((prev) => !prev)}
+            onCancel={() => void cancelRefresh().catch(() => {})}
+          />
+        </div>
       )}
       <Toaster />
     </Providers>
