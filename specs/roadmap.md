@@ -1602,11 +1602,11 @@ phase regardless of visibility (Phase 21 precedent), **minor bump → `1.9.0`.**
 > **Note:** Landed as `electron: 33.4.11 → 43.1.1` (exact pin, matching the pre-existing format),
 > confirmed against `npm view electron dist-tags` at validation time (2026-07-17) — `latest` was
 > `43.1.1`; `44.x` exists only as `alpha` prereleases, so `43.1.1` was the correct current-stable
-> target, not a partial bump. The spike confirmed `electron-builder` (`^25.1.8`) and
-> `electron-vite` (`^2.3.0`) needed no bump of their own — both are unchanged in
-> `apps/desktop/package.json` and `npm run desktop:build` gets past `electron-vite build` and into
+> target, not a partial bump. The spike confirmed `electron-builder` and `electron-vite` needed no
+> *compatibility* bump — `npm run desktop:build` gets past `electron-vite build` and into
 > `electron-builder`'s `@electron/rebuild` step (`electronVersion=43.1.1`) with no
-> version-incompatibility complaint from either tool. `.github/workflows/release.yml`'s
+> version-incompatibility complaint from either tool (`electron-builder` was separately bumped for
+> an unrelated security finding — see below). `.github/workflows/release.yml`'s
 > `windows-2022` job needed no changes: its Python 3.11 pin exists for `node-gyp`/`distutils`
 > during the `better-sqlite3` native rebuild and is unrelated to the Electron major, and the job
 > otherwise just runs `npm ci && npm run desktop:build` generically. Every workspace
@@ -1626,6 +1626,28 @@ phase regardless of visibility (Phase 21 precedent), **minor bump → `1.9.0`.**
 > `packages/ui/package.json`, matching its sibling workspaces, and resyncing `package-lock.json` —
 > not by suppressing the warning. `npm run typecheck --workspaces --if-present` is clean across
 > `@toastmasters/core`, `@toastmasters/ui`, and `@toastmasters/desktop` as a result.
+>
+> **Security-review finding fixed post-PR:** a review on this phase's PR (#8) flagged that
+> `electron-builder@^25.1.8` (pre-existing pin, unchanged by the Electron bump itself) resolves
+> inside a HIGH-severity `tar` path-traversal / hardlink-symlink arbitrary-file-write range
+> (`app-builder-lib`/`@electron/rebuild` → `tar`), reachable from exactly the native-module
+> extraction step `npm run desktop:build` invokes on `windows-2022` CI to produce the shipped
+> `.exe` — a real build-time supply-chain-integrity risk, in scope because this phase's own spike
+> explicitly evaluated `electron-builder` compatibility with the new Electron major. Fixed by
+> bumping `electron-builder` to `^26.15.3` (`npm audit`'s own `fixAvailable` pointer); confirmed
+> via `npm audit --json` that the entire `electron-builder`/`app-builder-lib`/`@electron/rebuild`/
+> `tar`/`cacache`/`dmg-builder` HIGH-severity chain is gone afterward (16 → 7 total vulnerabilities
+> repo-wide), and that `electron-builder` 26.x's config schema is fully compatible with the
+> existing `electron-builder.yml` — `npm run desktop:build` reaches the identical
+> `@electron/rebuild electronVersion=43.1.1` invocation and the same pre-existing cross-compile
+> wall as 25.x did, with no new/earlier failure point. `npm test` re-confirmed at 423/423
+> afterward. The review's other two findings were left as explicitly non-blocking and are not
+> addressed here: a MODERATE `esbuild`/`vite` advisory reachable via `electron-vite` (dev-server
+> only — `npm run desktop:dev`, not the shipped artifact) and a suggestion to hoist the
+> `typescript: ^5.0.0` pin to the root `package.json` as a single source of truth. Both remain
+> open for a future phase; the 7 remaining `npm audit` findings after this fix are all in that
+> same out-of-scope `vitest`/`vite`/`esbuild`/`electron-vite` cluster, pre-existing and unrelated
+> to this phase's Electron bump.
 >
 > **Gap found, not fixed here:** `.github/workflows/ci.yml` runs `npm test` only — it never runs
 > any workspace's `typecheck` script. That is how the `packages/ui` regression above slipped past
