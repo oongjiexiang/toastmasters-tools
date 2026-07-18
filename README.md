@@ -157,8 +157,11 @@ the same `@toastmasters/core` scraping/SQLite logic and the shared React compone
 
 GitHub Actions (`.github/workflows/`) keep `main` releasable:
 
-- **`ci.yml`** runs the full test suite (`npm test` — core + desktop) on every branch push and
-  PR into `main`. It needs no Toastmasters cookies — the tests mock the network.
+- **`ci.yml`** runs `npm run typecheck --workspaces --if-present` (fails fast on a `tsc` error in
+  any workspace) followed by the full test suite (`npm test` — core + desktop) on every branch
+  push and PR into `main`. Both steps must pass in the same required `test` job — the typecheck
+  step is not allowed to be skipped or ignored on failure. It needs no Toastmasters cookies — the
+  tests mock the network.
 - **`release.yml`** builds the Windows installer on `windows-2022` when you push a **version
   tag** (e.g. `1.0`), push/merge to **`main`**, or trigger it manually. On a version tag it
   creates a stable **GitHub Release** with the `.exe` attached. On a push to `main` it always
