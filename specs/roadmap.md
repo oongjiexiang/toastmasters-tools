@@ -2361,3 +2361,103 @@ Headings use default (0) letter-spacing. User-facing change to the `.exe` — **
 > regressed, but nothing would have caught it either. Fixed by adding
 > `group-data-[size=sm]/card:tracking-normal` alongside the existing `:text-sm` override, and added
 > a dedicated test asserting that class is present so a future edit can't silently drop it.
+
+---
+
+## Phase 30 — Not started (Export the member overview as CSV for reporting, minor → 1.13.0)
+
+_`specs/mission.md` names the tool's **Output** as "CSV files consumed in Google Sheets or Excel
+for weekly/monthly reporting" and its **Core Value** as "produces clean CSVs the VPE can use
+immediately." That is the whole point — a synthesized "who is one project away from their next
+level" view the two portals can't give. But since Phase 6 deleted `summary.csv` ("the dashboard is
+now authoritative"), the GUI era never shipped a replacement: the desktop app can **display** the
+synthesized overview but cannot **export** it. The only export today
+(`DOWNLOAD_MEMBERSHIP_CSV`, `apps/desktop/src/main/index.ts:181`) copies the **raw TI membership
+file** — the unprocessed roster, not the pathway/title/next-level/remaining/status synthesis that
+is the tool's actual differentiator. So a VPE who wants this month's report in a spreadsheet has to
+retype what's on screen. This phase closes that gap with a one-click "Export overview CSV." User-
+facing change to the `.exe` — **minor bump → `1.13.0`**, matching this repo's convention for
+visible features (Phase 16, 20, 25, 29)._
+
+> **Finding (grounds the scope — read directly off the code, not assumed):** the read-model that
+> powers the on-screen table, `listMembers` in `packages/core/queries.ts`, already returns exactly
+> the reportable fields — `MemberSummary { email, name, title, pathways[] }` where each
+> `PathwaySummary` carries `{ pathway, title, nextLevel, remaining, status }`
+> (`packages/core/queries.ts:64-77`). No new query, no new scrape, no schema change is needed — this
+> is a serialization + save-dialog feature over data that already exists in memory. A member can
+> hold **multiple pathways** (the Phase 19/20 expand/collapse rows), so the CSV must emit **one row
+> per (member × pathway)**, not one per member, to stay lossless. `csv-stringify` was the documented
+> stack choice (`tech-stack.md`, "CSV I/O") and was only dropped in Phase 10 because it was orphaned
+> after the Phase 6 cleanup — re-adding it (rather than hand-rolling RFC-4180 quoting) is correct
+> here, because member names legitimately contain commas.
+
+- [ ] **(item 1) Core CSV builder.** Add a pure, framework-agnostic `buildOverviewCsv(members:
+      MemberSummary[]): string` to `packages/core/queries.ts` (already exported as
+      `@toastmasters/core/queries` — no new `exports` subpath, so no
+      `packages/core/tests/workspace.test.ts` surface change). Emit a header row and one data row
+      per (member × pathway): columns `Name, Email, Overall Title, Pathway, Pathway Title, Next
+      Level, Projects Remaining, Status`. Map the `status` union to human-readable labels matching
+      the dashboard badges (`completed` → `Completed`, `ready` → `Ready`, `close` → `Close`,
+      `in-progress` → `In Progress`, `not-started` → `Not Started`). Serialize with **`csv-stringify`**
+      (re-add the dependency to `packages/core/package.json` — it was the documented stack choice,
+      removed as orphaned in Phase 10, not rejected) for RFC-4180-correct quoting of names
+      containing commas/quotes. A member with an empty `pathways[]` still emits one row (blank
+      pathway columns) so nobody silently drops out of the report.
+- [ ] **(item 2) IPC + main-process save handler.** Add an `EXPORT_OVERVIEW_CSV` channel to
+      `apps/desktop/src/shared/ipc.ts` and an `exportOverviewCsv(): Promise<IpcResult<string | null>>`
+      method on `ToastmastersBridge` (resolves to the saved path, or `null` on cancel — mirror the
+      exact shape of the existing `downloadMembershipCsv`). Bridge it in
+      `apps/desktop/src/preload/index.ts`. The main handler (`apps/desktop/src/main/index.ts`) calls
+      `core.listMembers()`, builds the CSV via item 1, and writes it through `dialog.showSaveDialog`
+      with `defaultPath: join(app.getPath("downloads"), "toastmasters-overview-<YYYY-MM-DD>.csv")`
+      and a `.csv` filter — reusing the `DOWNLOAD_MEMBERSHIP_CSV` handler's structure. Export the
+      **full roster snapshot**, independent of the Phase 20 on-screen search filter (a monthly report
+      wants everyone, not the current filtered subset) — document this choice in item 5.
+- [ ] **(item 3) Renderer control, never a dead button.** Add an **Export CSV** button to
+      `DashboardHeader` (`packages/ui/components/DashboardHeader.tsx`) via a new optional slot,
+      following the established `authControl`/`themeControl` slot pattern (undefined-safe, no change
+      for any other consumer). Wire it in the desktop renderer to call
+      `window.toastmasters.exportOverviewCsv()`, with a Sonner toast: success ("Overview exported to
+      <path>") / error / neutral on cancel. **Disable or hide the button when there is no snapshot to
+      export** (empty member list / `SNAPSHOT_MISSING`), applying the same "never a dead control"
+      rule Phases 17/19/20 already enforce elsewhere — the button must not offer to export an empty
+      report.
+- [ ] **(item 4) Tests.** Unit-test `buildOverviewCsv` in `packages/core/tests/`: header row +
+      column order; one row per (member × pathway) for a multi-pathway member; correct status-label
+      mapping; RFC-4180 quoting of a name containing a comma (a genuine negative control that would
+      fail on a naive `join(",")`); and the empty-`pathways[]` member still emitting a row. Extend
+      `apps/desktop/tests/main-ipc.test.ts` and `preload.test.ts` for the new channel/bridge method
+      (mocked `dialog.showSaveDialog` returning both a path and a cancel), and add a
+      `DashboardHeader`/renderer test asserting the Export button is absent/disabled when the member
+      list is empty and present when it is not.
+- [ ] **(item 5) Docs.** Add an "Export the overview" step to `apps/desktop/USER_GUIDE.md` (where to
+      click, what the file contains, that it opens in Google Sheets/Excel, and that it exports the
+      **whole club** regardless of any active search filter). Note the distinction from the existing
+      "Download membership file" (raw TI roster) so the VPE isn't confused about which is which.
+      Docs-only touch to `README.md`'s **Dashboard** section if the "Membership file download"
+      description needs a sibling line for the new export.
+- [ ] **Version bump:** minor-bump every workspace `package.json` `version` to `1.13.0`; after
+      validation, tag `v1.13.0` (or let the merge-to-`main` automation cut it).
+
+**Validation:**
+1. [ ] `grep -n "buildOverviewCsv" packages/core/queries.ts` — the pure builder exists in the
+   already-exported read-model module (no new `exports` subpath).
+2. [ ] `grep -n "EXPORT_OVERVIEW_CSV" apps/desktop/src/shared/ipc.ts apps/desktop/src/main/index.ts
+   apps/desktop/src/preload/index.ts` — channel declared, main handler registered, preload bridge
+   present.
+3. [ ] A unit test on `buildOverviewCsv` proves: header + column order; a multi-pathway member emits
+   one row per pathway; the status labels match the dashboard badges; a name containing a comma is
+   quoted (negative control — fails on a naive comma-join); an empty-`pathways[]` member still emits
+   a row.
+4. [ ] A renderer/component test proves the **Export CSV** button is not rendered (or is disabled)
+   when the member list is empty, and is active when it is not — the "never a dead control" guard.
+5. [ ] `npm test` green (floor: the Phase 29 count, 495 — 293 core + 202 desktop) plus the new cases;
+   `npm run typecheck --workspaces --if-present`, `npm run lint`, and `npm run format:check` all
+   clean.
+6. [ ] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
+   `1.13.0`.
+7. [ ] **Manual (user):** run a refresh, click **Export CSV**, save the file, and open it in Google
+   Sheets/Excel — confirm every active member appears with the right pathway/title/next-level/
+   remaining/status, that a multi-pathway member shows one row per pathway, that a name with a comma
+   is intact (not split across columns), and that the button is unavailable on a fresh/never-
+   refreshed install.
