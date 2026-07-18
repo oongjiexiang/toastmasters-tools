@@ -2339,7 +2339,7 @@ Headings use default (0) letter-spacing. User-facing change to the `.exe` — **
 
 ---
 
-## Phase 30 — Export the club progress summary as a CSV report (minor → 1.13.0)
+## Phase 30 — Done (Export the club progress summary as a CSV report, minor → 1.13.0)
 
 _The tool's stated purpose is **weekly/monthly reporting** (README), but today the only export is
 the **raw TI membership CSV** (`DOWNLOAD_MEMBERSHIP_CSV`, the "Membership CSV" button) — the
@@ -2364,7 +2364,7 @@ can drop into an email or spreadsheet. User-facing change to the `.exe` — **mi
 > Phase 10 (no importer remained), and this app has no CDN/runtime deps to add; a small pure
 > function is the established preference and is trivially unit-testable.
 
-- **(item 1) Core: a pure CSV serializer for the summary.** Add `buildProgressReportCsv(members:
+- [x] **(item 1) Core: a pure CSV serializer for the summary.** Add `buildProgressReportCsv(members:
   MemberSummary[]): string` to `packages/core/queries.ts` (export it from the **existing**
   `@toastmasters/core/queries` subpath — no new `exports`-map entry, so no
   `packages/core/tests/workspace.test.ts` exports-guard change). Emit **one row per
@@ -2378,7 +2378,7 @@ can drop into an email or spreadsheet. User-facing change to the `.exe` — **mi
   **RFC-4180-style escaping is load-bearing:** pathway names and member names can contain commas
   (`Presentation Mastery`, `O'Brien, Jr.`) — any field containing a comma, double-quote, or newline
   must be wrapped in double-quotes with embedded quotes doubled. Use `\r\n` line endings (Excel-safe).
-- **(item 2) Main: a `DOWNLOAD_PROGRESS_CSV` IPC + handler.** Add the channel constant to
+- [x] **(item 2) Main: a `DOWNLOAD_PROGRESS_CSV` IPC + handler.** Add the channel constant to
   `apps/desktop/src/shared/ipc.ts` (`IPC.DOWNLOAD_PROGRESS_CSV`) and a `downloadProgressCsv(): Promise<IpcResult<string | null>>`
   method on `ToastmastersBridge` there (same signature as `downloadMembershipCsv` — resolves to the
   saved path, or `null` when the user cancels the dialog). Handler in
@@ -2395,7 +2395,7 @@ can drop into an email or spreadsheet. User-facing change to the `.exe` — **mi
     `CSV` filter, write the file, and return the saved path.
   Wire it into the preload bridge (`apps/desktop/src/preload/index.ts`) exactly as
   `downloadMembershipCsv` is.
-- **(item 3) Renderer: an "Export progress report" button.** Add `downloadProgressCsv()` to
+- [x] **(item 3) Renderer: an "Export progress report" button.** Add `downloadProgressCsv()` to
   `apps/desktop/src/renderer/lib/api.ts` (mirror `downloadMembershipCsv`) and a `handleExportReport`
   in `DashboardView.tsx` mirroring `handleDownloadCsv` (success toast `Saved to <path>` when a path
   comes back, no toast on cancel/`null`, error toast on throw). Surface it next to the existing
@@ -2405,7 +2405,7 @@ can drop into an email or spreadsheet. User-facing change to the `.exe` — **mi
   unaffected, following the `authControl`/`themeControl` precedent. Label it "Export report" (or
   "Progress CSV") with a `FileDown`/`Download` `lucide-react` icon, `variant="outline" size="sm"` to
   match its neighbour.
-- **(item 4) Tests.** Unit-test `buildProgressReportCsv` in `packages/core/tests` (mirror the
+- [x] **(item 4) Tests.** Unit-test `buildProgressReportCsv` in `packages/core/tests` (mirror the
   existing `queries` test style): header row present; one row per member-pathway (a two-pathway
   member → two rows); status enum → badge-label mapping; **escaping** of a field containing a comma
   and one containing a double-quote; empty input → header row only. Add a `main-ipc.test.ts` case for
@@ -2413,32 +2413,43 @@ can drop into an email or spreadsheet. User-facing change to the `.exe` — **mi
   empty-members paths return an error `IpcResult` **without** calling `showSaveDialog`, and the happy
   path writes the serialized CSV and returns the path. Extend `preload.test.ts` to assert the bridge
   exposes `downloadProgressCsv`.
-- **(item 5) Docs.** In `README.md`'s Dashboard section, add a short "Progress report download"
+- [x] **(item 5) Docs.** In `README.md`'s Dashboard section, add a short "Progress report download"
   bullet under (or beside) the existing "Membership file download" one, describing what the exported
   CSV contains. In `apps/desktop/USER_GUIDE.md`, add a numbered step under the reporting/export
   section: click **Export report**, choose where to save, open the CSV in Excel/Sheets for the
   weekly/monthly update.
-- **Version bump:** minor-bump every workspace `package.json` `version` to `1.13.0`; after
+- [x] **Version bump:** minor-bump every workspace `package.json` `version` to `1.13.0`; after
   validation, tag `v1.13.0` (or let the merge-to-`main` automation cut it).
 
 **Validation:**
-1. [ ] `grep -n "buildProgressReportCsv" packages/core/queries.ts` — the serializer exists and is
+1. [x] `grep -n "buildProgressReportCsv" packages/core/queries.ts` — the serializer exists and is
    exported from the `@toastmasters/core/queries` subpath.
-2. [ ] `grep -n "DOWNLOAD_PROGRESS_CSV" apps/desktop/src/shared/ipc.ts apps/desktop/src/main/index.ts apps/desktop/src/preload/index.ts`
+2. [x] `grep -n "DOWNLOAD_PROGRESS_CSV" apps/desktop/src/shared/ipc.ts apps/desktop/src/main/index.ts apps/desktop/src/preload/index.ts`
    — channel declared, handler registered, and bridged in preload; `downloadProgressCsv` is on
    `ToastmastersBridge` and in `apps/desktop/src/renderer/lib/api.ts`.
-3. [ ] `grep -n "progressCsvControl" packages/ui/components/DashboardHeader.tsx apps/desktop/src/renderer/views/DashboardView.tsx`
+3. [x] `grep -n "progressCsvControl" packages/ui/components/DashboardHeader.tsx apps/desktop/src/renderer/views/DashboardView.tsx`
    — the optional slot exists and the renderer passes an "Export report" button into it.
-4. [ ] A unit test proves the serializer's row-per-pathway shape, the status-label mapping, and
+4. [x] A unit test proves the serializer's row-per-pathway shape, the status-label mapping, and
    comma/quote escaping (RFC-4180); a `main-ipc` test proves the no-data paths return an error
    `IpcResult` without opening a save dialog and the happy path writes the CSV and returns the path.
-5. [ ] `npm test` green (floor: the Phase 29 count, 492 — 290 core + 202 desktop) plus the new
-   cases; `npm run typecheck --workspaces --if-present`, `npm run lint`, and `npm run format:check`
-   all clean.
-6. [ ] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
+5. [x] `npm test` green (floor: the Phase 29 count, 492 — 290 core + 202 desktop) plus the new
+   cases — observed 517 (302 core + 215 desktop); `npm run typecheck --workspaces --if-present`,
+   `npm run lint`, and `npm run format:check` all clean.
+6. [x] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
    `1.13.0`.
 7. [ ] **Manual (user):** with real data loaded, click **Export report**, save the CSV, and open it
    in a spreadsheet — confirm one row per member-pathway, readable status labels, and that a member
    or pathway name containing a comma stays in a single column (escaping held). Confirm the button is
    disabled-path-safe on a fresh install (toasts "No data yet"/"No members to export", no empty file
    dialog), and that the existing "Membership CSV" download is unaffected.
+
+> **Note:** Validation items 1–6 were independently re-verified against the live repo during this
+> docs pass (not just taken from the implementer's self-report) — no surprises found; the shipped
+> code matches the plan exactly, including the exact column order (`Name, Email, Title, Pathway,
+> Next Level, Projects Remaining, Status`), RFC-4180 escaping, `\r\n` line endings, and the
+> `SNAPSHOT_MISSING`/empty-members no-dialog guards on the IPC handler. `npm test` reproduced
+> **517/517** total (302/302 core, 215/215 desktop — comfortably above the 492 floor), and
+> `npm run typecheck --workspaces --if-present`, `npm run lint`, and `npm run format:check` all ran
+> clean. **Validation item 7 remains open by design** — it requires a human looking at the
+> rendered app, matching this repo's convention for manual/user-only validation steps (see
+> Phase 27's item 7, Phase 28's item 6, Phase 29's item 7).

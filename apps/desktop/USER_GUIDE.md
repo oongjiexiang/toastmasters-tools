@@ -194,6 +194,18 @@ To save the membership list as a spreadsheet file:
 2. A save window opens, already pointing at your **Downloads** folder.
 3. Choose a location and click **Save**.
 
+## Export a progress report
+
+To save a member-by-pathway progress summary for a weekly/monthly report:
+
+1. On the dashboard, click the **Export Report** button (top right, next to
+   **Membership CSV**).
+2. A save window opens, already pointing at your **Downloads** folder.
+3. Choose a location and click **Save**.
+4. Open the saved CSV in Excel or Google Sheets — you'll get one row per
+   member per pathway, with their name, email, title, pathway, next level,
+   projects remaining, and status.
+
 ## Dark mode
 
 The app can follow your Windows light/dark setting, or you can pick one yourself. Click the

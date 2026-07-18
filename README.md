@@ -123,6 +123,10 @@ Shows what changed between the two most recent snapshots: who advanced a level, 
 
 Downloads the raw membership CSV from toastmasters.org that was last fetched.
 
+### Progress report download
+
+Exports the dashboard's own derived summary as a CSV — one row per member per enrolled pathway, columns `Name, Email, Title, Pathway, Next Level, Projects Remaining, Status` (human-readable status labels), saved via a save-file dialog.
+
 ## Desktop app
 
 A double-clickable Windows app (`apps/desktop`, Electron) that bundles Node, the scrapers,
