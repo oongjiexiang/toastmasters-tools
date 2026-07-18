@@ -7,7 +7,14 @@ import {
   getMembershipDiff,
   getProgressDiff,
 } from "../helpers/db";
-import { getDiff, getMemberDetail, listMembers } from "../queries";
+import {
+  buildProgressReportCsv,
+  getDiff,
+  getMemberDetail,
+  listMembers,
+  type MemberSummary,
+  type PathwaySummary,
+} from "../queries";
 
 /**
  * Direct unit tests for the read-model queries.
@@ -642,5 +649,128 @@ describe("getDiff", () => {
 
     expect(getProgressDiff).toHaveBeenCalledWith("/tmp/fixture.sqlite");
     expect(getMembershipDiff).toHaveBeenCalledWith("/tmp/fixture.sqlite");
+  });
+});
+
+// ── buildProgressReportCsv (Phase 30) ───────────────────────────────────────
+
+describe("buildProgressReportCsv", () => {
+  function pathwaySummary(overrides: Partial<PathwaySummary> = {}): PathwaySummary {
+    return {
+      pathway: "Presentation Mastery",
+      title: "PM2",
+      nextLevel: "Level 2",
+      remaining: 2,
+      status: "in-progress",
+      ...overrides,
+    };
+  }
+
+  function memberSummary(overrides: Partial<MemberSummary> = {}): MemberSummary {
+    return {
+      email: "alice@example.com",
+      name: "Alice Smith",
+      title: "PM1",
+      pathways: [pathwaySummary()],
+      ...overrides,
+    };
+  }
+
+  it("emits exactly the documented header row, terminated by \\r\\n, for an empty member list", () => {
+    // No trailing garbage row: the whole output is just the header + CRLF.
+    expect(buildProgressReportCsv([])).toBe(
+      "Name,Email,Title,Pathway,Next Level,Projects Remaining,Status\r\n",
+    );
+  });
+
+  it("emits one data row per pathway a member is enrolled in", () => {
+    const member = memberSummary({
+      pathways: [
+        pathwaySummary({ pathway: "Presentation Mastery" }),
+        pathwaySummary({ pathway: "Dynamic Leadership" }),
+      ],
+    });
+
+    const csv = buildProgressReportCsv([member]);
+    const lines = csv.split("\r\n");
+
+    // header + 2 data rows + the trailing "" produced by the final \r\n.
+    expect(lines).toHaveLength(4);
+    expect(lines[3]).toBe("");
+    expect(lines[1]).toContain("Presentation Mastery");
+    expect(lines[2]).toContain("Dynamic Leadership");
+  });
+
+  it.each([
+    ["completed", "Completed"],
+    ["ready", "Ready"],
+    ["close", "Close"],
+    ["in-progress", "In Progress"],
+    ["not-started", "Not Started"],
+  ] as const)("maps the '%s' status onto the '%s' human-readable label", (status, label) => {
+    const csv = buildProgressReportCsv([
+      memberSummary({ pathways: [pathwaySummary({ status })] }),
+    ]);
+
+    const dataRow = csv.split("\r\n")[1];
+
+    // Exact-string assertion: a wrong-order column or a mislabeled status
+    // would fail this immediately, not just "contain" the right substring.
+    expect(dataRow).toBe(
+      `Alice Smith,alice@example.com,PM1,Presentation Mastery,Level 2,2,${label}`,
+    );
+  });
+
+  it("does NOT quote a field containing neither a comma, a quote, nor a newline", () => {
+    // Negative control proving the serializer doesn't over-quote every field.
+    const csv = buildProgressReportCsv([memberSummary()]);
+    const dataRow = csv.split("\r\n")[1];
+
+    expect(dataRow).toBe(
+      "Alice Smith,alice@example.com,PM1,Presentation Mastery,Level 2,2,In Progress",
+    );
+    expect(dataRow).not.toContain('"');
+  });
+
+  it("quotes a name containing a comma", () => {
+    const csv = buildProgressReportCsv([memberSummary({ name: "O'Brien, Jr." })]);
+    const dataRow = csv.split("\r\n")[1];
+
+    expect(dataRow).toBe(
+      '"O\'Brien, Jr.",alice@example.com,PM1,Presentation Mastery,Level 2,2,In Progress',
+    );
+  });
+
+  it("quotes a pathway name containing a comma, leaving the other fields on the row unquoted", () => {
+    const csv = buildProgressReportCsv([
+      memberSummary({
+        pathways: [pathwaySummary({ pathway: "Presentation Mastery, Advanced" })],
+      }),
+    ]);
+    const dataRow = csv.split("\r\n")[1];
+
+    expect(dataRow).toBe(
+      'Alice Smith,alice@example.com,PM1,"Presentation Mastery, Advanced",Level 2,2,In Progress',
+    );
+  });
+
+  it("doubles an embedded double-quote and wraps the whole field in quotes", () => {
+    const csv = buildProgressReportCsv([memberSummary({ name: 'Alice "Al" Smith' })]);
+    const dataRow = csv.split("\r\n")[1];
+
+    expect(dataRow).toBe(
+      '"Alice ""Al"" Smith",alice@example.com,PM1,Presentation Mastery,Level 2,2,In Progress',
+    );
+  });
+
+  it("quotes a field containing an embedded newline", () => {
+    const csv = buildProgressReportCsv([memberSummary({ name: "Alice\nSmith" })]);
+    // A bare \n (no preceding \r) does not collide with the row separator,
+    // so splitting on \r\n still isolates this single data row intact.
+    const dataRow = csv.split("\r\n")[1];
+
+    expect(dataRow).toBe(
+      '"Alice\nSmith",alice@example.com,PM1,Presentation Mastery,Level 2,2,In Progress',
+    );
   });
 });

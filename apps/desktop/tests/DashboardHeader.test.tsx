@@ -13,6 +13,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { DashboardHeader } from "@toastmasters/ui/components/DashboardHeader";
 
+/** Every prop DashboardHeader requires, so a test only has to override what it cares about. */
+function baseProps() {
+  return {
+    memberCount: 38,
+    latestSnapshotAt: null as string | null,
+    refreshingProgress: false,
+    refreshingMembership: false,
+    onRefreshProgress: vi.fn(),
+    onRefreshMembership: vi.fn(),
+    membershipCsvControl: null as React.ReactNode,
+  };
+}
+
 const NOW = new Date("2026-07-17T12:00:00.000Z");
 
 function isoDaysAgo(days: number): string {
@@ -96,5 +109,53 @@ describe("DashboardHeader — data-freshness note next to the member count (Phas
     const note = screen.getByText("Updated 22 days ago");
     expect(note.className).toContain("text-amber-600");
     expect(note.className).toContain("dark:text-amber-400");
+  });
+});
+
+describe("DashboardHeader — progressCsvControl slot (Phase 30)", () => {
+  it("renders the progressCsvControl content when it is passed", () => {
+    render(
+      <DashboardHeader
+        {...baseProps()}
+        progressCsvControl={<button>Export Report</button>}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Export Report" })).toBeInTheDocument();
+  });
+
+  it("shows the control group (separator included) when only progressCsvControl is passed — membershipCsvControl and themeControl both absent", () => {
+    // Guard condition is `(membershipCsvControl || progressCsvControl || themeControl)`.
+    // This proves progressCsvControl alone is enough to satisfy it, not just
+    // membershipCsvControl/themeControl as before this phase.
+    const { container } = render(
+      <DashboardHeader
+        {...baseProps()}
+        membershipCsvControl={null}
+        progressCsvControl={<button>Export Report</button>}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Export Report" })).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="separator"]')).not.toBeNull();
+  });
+
+  it("negative control: renders no separator/control group when membershipCsvControl, progressCsvControl, and themeControl are all absent", () => {
+    const { container } = render(<DashboardHeader {...baseProps()} membershipCsvControl={null} />);
+
+    expect(container.querySelector('[data-slot="separator"]')).toBeNull();
+  });
+
+  it("renders membershipCsvControl and progressCsvControl side by side when both are passed", () => {
+    render(
+      <DashboardHeader
+        {...baseProps()}
+        membershipCsvControl={<button>Membership CSV</button>}
+        progressCsvControl={<button>Export Report</button>}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Membership CSV" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Export Report" })).toBeInTheDocument();
   });
 });

@@ -31,6 +31,7 @@ const {
   logIn,
   logOut,
   downloadMembershipCsv,
+  downloadProgressCsv,
   IpcError,
 } = vi.hoisted(() => {
   class IpcError extends Error {
@@ -50,6 +51,7 @@ const {
     logIn: vi.fn(),
     logOut: vi.fn(),
     downloadMembershipCsv: vi.fn(),
+    downloadProgressCsv: vi.fn(),
     IpcError,
   };
 });
@@ -63,6 +65,7 @@ vi.mock("../src/renderer/lib/api", () => ({
   logIn,
   logOut,
   downloadMembershipCsv,
+  downloadProgressCsv,
   IpcError,
 }));
 
@@ -328,5 +331,55 @@ describe("DashboardView — 'No data yet' empty-state copy branches on authStatu
         "Log in to Toastmasters first, then use the refresh buttons above to fetch data.",
       ),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("DashboardView — 'Export Report' button, handleDownloadProgressCsv (Phase 30)", () => {
+  it("shows a 'Saved to <path>' success toast when the download resolves with a saved path", async () => {
+    downloadProgressCsv.mockResolvedValue("/Users/vpe/Downloads/progress-report-2026-07-18.csv");
+    renderDashboard();
+
+    const button = await screen.findByRole("button", { name: /Export Report/i });
+    fireEvent.click(button);
+
+    await screen.findByText("Saved to /Users/vpe/Downloads/progress-report-2026-07-18.csv");
+    expect(downloadProgressCsv).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows no toast when the user cancels the save dialog (downloadProgressCsv resolves null)", async () => {
+    // Negative control: a null resolution must stay silent — no success toast
+    // for a save the user explicitly backed out of.
+    downloadProgressCsv.mockResolvedValue(null);
+    renderDashboard();
+
+    const button = await screen.findByRole("button", { name: /Export Report/i });
+    fireEvent.click(button);
+
+    await waitFor(() => expect(downloadProgressCsv).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText(/Saved to/)).not.toBeInTheDocument();
+  });
+
+  it("shows only the first line of the failure in an error toast when the download rejects", async () => {
+    downloadProgressCsv.mockRejectedValue(
+      new Error("No members to export — Refresh first.\nsome stack trace detail"),
+    );
+    renderDashboard();
+
+    const button = await screen.findByRole("button", { name: /Export Report/i });
+    fireEvent.click(button);
+
+    await screen.findByText("No members to export — Refresh first.");
+    // Negative control: the truncated remainder must not leak into the toast.
+    expect(screen.queryByText(/some stack trace detail/)).not.toBeInTheDocument();
+  });
+
+  it("shows the generic 'Download failed' toast when the rejection isn't an Error instance", async () => {
+    downloadProgressCsv.mockRejectedValue("not an Error object");
+    renderDashboard();
+
+    const button = await screen.findByRole("button", { name: /Export Report/i });
+    fireEvent.click(button);
+
+    await screen.findByText("Download failed");
   });
 });

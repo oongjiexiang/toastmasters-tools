@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { IPC } from "../src/shared/ipc";
+import { buildProgressReportCsv as realBuildProgressReportCsv } from "@toastmasters/core/queries";
 
 /**
  * Main-process IPC behaviour, tested without a GUI.
@@ -63,6 +64,7 @@ const getDiff = vi.fn();
 const runFetch = vi.fn();
 const runMembership = vi.fn();
 const findLatestMembershipFile = vi.fn();
+const buildProgressReportCsv = vi.fn();
 
 vi.mock("../src/main/core", () => ({
   listMembers,
@@ -71,6 +73,7 @@ vi.mock("../src/main/core", () => ({
   runFetch,
   runMembership,
   findLatestMembershipFile,
+  buildProgressReportCsv,
   RESULTS_DIR: "/fake/results",
   DEFAULT_DB_PATH: "/fake/results/db.sqlite",
 }));
@@ -360,6 +363,108 @@ describe("main runs the refresh scrapers", () => {
       code: "SERVER_ERROR",
       message: "No membership file found",
     });
+  });
+});
+
+describe("main builds and downloads the progress report (Phase 30)", () => {
+  it("returns the listMembers failure unchanged, and never opens the save dialog", async () => {
+    listMembers.mockReturnValue({
+      ok: false,
+      code: "SNAPSHOT_MISSING",
+      message: "No data yet — use the Refresh buttons to load member data.",
+    });
+
+    const result = await invoke(IPC.DOWNLOAD_PROGRESS_CSV);
+
+    expect(result).toEqual({
+      ok: false,
+      code: "SNAPSHOT_MISSING",
+      message: "No data yet — use the Refresh buttons to load member data.",
+    });
+    // Negative control: proves the no-dialog-on-error branch is real, not
+    // just that the final result happened to look right.
+    expect(dialog.showSaveDialog).not.toHaveBeenCalled();
+    expect(buildProgressReportCsv).not.toHaveBeenCalled();
+  });
+
+  it("returns NO_MEMBERS without opening the save dialog when listMembers succeeds with an empty roster", async () => {
+    listMembers.mockReturnValue({
+      ok: true,
+      data: { members: [], latestSnapshotAt: "2026-07-01T00:00:00.000Z" },
+    });
+
+    const result = await invoke(IPC.DOWNLOAD_PROGRESS_CSV);
+
+    expect(result).toEqual({
+      ok: false,
+      code: "NO_MEMBERS",
+      message: "No members to export — Refresh first.",
+    });
+    // Negative control: the empty-roster branch must short-circuit before any
+    // dialog opens, exactly like the SNAPSHOT_MISSING branch above.
+    expect(dialog.showSaveDialog).not.toHaveBeenCalled();
+    expect(buildProgressReportCsv).not.toHaveBeenCalled();
+  });
+
+  it("returns data:null when the user cancels the save dialog", async () => {
+    const members = [
+      { email: "alice@example.com", name: "Alice Smith", title: "PM1", pathways: [] },
+    ];
+    listMembers.mockReturnValue({
+      ok: true,
+      data: { members, latestSnapshotAt: "2026-07-01T00:00:00.000Z" },
+    });
+    buildProgressReportCsv.mockReturnValue("Name,Email,Title,Pathway,Next Level,Projects Remaining,Status\r\n");
+    // The shared dialog mock already defaults to canceled: true.
+
+    const result = await invoke(IPC.DOWNLOAD_PROGRESS_CSV);
+
+    expect(result).toEqual({ ok: true, data: null });
+  });
+
+  it("writes the generated CSV to the chosen path and returns it when the user confirms", async () => {
+    // Real member/pathway fixtures fed through the REAL buildProgressReportCsv
+    // (imported directly from @toastmasters/core/queries, bypassing the
+    // "../src/main/core" mock) so this test proves main writes exactly what
+    // the CSV builder produces — not just some string a mock happened to echo.
+    const dir = mkdtempSync(join(tmpdir(), "tm-desktop-progress-csv-"));
+    const destination = join(dir, "progress-report.csv");
+    const members = [
+      {
+        email: "alice@example.com",
+        name: "Alice Smith",
+        title: "PM1",
+        pathways: [
+          {
+            pathway: "Presentation Mastery",
+            title: "PM1",
+            nextLevel: "Level 2",
+            remaining: 2,
+            status: "in-progress" as const,
+          },
+        ],
+      },
+    ];
+    const expectedCsv = realBuildProgressReportCsv(members);
+
+    listMembers.mockReturnValue({
+      ok: true,
+      data: { members, latestSnapshotAt: "2026-07-01T00:00:00.000Z" },
+    });
+    buildProgressReportCsv.mockReturnValue(expectedCsv);
+    vi.mocked(dialog.showSaveDialog).mockResolvedValueOnce({
+      canceled: false,
+      filePath: destination,
+    });
+
+    const result = await invoke(IPC.DOWNLOAD_PROGRESS_CSV);
+
+    expect(result).toEqual({ ok: true, data: destination });
+    expect(readFileSync(destination, "utf8")).toBe(expectedCsv);
+    expect(readFileSync(destination, "utf8")).toContain(
+      "Name,Email,Title,Pathway,Next Level,Projects Remaining,Status",
+    );
+    expect(buildProgressReportCsv).toHaveBeenCalledWith(members);
   });
 });
 

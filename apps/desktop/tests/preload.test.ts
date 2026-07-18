@@ -36,15 +36,16 @@ describe("preload contextBridge surface", () => {
     expect(key).toBe("toastmasters");
   });
 
-  it("exposes exactly the eleven documented functions and nothing else", async () => {
+  it("exposes exactly the twelve documented functions and nothing else", async () => {
     const { bridge } = await loadPreload();
 
-    // A literal list on purpose: adding a twelfth function to the bridge (i.e.
-    // widening what the renderer can reach into Node) must fail this test until
-    // someone widens the contract deliberately. Phase 12 added the two Electron-
-    // only auth calls (`login` / `authStatus`) to the original six data calls;
-    // the live-refresh-log work added the one-way `onRefreshLog` subscription;
-    // Phase 17 added the `logout` call; Phase 22 added `cancelRefresh`.
+    // A literal list on purpose: adding a thirteenth function to the bridge
+    // (i.e. widening what the renderer can reach into Node) must fail this
+    // test until someone widens the contract deliberately. Phase 12 added the
+    // two Electron-only auth calls (`login` / `authStatus`) to the original
+    // six data calls; the live-refresh-log work added the one-way
+    // `onRefreshLog` subscription; Phase 17 added the `logout` call; Phase 22
+    // added `cancelRefresh`; Phase 30 added `downloadProgressCsv`.
     expect(Object.keys(bridge).sort()).toEqual(
       [
         "listMembers",
@@ -54,6 +55,7 @@ describe("preload contextBridge surface", () => {
         "refreshMembership",
         "cancelRefresh",
         "downloadMembershipCsv",
+        "downloadProgressCsv",
         "login",
         "authStatus",
         "logout",
@@ -72,8 +74,8 @@ describe("preload contextBridge surface", () => {
     expect(nonFunctions).toEqual([]);
   });
 
-  it("declares exactly eleven IPC channels", () => {
-    expect(Object.values(IPC)).toHaveLength(11);
+  it("declares exactly twelve IPC channels", () => {
+    expect(Object.values(IPC)).toHaveLength(12);
   });
 
   it("namespaces every channel under toastmasters:", () => {
@@ -141,6 +143,14 @@ describe("preload bridges each function to its IPC channel", () => {
     bridge.downloadMembershipCsv();
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IPC.DOWNLOAD_MEMBERSHIP_CSV);
+  });
+
+  it("downloadProgressCsv invokes the toastmasters:progress:download channel", async () => {
+    const { bridge } = await loadPreload();
+
+    bridge.downloadProgressCsv();
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IPC.DOWNLOAD_PROGRESS_CSV);
   });
 
   it("logout invokes the auth:logout channel", async () => {
