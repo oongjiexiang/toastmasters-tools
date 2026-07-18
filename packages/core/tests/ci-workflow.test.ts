@@ -3,6 +3,7 @@ import { readFileSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { load as loadYaml } from "js-yaml";
+import type { WorkflowStep, WorkflowJob } from "./fixtures/workflow-shapes";
 
 /**
  * Phase 28 structural invariant for the CI workflow.
@@ -24,19 +25,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const CORE_DIR = resolve(__dirname, "..");
 const REPO_ROOT = resolve(CORE_DIR, "../..");
 const CI_WORKFLOW_PATH = join(REPO_ROOT, ".github", "workflows", "ci.yml");
-
-interface WorkflowStep {
-  name?: string;
-  uses?: string;
-  with?: Record<string, unknown>;
-  run?: string;
-  "continue-on-error"?: boolean;
-}
-
-interface WorkflowJob {
-  "runs-on"?: string;
-  steps?: WorkflowStep[];
-}
 
 interface CiWorkflow {
   on?: {
