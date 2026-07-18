@@ -36,21 +36,13 @@ jobs:
       # apps/desktop) before the slower test suite runs. Phase 23 added this
       # after a hoisting-driven TypeScript version mismatch broke packages/ui's
       # typecheck without failing `npm test`, which has no typecheck step of
-      # its own.
-      - name: Typecheck all workspaces
-        run: npm run typecheck --workspaces --if-present
+      # its own. No --if-present: every workspace is expected to declare a
+      # typecheck script, and a future workspace that omits one should
+      # hard-fail this step, not be silently skipped (Phase 27).
+      - name: Typecheck workspaces
+        run: npm run typecheck --workspaces
 
       # core + desktop. The desktop suite rebuilds and evaluates the
       # electron-vite main bundle; no display or real Electron launch is needed.
       - name: Unit / API / bundle tests
         run: npm test
-
-      # vitest transpiles each file in isolation and does not perform a
-      # project-wide tsc --noEmit, so a workspace can be green under npm test
-      # and still fail a real typecheck (the Phase 23 packages/ui regression).
-      # This step runs in the same test job so branch protection's required
-      # `test` context already covers it. No --if-present: every workspace is
-      # expected to declare a typecheck script, and a future workspace that
-      # omits one should hard-fail this step, not be silently skipped.
-      - name: Typecheck workspaces
-        run: npm run typecheck --workspaces

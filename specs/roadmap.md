@@ -2214,3 +2214,24 @@ Phase 15 used for its pipeline-only patch._
 > infrastructure via a push/merge, which this cross-check pass does not perform. Structurally the
 > gate is correct (see items 1–5 above and the structural guard), but it has not yet been proven
 > against a real Actions run with branch protection in effect.
+>
+> **Merge-into-`main` reconciliation (after this PR's branch was merged with `main`, which had
+> independently gained an equivalent fix — see the PR description for the full story): two
+> mechanical conflicts surfaced and were fixed, not just re-flagged.** (1) `main`'s own copy of
+> this fix (from Phase 23's own review cycle) and this branch's copy both added a typecheck step
+> to `ci.yml`'s `test` job; the merge auto-combined them into two back-to-back steps running the
+> same command twice (`--if-present` and non-`--if-present` variants). Consolidated to the single,
+> stricter no-`--if-present` version — the redundant `--if-present` copy was strictly weaker
+> coverage, not complementary. (2) `main`'s exact `overrides.typescript: "5.9.3"` won the one real
+> textual merge conflict in `package.json` (as this PR's own description recommended), but the
+> merge left this branch's `devDependencies.typescript: "^5.0.0"` untouched — an override and a
+> direct dependency with the same package name but different specs, which is exactly the
+> `EOVERRIDE` class of failure this phase's own `npm ci` fix (above) already diagnosed once. It
+> recurred here for the same underlying reason and was fixed the same way: `devDependencies` now
+> also reads the exact `"5.9.3"`, matching `overrides`. `package-lock.json` regenerated
+> (`npm install --package-lock-only`) to reflect both fixes. Re-verified from scratch after: `npm
+> ci` clean from an empty `node_modules`, `npm run typecheck --workspaces` clean on all three
+> workspaces, `npm test` still 457/457 (282 core + 175 desktop), `npm run format:check` clean, and
+> `ci-workflow.test.ts`'s all 10 cases re-run standalone and still passing (including against the
+> now-single typecheck step, confirming the structural guard's matching logic wasn't fooled by the
+> transient duplicate).
