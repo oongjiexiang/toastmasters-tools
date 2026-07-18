@@ -3,6 +3,7 @@ import { readFileSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { load as loadYaml } from "js-yaml";
+import type { WorkflowStep, WorkflowJob } from "./fixtures/workflow-shapes";
 
 /**
  * Phase 15 structural invariant for the release workflow.
@@ -23,20 +24,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const CORE_DIR = resolve(__dirname, "..");
 const REPO_ROOT = resolve(CORE_DIR, "../..");
 const RELEASE_WORKFLOW_PATH = join(REPO_ROOT, ".github", "workflows", "release.yml");
-
-interface WorkflowStep {
-  id?: string;
-  name?: string;
-  uses?: string;
-  if?: string;
-  with?: Record<string, unknown>;
-  run?: string;
-}
-
-interface WorkflowJob {
-  "runs-on"?: string;
-  steps?: WorkflowStep[];
-}
 
 interface ReleaseWorkflow {
   on?: {
