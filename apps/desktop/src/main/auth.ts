@@ -290,6 +290,19 @@ const FAILURE_GRACE_WINDOW_MS = 5000;
  *  per call — a genuine Basecamp outage must not retry forever. */
 const MAX_AUTO_RELOADS = 2;
 
+/** `new URL(candidate).origin`, or `undefined` if `candidate` isn't a parsable
+ *  absolute URL (e.g. `webContents.getURL()` before the first navigation
+ *  resolves, which returns `""`). Used by {@link openLoginWindow}'s
+ *  `safeReload` to confirm the window is still on the expected origin before
+ *  reloading in place. */
+function safeOrigin(candidate: string): string | undefined {
+  try {
+    return new URL(candidate).origin;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Opens a login window bound to the persistent partition and resolves once the
  * user closes it — or, when the watcher built by `buildCaptureSignal` resolves
@@ -359,6 +372,28 @@ export function openLoginWindow(
       graceTimer = undefined;
     };
 
+    /**
+     * `webContents.reload()` reloads whatever URL is *currently* loaded, not
+     * necessarily `url`. If the window were ever navigated off the genuine
+     * TI/Basecamp origin (e.g. an open redirect on their own site), a page
+     * reached that way could deliberately emit a matching console message to
+     * make this retry logic keep re-fetching *that* page — `FAILURE_SIGNATURES`
+     * is public in this open-source repo. Guard against that: only `reload()`
+     * when still on the expected origin; otherwise fall back to `loadURL(url)`,
+     * restoring the known-good login page (the same fail-safe a plain
+     * close-and-reopen already has).
+     */
+    const safeReload = () => {
+      if (win.isDestroyed()) return;
+      const expected = safeOrigin(url);
+      const current = safeOrigin(win.webContents.getURL());
+      if (expected && current === expected) {
+        win.webContents.reload();
+      } else {
+        void win.loadURL(url);
+      }
+    };
+
     const onConsoleMessage = (_event: unknown, _level: unknown, message: string) => {
       if (captured || graceTimer !== undefined || reloadCount >= MAX_AUTO_RELOADS) return;
       if (!isKnownLoginFailureSignature(message)) return;
@@ -366,16 +401,16 @@ export function openLoginWindow(
         graceTimer = undefined;
         if (captured || win.isDestroyed()) return;
         reloadCount += 1;
-        win.webContents.reload();
+        safeReload();
       }, FAILURE_GRACE_WINDOW_MS);
     };
     win.webContents.on("console-message", onConsoleMessage);
 
     const onBeforeInput = (_event: unknown, input: Electron.Input) => {
-      if (input.type !== "keyDown") return;
+      if (input.type !== "keyDown" || win.isDestroyed()) return;
       const isF5 = input.key === "F5";
       const isReloadShortcut = (input.control || input.meta) && input.key.toLowerCase() === "r";
-      if (isF5 || isReloadShortcut) win.webContents.reload();
+      if (isF5 || isReloadShortcut) safeReload();
     };
     win.webContents.on("before-input-event", onBeforeInput);
 

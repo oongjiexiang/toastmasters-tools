@@ -52,6 +52,16 @@ const { FakeBrowserWindow, FakeWebContents } = vi.hoisted(() => {
      *  either, since the fake never actually re-navigates. */
     reload = vi.fn();
 
+    /** The URL this fake is "currently on" — set by `FakeBrowserWindow.loadURL`
+     *  below, read by `getURL()`. Lets tests simulate `safeReload`'s
+     *  origin-verification guard (Phase 27 review finding) by manually
+     *  overwriting this before firing a failure signature or an input event. */
+    currentURL = "";
+
+    getURL(): string {
+      return this.currentURL;
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     on(event: string, listener: (...args: any[]) => void): void {
       this.listeners[event]?.push(listener);
@@ -142,9 +152,14 @@ const { FakeBrowserWindow, FakeWebContents } = vi.hoisted(() => {
       return this.destroyed;
     }
 
-    loadURL(): Promise<void> {
+    /** Mirrors the real `BrowserWindow.loadURL`'s effect on `webContents.getURL()`
+     *  — records the target on `webContents.currentURL` so `safeReload`'s
+     *  origin check (Phase 27 review finding) sees a same-origin match on the
+     *  normal path, and so tests can assert on `loadURL`'s fallback calls. */
+    loadURL = vi.fn((url: string): Promise<void> => {
+      this.webContents.currentURL = url;
       return Promise.resolve();
-    }
+    });
   }
   // Declared inside `vi.hoisted` because `vi.mock` factories are hoisted above
   // every other statement in the file (including plain `class` declarations),
@@ -1869,6 +1884,120 @@ describe("openLoginWindow: F5/Ctrl+R manual reload via before-input-event (Phase
     win.close();
     await openPromise;
   });
+});
+
+describe("openLoginWindow: origin-verification guard before reload() (Phase 27 PR review finding)", () => {
+  beforeEach(() => {
+    FakeBrowserWindow.instances.length = 0;
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("falls back to loadURL(url) instead of reload() when the auto-retry path finds the window off the expected origin", async () => {
+    const openPromise = openLoginWindow(BASECAMP_LOGIN_URL_FOR_TESTS);
+    const win = FakeBrowserWindow.instances[0];
+
+    // `loadURL(url)` already ran synchronously during construction — sanity
+    // check the fake reflects the same-origin baseline before simulating a
+    // navigation away from it.
+    expect(win.webContents.getURL()).toBe(BASECAMP_LOGIN_URL_FOR_TESTS);
+    win.loadURL.mockClear();
+
+    win.webContents.fireConsoleMessage(I18N_FAILURE_MESSAGE);
+    // Simulate the window having navigated to a different origin before the
+    // grace-window timer fires — e.g. an open redirect on Basecamp's own
+    // site. `reload()` would blindly re-fetch whatever is currently loaded.
+    win.webContents.currentURL = "https://evil.example.com/redirected";
+    await vi.advanceTimersByTimeAsync(5000);
+
+    // reload() would re-fetch the untrusted origin — must NOT be called.
+    expect(win.webContents.reload).not.toHaveBeenCalled();
+    // Falls back to the known-good login URL instead, restoring the same
+    // fail-safe a plain close-and-reopen already has.
+    expect(win.loadURL).toHaveBeenCalledWith(BASECAMP_LOGIN_URL_FOR_TESTS);
+
+    win.close();
+    await openPromise;
+  });
+
+  it("F5/Ctrl+R also falls back to loadURL(url) when off the expected origin", async () => {
+    const openPromise = openLoginWindow(BASECAMP_LOGIN_URL_FOR_TESTS);
+    const win = FakeBrowserWindow.instances[0];
+    win.loadURL.mockClear();
+
+    win.webContents.currentURL = "https://evil.example.com/redirected";
+    win.webContents.fireBeforeInputEvent({ type: "keyDown", key: "F5" });
+
+    expect(win.webContents.reload).not.toHaveBeenCalled();
+    expect(win.loadURL).toHaveBeenCalledWith(BASECAMP_LOGIN_URL_FOR_TESTS);
+
+    win.close();
+    await openPromise;
+  });
+
+  /*
+   * NEGATIVE CONTROL (documentation, verified by hand against a temporarily-
+   * reverted src/main/auth.ts — i.e. `win.webContents.reload()` called
+   * directly instead of through `safeReload`'s origin check — then restored;
+   * do not leave any such edit in place): with the origin check removed,
+   * both tests above go RED (`reload()` IS called on the off-origin page,
+   * and `loadURL` is never called as a fallback), confirming these are
+   * genuine regression tests for the guard, not vacuously-passing ones.
+   */
+});
+
+describe("openLoginWindow: isDestroyed() guard on the manual reload path (Phase 27 PR review finding)", () => {
+  beforeEach(() => {
+    FakeBrowserWindow.instances.length = 0;
+  });
+
+  it("does not call reload() (and does not throw) when before-input-event fires after isDestroyed() has flipped true but before 'closed' cleanup has run", async () => {
+    const openPromise = openLoginWindow(BASECAMP_LOGIN_URL_FOR_TESTS);
+    const win = FakeBrowserWindow.instances[0];
+
+    // Simulates the narrow real-Electron race the review comment describes:
+    // `isDestroyed()` can flip true slightly before the "closed" event (and
+    // this module's listener cleanup) actually runs. Set the fake's internal
+    // flag directly, WITHOUT going through `close()`, so the
+    // `before-input-event` listener is still attached exactly as it would be
+    // in that race window.
+    win.destroyed = true;
+
+    expect(() =>
+      win.webContents.fireBeforeInputEvent({ type: "keyDown", key: "F5" }),
+    ).not.toThrow();
+    expect(win.webContents.reload).not.toHaveBeenCalled();
+
+    // Clean up: actually close so the "closed" handler fires and resolves
+    // openPromise (close() no-ops if `destroyed` is already true).
+    win.destroyed = false;
+    win.close();
+    await openPromise;
+  });
+
+  /*
+   * NEGATIVE CONTROL (documentation, verified by hand against a temporarily-
+   * reverted src/main/auth.ts, then restored; do not leave any such edit in
+   * place): `onBeforeInput` and `openLoginWindow`'s auto-reload path both
+   * route every `reload()` call through the shared `safeReload` helper
+   * (added for the origin-verification fix above), which itself starts with
+   * `if (win.isDestroyed()) return;` — so this guard is genuinely
+   * load-bearing in `safeReload`, not merely `onBeforeInput`'s own early
+   * `|| win.isDestroyed()` check (kept as cheap, explicit defense-in-depth
+   * at the listener boundary, mirroring the reviewer's suggested fix
+   * location, but not load-bearing on its own since `safeReload` would
+   * catch it either way). Confirmed by removing `if (win.isDestroyed())
+   * return;` from JUST `safeReload` (leaving `onBeforeInput`'s own check in
+   * place): the test above stays GREEN, because `onBeforeInput`'s check
+   * alone already short-circuits before `safeReload` is ever reached — as
+   * expected, since that's exactly the redundancy defense-in-depth buys.
+   * Removing the check from BOTH `onBeforeInput` AND `safeReload` makes the
+   * test go RED (`reload()` IS called on the destroyed window), confirming
+   * the test is a genuine (if doubly-guarded) regression test overall.
+   */
 });
 
 describe("openLoginWindow: security posture (Phase 27) — hardened webPreferences must survive future changes", () => {
