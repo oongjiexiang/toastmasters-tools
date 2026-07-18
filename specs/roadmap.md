@@ -2056,7 +2056,109 @@ rationale for a change that doesn't alter the shipped binary._
 
 ---
 
-## Phase 27 — Not started (Add a typecheck gate to CI, patch → 1.11.2)
+> **Reprioritisation (2026-07-18, VPE-reported bug):** the Basecamp login-window fix below is
+> inserted as the new **Phase 27** — a real, reproduced bug blocking a core flow (no way to
+> capture `BASECAMP_SESSIONID` via in-app login) — pushing the previously-planned Phase 27 (CI
+> typecheck gate) down to **Phase 28**. Version targets re-sequenced to stay monotonic: this
+> phase takes the patch bump `1.11.2` that Phase 28 was going to use; Phase 28 moves to `1.11.3`.
+
+## Phase 27 — Not started (Fix: Basecamp login window hangs on a blank page, no cookie captured, patch → 1.11.2)
+
+_Reported by the VPE: logging in via **File → Log in to Toastmasters…** succeeds against the
+first (TI) window, but the second (Basecamp) window "did not respond, and the page was blank,"
+hangs until force-closed, and afterwards `BASECAMP_SESSIONID` is never captured — so "Refresh
+Progress" has nothing to work with. Reproduced and root-caused directly (see Finding below), not
+guessed. **Bug fix to an existing shipped flow (Phase 12/16), no new feature** — patch bump →
+`1.11.2`._
+
+> **Finding (root cause, confirmed by fetching the actual URL):** `BASECAMP_LOGIN_URL`
+> (`apps/desktop/src/main/auth.ts:36`, `https://app.basecamp.toastmasters.org/dashboard`) returns
+> **HTTP 200 with a completely empty body** — a pure client-rendered SPA shell, not a login form
+> and not server-rendered at all. On a fresh, unauthenticated `persist:toastmasters` partition,
+> that SPA's boot sequence fires a background `login_refresh` XHR to `basecamp.toastmasters.org`
+> which is **blocked by CORS** (no `Access-Control-Allow-Origin` header for that
+> cross-subdomain call with no session cookie yet to authorize it — visible in the reported
+> DevTools console as `Access to XMLHttpRequest … has been blocked by CORS policy`). Basecamp's
+> own client-side recovery path for that failure — presumably a redirect into its TI-SSO login —
+> **itself throws an uncaught exception** (`Error: getLocale called before configuring i18n. Call
+> configure with messages first.`, thrown from its own `ErrorPage` component) before rendering
+> anything. This is a genuine bug in **Basecamp's own bundle**, confirmed third-party (not our
+> code) — we cannot patch it directly, and the page is left permanently, unrecoverably blank.
+>
+> **Our contribution to the pain (the part we control and must fix):** `openLoginWindow`
+> (`apps/desktop/src/main/auth.ts:268`) sets `autoHideMenuBar: true` and, correctly for security,
+> no preload/script injection into this third-party window (`sandbox: true`,
+> `contextIsolation: true`, `nodeIntegration: false` — do not weaken these). The combination means
+> there is **no reload/retry affordance visible to the user at all**, and `runLoginFlow` has no
+> way to detect "this window is showing a permanently broken page" — it just waits for
+> `watchForNavigationCapture` to resolve, which it never will. The user's only option is to
+> force-close the window, at which point `harvestCookies` finds nothing and `applyCookies` writes
+> nothing — exactly the reported symptom (hangs until closed; `BASECAMP_SESSIONID` never set).
+> The fix is **resilience in our window**, not a patch to Basecamp's bundle we don't own.
+
+- [ ] **(item 1) Detect the known failure signature without any script injection.** Electron
+      surfaces third-party console output to the main process natively — no preload/content-script
+      needed, so the hardened `webPreferences` are untouched. In `openLoginWindow`, listen to the
+      Basecamp window's `webContents.on("console-message")` for an error-level message during the
+      login attempt (matching the observed signature — an uncaught exception logged from the
+      renderer, e.g. containing `"getLocale called before configuring i18n"` or a CORS-blocked
+      XHR to `login_refresh`). Treat this as a distinct "third-party page crashed" signal, separate
+      from a normal in-progress login.
+- [ ] **(item 2) Auto-reload once, then cap retries.** On detecting item 1's signature with no
+      successful navigation-away-from-login within a short grace window (e.g. 5s), call
+      `win.webContents.reload()` automatically — a fresh reload frequently clears a one-off
+      CORS/session race on the client's boot sequence. Cap at a small fixed number of automatic
+      reloads (e.g. 2) so a genuine Basecamp outage doesn't reload forever; track the attempt count
+      per `openLoginWindow` call, not globally.
+- [ ] **(item 3) A manual escape hatch that doesn't touch the hardened webPreferences.** Today
+      `autoHideMenuBar: true` removes the *only* native recovery path (a menu-driven reload) on top
+      of removing script injection. Add a `before-input-event` listener on the window (an
+      Electron-level input listener, not a script injected into the third-party page — the
+      security posture is unchanged) that binds `F5`/`Ctrl+R` to `webContents.reload()`, so a user
+      who notices a stuck blank page has a manual way to retry without force-closing the whole
+      login flow.
+- [ ] **(item 4) Give up cleanly if retries are exhausted.** If item 2's retry cap is hit with the
+      needed cookie still not captured, close the window (as today) but have `runLoginFlow`/the
+      `AUTH_LOGIN` IPC response distinguish this case so the renderer can show a clear message
+      instead of a silent "not logged in" — reuse the existing toast pattern:
+      "Basecamp didn't finish signing in. Try **Log in** again, or use **Open Credentials File…**
+      to paste the cookie manually." (the Phase 11/12 manual fallback already exists — this just
+      surfaces it at the moment it's actually needed).
+- [ ] **Tests.** Unit-test the retry/backoff logic with a mocked `webContents` (fires the
+      `console-message` signature, asserts a bounded number of `reload()` calls, asserts the
+      distinct "gave up" status once the cap is hit) — mirrors the existing pure-helper testing
+      style already used for `watchForCapture`/`watchForNavigationCapture` in this file.
+- [ ] **Docs.** Update `apps/desktop/USER_GUIDE.md`'s login/troubleshooting section to mention
+      that a stuck Basecamp login window now retries automatically, and that "Open Credentials
+      File…" is the fallback if it still doesn't complete.
+- [ ] **Version bump:** patch-bump every workspace `package.json` `version` to `1.11.2`; after
+      validation, tag `v1.11.2` (or let the merge-to-`main` automation cut it).
+
+**Validation:**
+1. [ ] `grep -n "console-message" apps/desktop/src/main/auth.ts` — the failure-signature listener
+   is present on the Basecamp login window.
+2. [ ] A unit test (mocked `webContents`) proves: the signature triggers at most the capped number
+   of `reload()` calls, not unbounded; a successful navigation-away-from-login before the grace
+   window elapses does **not** trigger a spurious reload.
+3. [ ] `grep -nE "before-input-event|F5|Ctrl\+R" apps/desktop/src/main/auth.ts` — manual reload
+   binding present; `sandbox: true`, `contextIsolation: true`, `nodeIntegration: false`, and no
+   preload are unchanged in the same window's `webPreferences` (security posture not weakened).
+4. [ ] A test proves that exhausting the retry cap produces a distinguishable "gave up" result
+   from `runLoginFlow`/`AUTH_LOGIN`, and that the renderer surfaces the "Open Credentials File…"
+   fallback message on that result (not a silent not-logged-in state).
+5. [ ] `npm test` green (floor: the Phase 26 count, 447 — 272 core + 175 desktop) plus the new
+   cases above; `npm run typecheck --workspaces --if-present`, `npm run lint`, and
+   `npm run format:check` all clean.
+6. [ ] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
+   `1.11.2`.
+7. [ ] **Manual (user):** reproduce the original bug (or wait for it to recur), confirm the window
+   now auto-reloads instead of hanging silently; if it still doesn't complete, confirm the
+   renderer shows the new "didn't finish signing in" message with a working "Open Credentials
+   File…" path; confirm the existing TI-only and TI+SSO-covers-Basecamp login paths are unaffected.
+
+---
+
+## Phase 28 — Not started (Add a typecheck gate to CI, patch → 1.11.3)
 
 _Phase 23's closing note flagged a concrete, evidenced CI gap: `.github/workflows/ci.yml`'s
 `test` job runs `npm test` only and **never** runs any workspace's `typecheck` script. That is
@@ -2067,7 +2169,7 @@ own validation until an out-of-band `npm run typecheck --workspaces --if-present
 Phase 23 fixed that specific error but explicitly left closing the gate itself to "a future
 phase." This is that phase: put `typecheck` into the same CI gate as the tests, so a `tsc` error
 in any workspace fails the PR check instead of a green `npm test` masking it. **Pipeline-only —
-the shipped `.exe` is byte-identical** — so a **patch bump → `1.11.2`**, the same rationale
+the shipped `.exe` is byte-identical** — so a **patch bump → `1.11.3`**, the same rationale
 Phase 15 used for its pipeline-only patch._
 
 > **Finding (grounds the scope):** all three workspaces already expose a `typecheck` script
@@ -2099,23 +2201,88 @@ Phase 15 used for its pipeline-only patch._
       same shape as `packages/core/tests/release-workflow.test.ts` (js-yaml load + a negative
       control): assert the `test` job includes the `typecheck` invocation, with a control that
       fails against the pre-phase `ci.yml` shape so the gate can't be silently dropped later.
-- [ ] **Version bump:** patch-bump every workspace `package.json` `version` to `1.11.2`; after
-      validation, tag `v1.11.2` (or let the merge-to-`main` automation cut it).
+- [ ] **Version bump:** patch-bump every workspace `package.json` `version` to `1.11.3`; after
+      validation, tag `v1.11.3` (or let the merge-to-`main` automation cut it).
 
 **Validation:**
 1. [ ] `grep -nE "typecheck" .github/workflows/ci.yml` — the `test` job runs a workspace
       typecheck; the file still parses as valid YAML (js-yaml load).
 2. [ ] `npm run typecheck --workspaces --if-present` exits 0 across `@toastmasters/core`,
       `@toastmasters/ui`, and `@toastmasters/desktop` — the new gate is green on the current tree.
-3. [ ] `npm test` green (floor: the Phase 25 count, 447 — 272 core + 175 desktop) including the
+3. [ ] `npm test` green (floor: the Phase 27 count) including the
       new `ci.yml` structural test and its negative control (which must fail on the pre-phase
       workflow shape).
 4. [ ] If the `typescript` pin was hoisted: `grep -n "typescript" package.json` shows the root
       pin and each workspace still resolves a `5.x` (no TS6 drift); `npm run typecheck` stays
       clean.
 5. [ ] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
-      `1.11.2`.
+      `1.11.3`.
 6. [ ] **Confirmed after push (requires a real PR run on GitHub, not headlessly verifiable —
       same caveat as Phase 15's item 2):** the PR's `test` check runs the typecheck step and stays
       the required context under branch protection; optionally, a deliberately-introduced `tsc`
       error on a throwaway branch turns the `test` check red, proving the gate bites.
+
+---
+
+## Phase 29 — Not started (Dashboard typography refresh: sleeker font + heading tracking, minor → 1.12.0)
+
+_Direct VPE request: the app's typography should read "more sleek." Today `packages/ui/globals.css`
+sets `--font-sans: var(--font-sans)` — a no-op that just falls through to Tailwind/shadcn's
+generic default sans stack (plain `ui-sans-serif, system-ui, sans-serif`, no explicit named font).
+Headings use default (0) letter-spacing. User-facing change to the `.exe` — **minor bump →
+`1.12.0`**, matching this repo's convention for visible UI changes (Phase 16, Phase 25)._
+
+> **Sizes stay put — this is a family/spacing change, not a rescale.** §8 of
+> `specs/ui-design-react.md` calls the current dense rhythm (`~0.4rem 0.75rem` cell padding,
+> `0.875rem`/14px body text) load-bearing for a data tool the VPE scans quickly. Nothing in this
+> phase should change any Tailwind text-size class (`text-2xl`, `text-sm`, `text-xs`, …) — the
+> "sleeker" read comes from the font family and heading letter-spacing below. If an item below
+> turns out to need a size change to look right, stop and flag it rather than silently rescaling.
+
+- [ ] **(item 1) Font family.** Change `packages/ui/globals.css`'s `--font-sans` from the
+      self-referential no-op to an explicit, offline-safe stack: lead with each OS's newer,
+      more refined native UI font — `"Segoe UI Variable"` (Windows 11 — this app's primary
+      platform — noticeably crisper/more geometric than classic Segoe UI), then `-apple-system` /
+      `BlinkMacSystemFont` (macOS), then `"Inter"` (in case installed), falling back to
+      `ui-sans-serif, system-ui, sans-serif` so any other machine still renders correctly.
+      Deliberately **no bundled/self-hosted font file** — this is an offline Electron app with no
+      CDN access at runtime, and every entry in the stack is either OS-native or degrades
+      gracefully, so there is no font asset to vendor, license, or wire into the
+      `electron-builder`/`electron-vite` asset pipeline. Add `antialiased` to the existing
+      `html { @apply font-sans; }` rule for crisper rendering at this app's small (12–14px) body
+      sizes.
+- [ ] **(item 2) Heading letter-spacing.** Add `tracking-tight` to the two heading roles only:
+      `DashboardHeader`'s `<h1>`, `MemberDetailView`'s `<h1>`, and the shared `CardTitle` primitive
+      (`packages/ui/components/ui/card.tsx`) so every `Card` — error, empty, "Member not found" —
+      picks it up automatically without per-usage edits. Leave body text, table cells, and badges
+      at default tracking; tight tracking only reads well at the larger/heavier weights headings
+      use, per the `ui-ux-designer` review this item should get before landing.
+- [ ] **Update `specs/ui-design-react.md` §5 (Typography) once implemented** — it currently
+      documents "no custom stack" and "no custom [letter-spacing] values are set anywhere," which
+      will no longer be true. Update the font-family paragraph and the type-roles table's H1/card-
+      title rows to describe the shipped stack and `tracking-tight`, dated to this phase, following
+      the same "documentation of what shipped" convention the rest of §5 already uses — do not
+      pre-edit that spec before the code change lands (traceability: spec documents shipped state,
+      this roadmap entry documents planned state).
+- [ ] **Version bump:** minor-bump every workspace `package.json` `version` to `1.12.0`; after
+      validation, tag `v1.12.0` (or let the merge-to-`main` automation cut it).
+
+**Validation:**
+1. [ ] `grep -n '"Segoe UI Variable"' packages/ui/globals.css` — the new font stack is set (not
+   the old self-referential `var(--font-sans)` no-op).
+2. [ ] `grep -rn "tracking-tight" packages/ui/components/DashboardHeader.tsx
+   apps/desktop/src/renderer/views/MemberDetailView.tsx packages/ui/components/ui/card.tsx` — all
+   three heading sites present.
+3. [ ] No `text-2xl|text-base|text-sm|text-xs` class anywhere in `packages/ui` or
+   `apps/desktop/src/renderer` changed value (a `git diff` size-class check) — confirms the
+   "sizes stay put" constraint held.
+4. [ ] `npm test` green (floor: the Phase 28 count) — no unit test should assert on
+   `font-family`/`tracking` strings, so this should be a no-regression change; `npm run typecheck
+   --workspaces --if-present`, `npm run lint`, and `npm run format:check` all clean.
+5. [ ] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
+   `1.12.0`.
+6. [ ] `specs/ui-design-react.md` §5 updated to describe the shipped font stack and
+   `tracking-tight`, dated to this phase.
+7. [ ] **Manual (user):** open the dashboard and member-detail views and confirm the headings and
+   body text read visibly "sleeker" — refined font rendering, slightly tighter page/card titles —
+   with no layout shift, truncation, or overflow regression anywhere §8's dense table rows appear.
