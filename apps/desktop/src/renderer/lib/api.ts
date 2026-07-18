@@ -66,6 +66,11 @@ export async function downloadMembershipCsv(): Promise<string | null> {
   return unwrap(await window.toastmasters.downloadMembershipCsv());
 }
 
+/** Saves the derived progress-report CSV. Resolves to null when the user cancels. */
+export async function downloadProgressCsv(): Promise<string | null> {
+  return unwrap(await window.toastmasters.downloadProgressCsv());
+}
+
 /** Runs the in-app login flow; resolves to which credentials were obtained. */
 export async function logIn(): Promise<LoginResult> {
   return unwrap(await window.toastmasters.login());

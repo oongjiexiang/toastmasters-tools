@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { CircleCheck, CircleDashed, Download, LogIn, LogOut } from "lucide-react";
+import { CircleCheck, CircleDashed, Download, FileDown, LogIn, LogOut } from "lucide-react";
 import { DashboardHeader } from "@/components/DashboardHeader";
 import { MemberTable } from "@/components/MemberTable";
 import { DiffSection } from "@/components/DiffSection";
@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   downloadMembershipCsv,
+  downloadProgressCsv,
   getAuthStatus,
   getDiff,
   getMembers,
@@ -251,6 +252,15 @@ export function DashboardView({
     }
   }
 
+  async function handleDownloadProgressCsv() {
+    try {
+      const savedTo = await downloadProgressCsv();
+      if (savedTo) toast.success(`Saved to ${savedTo}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message.split("\n")[0] : "Download failed");
+    }
+  }
+
   function renderBody() {
     if (error)
       return (
@@ -330,6 +340,12 @@ export function DashboardView({
           <Button variant="outline" size="sm" onClick={() => void handleDownloadCsv()}>
             <Download className="h-4 w-4" />
             Membership CSV
+          </Button>
+        }
+        progressCsvControl={
+          <Button variant="outline" size="sm" onClick={() => void handleDownloadProgressCsv()}>
+            <FileDown className="h-4 w-4" />
+            Export Report
           </Button>
         }
         themeControl={<ThemeToggle />}

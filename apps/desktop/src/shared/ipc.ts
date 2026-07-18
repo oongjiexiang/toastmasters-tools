@@ -22,6 +22,7 @@ export const IPC = {
   REFRESH_MEMBERSHIP: "toastmasters:refresh:membership",
   REFRESH_CANCEL: "toastmasters:refresh:cancel",
   DOWNLOAD_MEMBERSHIP_CSV: "toastmasters:membership:download",
+  DOWNLOAD_PROGRESS_CSV: "toastmasters:progress:download",
   AUTH_LOGIN: "toastmasters:auth:login",
   AUTH_STATUS: "toastmasters:auth:status",
   AUTH_LOGOUT: "toastmasters:auth:logout",
@@ -65,6 +66,8 @@ export interface ToastmastersBridge {
   cancelRefresh(): Promise<IpcResult<null>>;
   /** Resolves to the saved file path, or null when the user cancels the dialog. */
   downloadMembershipCsv(): Promise<IpcResult<string | null>>;
+  /** Resolves to the saved file path, or null when the user cancels the dialog. */
+  downloadProgressCsv(): Promise<IpcResult<string | null>>;
   /** Runs the in-app login flow; resolves to which credentials were obtained. */
   login(): Promise<IpcResult<LoginResult>>;
   /** Reports which session cookies are currently held (non-empty). */

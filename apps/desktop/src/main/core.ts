@@ -30,4 +30,4 @@ export { RESULTS_DIR } from "@toastmasters/core/config";
 export { findLatestMembershipFile } from "@toastmasters/core/files";
 export { main as runFetch } from "@toastmasters/core/fetch";
 export { main as runMembership } from "@toastmasters/core/membership";
-export { getDiff, getMemberDetail, listMembers } from "@toastmasters/core/queries";
+export { buildProgressReportCsv, getDiff, getMemberDetail, listMembers } from "@toastmasters/core/queries";

@@ -59,6 +59,13 @@ interface DashboardHeaderProps {
    */
   membershipCsvControl: React.ReactNode;
   /**
+   * Optional slot for the progress-report-CSV control: a button that exports
+   * the dashboard's derived member/pathway summary (distinct from the raw
+   * membership roster above). Optional, mirroring `authControl`/`themeControl`
+   * below, since not every consumer needs it.
+   */
+  progressCsvControl?: React.ReactNode;
+  /**
    * Optional slot for an auth control (the Electron "Log in" button). Was
    * undefined for the now-removed web app (Phase 14) — a browser cannot
    * harvest cross-origin cookies, so that build never had anything to inject
@@ -81,6 +88,7 @@ export function DashboardHeader({
   onRefreshProgress,
   onRefreshMembership,
   membershipCsvControl,
+  progressCsvControl,
   authControl,
   themeControl,
 }: DashboardHeaderProps) {
@@ -116,11 +124,12 @@ export function DashboardHeader({
             Refresh Membership
           </Button>
         </div>
-        {(membershipCsvControl || themeControl) && (
+        {(membershipCsvControl || progressCsvControl || themeControl) && (
           <>
             <Separator className="hidden sm:block" />
             <div className="flex items-center gap-2">
               {membershipCsvControl}
+              {progressCsvControl}
               {themeControl}
             </div>
           </>

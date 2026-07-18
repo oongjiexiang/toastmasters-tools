@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from "electron";
-import { copyFileSync } from "fs";
+import { copyFileSync, writeFileSync } from "fs";
 import { basename, join } from "path";
 import { IPC, type IpcResult } from "../shared/ipc";
 import { credentialsFile, ensureCredentialsFile, loadCredentials } from "./credentials";
@@ -189,6 +189,30 @@ function registerIpcHandlers(): void {
     if (canceled || !filePath) return { ok: true, data: null };
 
     copyFileSync(source, filePath);
+    return { ok: true, data: filePath };
+  });
+
+  handle(IPC.DOWNLOAD_PROGRESS_CSV, async (core) => {
+    const result = core.listMembers();
+    if (!result.ok) return fromQuery(result);
+
+    if (result.data.members.length === 0) {
+      return { ok: false, code: "NO_MEMBERS", message: "No members to export — Refresh first." };
+    }
+
+    const csv = core.buildProgressReportCsv(result.data.members);
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: "Save progress report",
+      defaultPath: join(
+        app.getPath("downloads"),
+        `progress-report-${new Date().toISOString().slice(0, 10)}.csv`,
+      ),
+      filters: [{ name: "CSV", extensions: ["csv"] }],
+    });
+
+    if (canceled || !filePath) return { ok: true, data: null };
+
+    writeFileSync(filePath, csv);
     return { ok: true, data: filePath };
   });
 

@@ -17,6 +17,7 @@ const bridge: ToastmastersBridge = {
   refreshMembership: () => ipcRenderer.invoke(IPC.REFRESH_MEMBERSHIP),
   cancelRefresh: () => ipcRenderer.invoke(IPC.REFRESH_CANCEL),
   downloadMembershipCsv: () => ipcRenderer.invoke(IPC.DOWNLOAD_MEMBERSHIP_CSV),
+  downloadProgressCsv: () => ipcRenderer.invoke(IPC.DOWNLOAD_PROGRESS_CSV),
   login: () => ipcRenderer.invoke(IPC.AUTH_LOGIN),
   authStatus: () => ipcRenderer.invoke(IPC.AUTH_STATUS),
   logout: () => ipcRenderer.invoke(IPC.AUTH_LOGOUT),

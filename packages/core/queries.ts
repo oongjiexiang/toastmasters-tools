@@ -301,3 +301,65 @@ export function getDiff(dbPath?: string): QueryResult<DiffResult> {
 
   return { ok: true, data: { progress, membership } };
 }
+
+// ── Exports ───────────────────────────────────────────────────────────────────
+
+const STATUS_LABELS: Record<PathwaySummary["status"], string> = {
+  completed: "Completed",
+  ready: "Ready",
+  close: "Close",
+  "in-progress": "In Progress",
+  "not-started": "Not Started",
+};
+
+const PROGRESS_REPORT_HEADER = [
+  "Name",
+  "Email",
+  "Title",
+  "Pathway",
+  "Next Level",
+  "Projects Remaining",
+  "Status",
+];
+
+/** RFC-4180 escaping: quote fields containing a comma, double-quote, or newline. */
+function csvField(value: string | number): string {
+  const str = String(value);
+  if (/[",\r\n]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+function csvRow(fields: (string | number)[]): string {
+  return fields.map(csvField).join(",");
+}
+
+/**
+ * Serializes the dashboard's derived member/pathway summary as a CSV report
+ * (distinct from the raw TI membership-roster CSV). One row per
+ * (member, pathway) — a member enrolled in two pathways yields two rows.
+ * Hand-rolled (no `csv-stringify` — dropped in Phase 10) and RFC-4180-escaped;
+ * uses `\r\n` line endings for Excel.
+ */
+export function buildProgressReportCsv(members: MemberSummary[]): string {
+  const lines = [csvRow(PROGRESS_REPORT_HEADER)];
+
+  for (const member of members) {
+    for (const pathway of member.pathways) {
+      lines.push(
+        csvRow([
+          member.name,
+          member.email,
+          member.title,
+          pathway.pathway,
+          pathway.nextLevel,
+          pathway.remaining,
+          STATUS_LABELS[pathway.status],
+        ]),
+      );
+    }
+  }
+
+  return lines.join("\r\n") + "\r\n";
+}
