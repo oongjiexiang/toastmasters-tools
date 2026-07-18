@@ -2256,7 +2256,7 @@ Phase 15 used for its pipeline-only patch._
 
 ---
 
-## Phase 29 — Not started (Dashboard typography refresh: sleeker font + heading tracking, minor → 1.12.0)
+## Phase 29 — Done (Dashboard typography refresh: sleeker font + heading tracking, minor → 1.12.0)
 
 _Direct VPE request: the app's typography should read "more sleek." Today `packages/ui/globals.css`
 sets `--font-sans: var(--font-sans)` — a no-op that just falls through to Tailwind/shadcn's
@@ -2271,7 +2271,7 @@ Headings use default (0) letter-spacing. User-facing change to the `.exe` — **
 > "sleeker" read comes from the font family and heading letter-spacing below. If an item below
 > turns out to need a size change to look right, stop and flag it rather than silently rescaling.
 
-- [ ] **(item 1) Font family.** Change `packages/ui/globals.css`'s `--font-sans` from the
+- [x] **(item 1) Font family.** Change `packages/ui/globals.css`'s `--font-sans` from the
       self-referential no-op to an explicit, offline-safe stack: lead with each OS's newer,
       more refined native UI font — `"Segoe UI Variable"` (Windows 11 — this app's primary
       platform — noticeably crisper/more geometric than classic Segoe UI), then `-apple-system` /
@@ -2283,38 +2283,56 @@ Headings use default (0) letter-spacing. User-facing change to the `.exe` — **
       `electron-builder`/`electron-vite` asset pipeline. Add `antialiased` to the existing
       `html { @apply font-sans; }` rule for crisper rendering at this app's small (12–14px) body
       sizes.
-- [ ] **(item 2) Heading letter-spacing.** Add `tracking-tight` to the two heading roles only:
+- [x] **(item 2) Heading letter-spacing.** Add `tracking-tight` to the two heading roles only:
       `DashboardHeader`'s `<h1>`, `MemberDetailView`'s `<h1>`, and the shared `CardTitle` primitive
       (`packages/ui/components/ui/card.tsx`) so every `Card` — error, empty, "Member not found" —
       picks it up automatically without per-usage edits. Leave body text, table cells, and badges
       at default tracking; tight tracking only reads well at the larger/heavier weights headings
       use, per the `ui-ux-designer` review this item should get before landing.
-- [ ] **Update `specs/ui-design-react.md` §5 (Typography) once implemented** — it currently
+- [x] **Update `specs/ui-design-react.md` §5 (Typography) once implemented** — it currently
       documents "no custom stack" and "no custom [letter-spacing] values are set anywhere," which
       will no longer be true. Update the font-family paragraph and the type-roles table's H1/card-
       title rows to describe the shipped stack and `tracking-tight`, dated to this phase, following
       the same "documentation of what shipped" convention the rest of §5 already uses — do not
       pre-edit that spec before the code change lands (traceability: spec documents shipped state,
       this roadmap entry documents planned state).
-- [ ] **Version bump:** minor-bump every workspace `package.json` `version` to `1.12.0`; after
+- [x] **Version bump:** minor-bump every workspace `package.json` `version` to `1.12.0`; after
       validation, tag `v1.12.0` (or let the merge-to-`main` automation cut it).
 
 **Validation:**
-1. [ ] `grep -n '"Segoe UI Variable"' packages/ui/globals.css` — the new font stack is set (not
+1. [x] `grep -n '"Segoe UI Variable"' packages/ui/globals.css` — the new font stack is set (not
    the old self-referential `var(--font-sans)` no-op).
-2. [ ] `grep -rn "tracking-tight" packages/ui/components/DashboardHeader.tsx
+2. [x] `grep -rn "tracking-tight" packages/ui/components/DashboardHeader.tsx
    apps/desktop/src/renderer/views/MemberDetailView.tsx packages/ui/components/ui/card.tsx` — all
    three heading sites present.
-3. [ ] No `text-2xl|text-base|text-sm|text-xs` class anywhere in `packages/ui` or
+3. [x] No `text-2xl|text-base|text-sm|text-xs` class anywhere in `packages/ui` or
    `apps/desktop/src/renderer` changed value (a `git diff` size-class check) — confirms the
    "sizes stay put" constraint held.
-4. [ ] `npm test` green (floor: the Phase 28 count) — no unit test should assert on
+4. [x] `npm test` green (floor: the Phase 28 count) — no unit test should assert on
    `font-family`/`tracking` strings, so this should be a no-regression change; `npm run typecheck
    --workspaces --if-present`, `npm run lint`, and `npm run format:check` all clean.
-5. [ ] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
+5. [x] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
    `1.12.0`.
-6. [ ] `specs/ui-design-react.md` §5 updated to describe the shipped font stack and
+6. [x] `specs/ui-design-react.md` §5 updated to describe the shipped font stack and
    `tracking-tight`, dated to this phase.
 7. [ ] **Manual (user):** open the dashboard and member-detail views and confirm the headings and
    body text read visibly "sleeker" — refined font rendering, slightly tighter page/card titles —
    with no layout shift, truncation, or overflow regression anywhere §8's dense table rows appear.
+
+> **Note:** Validation item 4's checklist text predicted "no unit test should assert on
+> `font-family`/`tracking` strings" — that did **not** hold in the end. A new structural-guard
+> test, `packages/core/tests/typography-refresh.test.ts` (11 cases), was added to pin the shipped
+> font stack and all three `tracking-tight` additions against regression, mirroring the
+> `ci-workflow.test.ts`/`release-workflow.test.ts` pattern: it asserts the shipped shape on the
+> real files, then proves those assertions aren't vacuously true with negative-control fixtures
+> reproducing the exact pre-Phase-29 `globals.css` and heading markup (self-referential
+> `--font-sans: var(--font-sans)`, no `antialiased`, no `tracking-tight`) — each of which the
+> positive assertions correctly reject. The "sizes stay put" constraint (item 3 above) held with
+> no exceptions: no `text-2xl`/`text-base`/`text-sm`/`text-xs` class changed anywhere; the new
+> test's negative controls double as proof, pinning `text-2xl font-semibold` and
+> `text-base leading-snug font-medium` as unchanged alongside the added `tracking-tight`. `npm test`
+> reproduced **492/492** total (290/290 core — up from 279 before this phase, the new file's 11
+> cases — and 202/202 desktop, unchanged), `npm run typecheck --workspaces --if-present`,
+> `npm run lint`, and `npm run format:check` all clean. **Validation item 7 remains open by
+> design** — it requires a human looking at the rendered app, matching this repo's convention for
+> manual/user-only validation steps (see Phase 27's item 7, Phase 28's item 6).
