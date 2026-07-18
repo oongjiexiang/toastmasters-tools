@@ -773,4 +773,40 @@ describe("buildProgressReportCsv", () => {
       '"Alice\nSmith",alice@example.com,PM1,Presentation Mastery,Level 2,2,In Progress',
     );
   });
+
+  it.each(["=", "+", "-", "@", "\t"])(
+    "neutralizes a name starting with the formula-trigger character %j (OWASP CSV-injection mitigation)",
+    (trigger) => {
+      const csv = buildProgressReportCsv([memberSummary({ name: `${trigger}cmd|'/c calc'!A1` })]);
+      const dataRow = csv.split("\r\n")[1];
+
+      // A leading apostrophe forces spreadsheet software to render the cell
+      // as text instead of evaluating it as a formula.
+      expect(dataRow).toBe(
+        `'${trigger}cmd|'/c calc'!A1,alice@example.com,PM1,Presentation Mastery,Level 2,2,In Progress`,
+      );
+    },
+  );
+
+  it("neutralizes a formula-trigger character in any field, not just name", () => {
+    const csv = buildProgressReportCsv([
+      memberSummary({ pathways: [pathwaySummary({ nextLevel: "=1+1" })] }),
+    ]);
+    const dataRow = csv.split("\r\n")[1];
+
+    expect(dataRow).toBe(
+      "Alice Smith,alice@example.com,PM1,Presentation Mastery,'=1+1,2,In Progress",
+    );
+  });
+
+  it("does NOT neutralize a value that merely contains, but does not start with, a formula-trigger character", () => {
+    // Negative control: over-eager neutralization would corrupt legitimate
+    // data like "Smith-Jones" or an email address containing "@".
+    const csv = buildProgressReportCsv([memberSummary({ name: "Smith-Jones" })]);
+    const dataRow = csv.split("\r\n")[1];
+
+    expect(dataRow).toBe(
+      "Smith-Jones,alice@example.com,PM1,Presentation Mastery,Level 2,2,In Progress",
+    );
+  });
 });

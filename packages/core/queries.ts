@@ -322,9 +322,20 @@ const PROGRESS_REPORT_HEADER = [
   "Status",
 ];
 
-/** RFC-4180 escaping: quote fields containing a comma, double-quote, or newline. */
+/**
+ * RFC-4180 escaping (quote fields containing a comma, double-quote, or
+ * newline), plus the standard OWASP CSV-injection mitigation: a leading
+ * `=`, `+`, `-`, `@`, or tab is prefixed with a `'` so spreadsheet software
+ * (Excel/Sheets/LibreOffice) renders the cell as text instead of evaluating
+ * it as a formula. `name`/`title`/`pathway`/`nextLevel` are free-text fields
+ * members can set on their own TI/Basecamp profile, so this is untrusted
+ * input from the report reader's point of view.
+ */
 function csvField(value: string | number): string {
-  const str = String(value);
+  let str = String(value);
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`;
+  }
   if (/[",\r\n]/.test(str)) {
     return `"${str.replace(/"/g, '""')}"`;
   }
