@@ -4,7 +4,10 @@ A simple Windows app that shows each club member's Pathways progress in one plac
 
 ## Install the app
 
-1. Double-click **`Toastmasters Tools Setup 1.10.0.exe`**.
+1. Double-click **`Toastmasters Tools Setup 1.11.1.exe`**. (The number in the
+   filename tracks the app's current version, so if you're installing a newer
+   release later, just look for whatever number is there instead — the steps
+   are the same.)
 2. Windows may show a blue **"Windows protected your PC"** warning about an
    unknown publisher. This is expected — the app is safe but not signed by a
    paid certificate. Click **More info**, then **Run anyway**.
@@ -126,18 +129,20 @@ On the dashboard, top right, there are two buttons:
 A small message appears at the bottom of the screen while it works, then tells
 you it succeeded or shows an error. Each refresh can take up to a minute.
 
-While it runs, a **progress console** appears showing what the app is doing
+The first time you click a refresh button, a **progress console** opens up
+further down the page, below the member table, showing what the app is doing
 right now — for example "Step 1/3 — gathering the member overview list…" and
 then each member as it is fetched. This is just so you can see it is working
 and roughly how far along it is; you do not need to do anything with it. When
-it finishes, the table fills in (or updates).
+it finishes, the table fills in (or updates). After that, the console stays
+visible for the rest of the session — you can collapse it to a slim bar with
+the arrow described below, though a new refresh always pops it back open.
 
-The console stays on screen even if you navigate to a member's detail page and
-back — it does not disappear until you clear it by starting a new refresh.
-Click the little arrow in its top-right corner to collapse or expand it, and
-use the **Copy logs** button there to copy the full text to your clipboard —
-handy if you need to send it to whoever maintains the app when something goes
-wrong.
+The console stays in place even if you navigate to a member's detail page and
+back. Click the little arrow in its top-right corner to collapse it back down
+to the slim bar or expand it again, and use the **Copy logs** button there to
+copy the full text to your clipboard — handy if you need to send it to
+whoever maintains the app when something goes wrong.
 
 Changed your mind partway through? Click **Cancel** in the console's header
 (only shown while a refresh is running) to stop it cleanly. Cancelling does
@@ -147,6 +152,14 @@ cancelled stays as it was.
 Run both whenever you want the latest numbers.
 
 ## Read the dashboard
+
+Next to the member count at the top of the table, a small note tells you when
+the data was last refreshed — "Updated today," "Updated 1 day ago," "Updated N
+days ago," or, on a fresh install before you've run a refresh, "Never
+refreshed." Nothing to do here most of the time — but the note turns
+orange/amber-colored once it's been a while (about three weeks) since your
+last refresh, as a nudge that it's worth clicking **Refresh Progress** or
+**Refresh Membership** again soon.
 
 The table lists every member with these columns:
 
@@ -204,7 +217,8 @@ up or turn on.
 | Problem | Fix |
 | --- | --- |
 | A refresh says "Your Toastmasters session has expired. Log out and log in again to continue." | Your login timed out. Click **Log in again** in the message that appears — after you sign in, the app retries the refresh for you. You can also just click **Log in** at the top right again. The full error details are also saved in the progress console, in case you need them. |
-| A refresh worked before but now fails | Same as above — sessions expire after a while. Click **Log in** (top right) and sign in again. |
+| A refresh says "Log in to Toastmasters first, then Refresh." | You are not signed in yet, so there is no session to expire — this is a different message from the one above. Click **Log in** (top right), finish signing in, then click **Refresh Progress** / **Refresh Membership** again. |
+| A refresh worked before but now fails | Same as the "session has expired" row above — sessions expire after a while. Click **Log in** (top right) and sign in again. |
 | I clicked Log in but nothing loaded | The login window closes itself only once sign-in actually succeeds — if the badge next to **Log in** still reads "Not logged in" (or only "Basecamp only" / "TI only"), the login did not fully complete. Click **Log in** and try again, making sure to finish every step (including any MFA code or the second Basecamp window). If it still won't work, use the manual fallback in [If login doesn't work](#if-login-doesnt-work-enter-cookies-manually-fallback). |
 | SmartScreen blocked the installer | Click **More info**, then **Run anyway**. The app is safe but unsigned. |
-| The dashboard is empty | You have not loaded data yet — click **Refresh Progress** and **Refresh Membership**. |
+| The dashboard is empty | If the badge next to **Log in** (top right) reads "Not logged in," sign in first — see [First-time setup](#first-time-setup-log-in-to-toastmasters) — then click **Refresh Progress** and **Refresh Membership**. If you are already logged in, you just haven't loaded data yet — click those same two buttons. |
