@@ -251,26 +251,37 @@ text label, so the amber "Ready" vs "In progress" pair is distinguishable withou
 Formalizes classes already in production use across `packages/ui/components/**` and
 `apps/desktop/src/renderer/**` — this is documentation of what shipped, not a redesign. Added
 2026-07-17 after a ui-ux-designer review; product-manager-aligned as doc-only (no code change).
+Updated 2026-07-18 for Phase 29 (dashboard typography refresh): the font stack and heading
+letter-spacing below reflect that phase's shipped change, not the original 2026-07-17 baseline.
 
-**Font family.** No custom stack. Body/UI text inherits Tailwind/shadcn's default `--font-sans`
-(system UI stack) via `packages/ui/globals.css`'s `html { @apply font-sans; }`. `font-mono`
-(default system mono stack) is reserved for machine-ish content only: title badges (`[PM3]`,
-`[DTM]`) and the refresh console's log output — never for prose.
+**Font family.** `packages/ui/globals.css`'s `--font-sans` sets an explicit, offline-safe stack:
+`"Segoe UI Variable", -apple-system, BlinkMacSystemFont, "Inter", ui-sans-serif, system-ui,
+sans-serif` — Windows 11's newer, more geometric system font first (this app's primary platform),
+then macOS's native system font, then Inter if installed, falling back to Tailwind/shadcn's
+generic sans-serif stack. No font file is bundled or self-hosted — every entry is either OS-native
+or degrades gracefully, which matters for this offline Electron app with no CDN access at runtime.
+`html { @apply font-sans antialiased; }` also applies `antialiased` for crisper rendering at this
+app's small (12–14px) body sizes. `font-mono` (default system mono stack) is reserved for
+machine-ish content only: title badges (`[PM3]`, `[DTM]`) and the refresh console's log output —
+never for prose.
 
 **Type roles:**
 
 | Role | Tailwind class | ~px | Weight | Used in |
 |---|---|---|---|---|
-| Page title (H1) | `text-2xl font-semibold` | 24 | 600 | `DashboardHeader`, `MemberDetailView` header |
-| Section / card title | `text-base font-medium` | 16 | 500 | shadcn `CardTitle` (`leading-snug`) |
+| Page title (H1) | `text-2xl font-semibold tracking-tight` | 24 | 600 | `DashboardHeader`, `MemberDetailView` header |
+| Section / card title | `text-base font-medium tracking-tight` | 16 | 500 | shadcn `CardTitle` (`leading-snug`) |
 | Body / table text | `text-sm` | 14 | 400 | table cells, card descriptions, error/empty-state copy |
 | Emphasis label | `text-sm font-medium` | 14 | 500 | table header cells, level-accordion labels, `DiffSection` section labels |
 | Secondary / muted | `text-sm` + `text-muted-foreground` | 14 | 400 | subtext, descriptions |
 | Small label / badge | `text-xs` (badges add `font-medium`) | 12 | 400/500 | badges, elective tags, `xs` button size, console header label |
 | Monospace / code | `font-mono text-xs`–`text-sm` | 12–14 | 400 | title badges, console log lines |
 
-Line-height and letter-spacing are Tailwind defaults throughout (plus `leading-snug` on card
-titles) — no custom values are set anywhere.
+Line-height is a Tailwind default throughout, plus `leading-snug` on card titles. Letter-spacing is
+also a Tailwind default everywhere **except** the two heading roles above: `tracking-tight`
+(Phase 29, 2026-07-18) tightens the Page title (H1) and Section/card title roles only — body text,
+table cells, and badges are untouched, since tight tracking only reads well at the larger/heavier
+weights headings use.
 
 > **Badge size is component-baked, not a per-use knob.** shadcn's `Badge` base variant
 > (`packages/ui/components/ui/badge.tsx`) already hardcodes `text-xs font-medium` — every badge
