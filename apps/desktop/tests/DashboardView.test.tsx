@@ -230,6 +230,73 @@ describe("DashboardView — a CANCELLED refresh bypasses the auth-retry path ent
   });
 });
 
+describe("DashboardView — handleLogin toast messaging (Phase 27: Basecamp login window gives up)", () => {
+  // `beforeEach` above already resolves `getAuthStatus` to logged-out, so the
+  // "Log in" button (not "Log out") is what renders.
+  it("shows the Basecamp-gave-up fallback message when logIn() resolves basecampGaveUp: true, taking PRIORITY over the generic 'no cookies' toast even though both conditions are true here", async () => {
+    // Zero cookies captured AND basecampGaveUp: true — both of handleLogin's
+    // conditions technically apply. The gaveUp-specific branch must win.
+    logIn.mockResolvedValue({ basecamp: false, ti: false, basecampGaveUp: true });
+    renderDashboard();
+
+    const loginButton = await screen.findByRole("button", { name: /Log in/i });
+    fireEvent.click(loginButton);
+
+    await screen.findByText(
+      "Basecamp didn't finish signing in. Try Log in again, or use Open Credentials File… to paste the cookie manually.",
+    );
+
+    // Negative control: the generic zero-cookie toast must NOT also appear —
+    // proves the gaveUp branch is checked BEFORE (and instead of) the
+    // generic one, not merely alongside it.
+    expect(
+      screen.queryByText("No cookies captured — the login did not complete."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("negative control: shows the generic 'no cookies captured' toast when logIn() resolves with zero cookies and basecampGaveUp is unset", async () => {
+    logIn.mockResolvedValue({ basecamp: false, ti: false });
+    renderDashboard();
+
+    const loginButton = await screen.findByRole("button", { name: /Log in/i });
+    fireEvent.click(loginButton);
+
+    await screen.findByText("No cookies captured — the login did not complete.");
+
+    // The Phase 27 message must NOT appear when the window didn't actually
+    // give up (e.g. the user just closed it without Basecamp ever crashing).
+    expect(
+      screen.queryByText(
+        "Basecamp didn't finish signing in. Try Log in again, or use Open Credentials File… to paste the cookie manually.",
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  it("negative control: shows the success toast (not either failure message) when logIn() captures at least one cookie, even if basecampGaveUp were somehow also set", async () => {
+    // Defensive: a captured cookie always wins, regardless of basecampGaveUp
+    // — mirrors runLoginFlow's own invariant (basecampGaveUp is only ever set
+    // when applyCookies(...).basecamp is still false).
+    logIn.mockResolvedValue({ basecamp: true, ti: false, basecampGaveUp: true });
+    renderDashboard();
+
+    const loginButton = await screen.findByRole("button", { name: /Log in/i });
+    fireEvent.click(loginButton);
+
+    await screen.findByText(
+      "Signed in to Toastmasters — now use the Refresh buttons to load data",
+    );
+
+    expect(
+      screen.queryByText("No cookies captured — the login did not complete."),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "Basecamp didn't finish signing in. Try Log in again, or use Open Credentials File… to paste the cookie manually.",
+      ),
+    ).not.toBeInTheDocument();
+  });
+});
+
 describe("DashboardView — 'No data yet' empty-state copy branches on authStatus (Phase 25 item 2)", () => {
   it("tells a logged-out user to log in first, not to just 'use the refresh buttons'", async () => {
     // beforeEach already resolves getMembers to an empty list and authStatus
