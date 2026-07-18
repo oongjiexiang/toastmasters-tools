@@ -89,7 +89,7 @@ export function DashboardHeader({
   return (
     <div className="flex items-start justify-between mb-6">
       <div>
-        <h1 className="text-2xl font-semibold">Toastmasters Dashboard</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Toastmasters Dashboard</h1>
         {memberCount !== null && (
           <p className="text-muted-foreground text-sm mt-1">
             {memberCount} members · <FreshnessNote latestSnapshotAt={latestSnapshotAt} />
