@@ -12,10 +12,14 @@ export interface WorkflowStep {
   if?: string;
   with?: Record<string, unknown>;
   run?: string;
-  "continue-on-error"?: boolean;
+  // GitHub Actions accepts either a literal boolean or an expression string
+  // (e.g. `${{ always() }}`) here — both are truthy in a way a strict
+  // `=== true` check would miss for the string case.
+  "continue-on-error"?: boolean | string;
 }
 
 export interface WorkflowJob {
   "runs-on"?: string;
   steps?: WorkflowStep[];
+  "continue-on-error"?: boolean | string;
 }

@@ -43,10 +43,32 @@ interface CiWorkflow {
  * negative-control tests below, to deliberately broken fixture strings
  * (must NOT hold) — proving these assertions aren't vacuously true.
  */
+// A run command whose failure is swallowed via `|| true` / `|| exit 0` lets
+// the gate report success even when the underlying command fails — just as
+// effective a bypass as `continue-on-error`, so this is checked against the
+// command text directly rather than relying on `continue-on-error` alone.
+const FAILURE_SWALLOWED_PATTERN = /\|\|\s*(true|exit 0)\b/;
+
 function assertCiWorkflowShape(workflow: CiWorkflow): void {
   const testJob = workflow.jobs?.test;
   expect(testJob).toBeDefined();
-  expect(testJob?.["runs-on"]).toBe("ubuntu-latest");
+  // Deliberately not pinned to "ubuntu-latest": the runner label is not this
+  // guard's concern (unlike release.yml's windows-2022, which is pinned for
+  // a concrete electron-builder/native-rebuild reason) — a future move to a
+  // dated runner (e.g. ubuntu-24.04) shouldn't fail a typecheck-gate guard.
+  expect(testJob?.["runs-on"]).toBeTruthy();
+
+  // A job-level continue-on-error would let every step's failure — including
+  // typecheck's — pass silently, bypassing every step-level guard below.
+  // continue-on-error also accepts an expression string (e.g. `${{ ... }}`),
+  // not just a literal boolean, so this checks truthiness rather than
+  // `=== true` — a non-empty string would otherwise slip past `.not.toBe(true)`.
+  expect(testJob?.["continue-on-error"]).toBeFalsy();
+
+  // The gate only bites if it actually runs on PRs into main; an unasserted
+  // trigger is a silent gap a future edit could drop without any assertion
+  // here noticing.
+  expect(workflow.on?.pull_request?.branches).toContain("main");
 
   const steps = testJob?.steps ?? [];
 
@@ -57,16 +79,16 @@ function assertCiWorkflowShape(workflow: CiWorkflow): void {
   const typecheckStep = steps.find((step) => step.run?.includes("typecheck --workspaces"));
   expect(typecheckStep).toBeDefined();
 
-  // A step whose `run` text merely *contains* "typecheck --workspaces"
-  // inside a larger command isn't good enough to prove the gate actually
-  // gates: `npm run typecheck --workspaces --if-present || true` would
-  // still match the loose substring check above yet always exit 0, and
-  // `continue-on-error: true` would let a real tsc failure through without
-  // failing the job either way. Pin the exact command and confirm the
-  // step's failure isn't being ignored, so neither can silently neuter the
-  // gate this phase exists to add.
-  expect(typecheckStep?.run?.trim()).toBe("npm run typecheck --workspaces --if-present");
-  expect(typecheckStep?.["continue-on-error"]).not.toBe(true);
+  // Semantic checks on the invariant ("typecheck runs and its failure isn't
+  // swallowed"), not an exact-string pin on the command — a benign flag or
+  // formatting change to the command shouldn't break this guard. Truthiness
+  // (not `=== true`) for the same expression-string reason as the job-level
+  // check above.
+  expect(typecheckStep?.run).not.toMatch(FAILURE_SWALLOWED_PATTERN);
+  expect(typecheckStep?.["continue-on-error"]).toBeFalsy();
+  // A skip-triggering `if:` on the step is just as effective a bypass as
+  // continue-on-error — GitHub Actions treats a skipped step as non-failing.
+  expect(typecheckStep?.if).toBeUndefined();
 
   const testStep = steps.find((step) => step.run?.includes("npm test") && step !== typecheckStep);
   expect(testStep).toBeDefined();
@@ -160,8 +182,8 @@ jobs:
     expect(() => assertCiWorkflowShape(wrongOrder)).toThrow();
   });
 
-  it("fails when runs-on has drifted to ubuntu-22.04 instead of ubuntu-latest", () => {
-    const wrongRunner = loadYaml(`
+  it("fails when runs-on is missing entirely (no runner means the job can't run at all)", () => {
+    const noRunner = loadYaml(`
 on:
   push:
     branches: ["**"]
@@ -169,7 +191,6 @@ on:
     branches: [main]
 jobs:
   test:
-    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -184,7 +205,7 @@ jobs:
         run: npm test
 `) as CiWorkflow;
 
-    expect(() => assertCiWorkflowShape(wrongRunner)).toThrow();
+    expect(() => assertCiWorkflowShape(noRunner)).toThrow();
   });
 
   it("fails when the typecheck step is marked continue-on-error (gate is neutered)", () => {
@@ -215,6 +236,34 @@ jobs:
     expect(() => assertCiWorkflowShape(neutered)).toThrow();
   });
 
+  it("fails when continue-on-error is an expression string rather than a literal `true` (still neuters the gate)", () => {
+    const expressionContinueOnError = loadYaml(`
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck all workspaces
+        continue-on-error: \${{ always() }}
+        run: npm run typecheck --workspaces --if-present
+      - name: Unit / API / bundle tests
+        run: npm test
+`) as CiWorkflow;
+
+    expect(() => assertCiWorkflowShape(expressionContinueOnError)).toThrow();
+  });
+
   it("fails when the typecheck step's failure is swallowed (e.g. `|| true`)", () => {
     const swallowed = loadYaml(`
 on:
@@ -240,5 +289,86 @@ jobs:
 `) as CiWorkflow;
 
     expect(() => assertCiWorkflowShape(swallowed)).toThrow();
+  });
+
+  it("fails when the pull_request trigger no longer targets main (gate stops running on PRs)", () => {
+    const noPrTrigger = loadYaml(`
+on:
+  push:
+    branches: ["**"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck all workspaces
+        run: npm run typecheck --workspaces --if-present
+      - name: Unit / API / bundle tests
+        run: npm test
+`) as CiWorkflow;
+
+    expect(() => assertCiWorkflowShape(noPrTrigger)).toThrow();
+  });
+
+  it("fails when the test job is marked continue-on-error at the job level (every step's failure is swallowed)", () => {
+    const jobLevelContinueOnError = loadYaml(`
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck all workspaces
+        run: npm run typecheck --workspaces --if-present
+      - name: Unit / API / bundle tests
+        run: npm test
+`) as CiWorkflow;
+
+    expect(() => assertCiWorkflowShape(jobLevelContinueOnError)).toThrow();
+  });
+
+  it("fails when the typecheck step has a skip-triggering `if` (step can be silently skipped)", () => {
+    const skippableStep = loadYaml(`
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck all workspaces
+        if: false
+        run: npm run typecheck --workspaces --if-present
+      - name: Unit / API / bundle tests
+        run: npm test
+`) as CiWorkflow;
+
+    expect(() => assertCiWorkflowShape(skippableStep)).toThrow();
   });
 });
