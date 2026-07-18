@@ -255,11 +255,13 @@ Updated 2026-07-18 for Phase 29 (dashboard typography refresh): the font stack a
 letter-spacing below reflect that phase's shipped change, not the original 2026-07-17 baseline.
 
 **Font family.** `packages/ui/globals.css`'s `--font-sans` sets an explicit, offline-safe stack:
-`"Segoe UI Variable", -apple-system, BlinkMacSystemFont, "Inter", ui-sans-serif, system-ui,
-sans-serif` — Windows 11's newer, more geometric system font first (this app's primary platform),
-then macOS's native system font, then Inter if installed, falling back to Tailwind/shadcn's
-generic sans-serif stack. No font file is bundled or self-hosted — every entry is either OS-native
-or degrades gracefully, which matters for this offline Electron app with no CDN access at runtime.
+`"Segoe UI Variable", -apple-system, BlinkMacSystemFont, ui-sans-serif, system-ui, sans-serif` —
+Windows 11's newer, more geometric system font first (this app's primary platform), then macOS's
+native system font, falling back to Tailwind/shadcn's generic sans-serif stack. Every entry is
+OS-native and reachable on a real machine — no font file is bundled or self-hosted, and no entry
+(e.g. a non-bundled webfont like Inter) is left in the stack where it could never actually resolve,
+per a PR #16 review finding. This matters for this offline Electron app with no CDN access at
+runtime.
 `html { @apply font-sans antialiased; }` also applies `antialiased` for crisper rendering at this
 app's small (12–14px) body sizes. `font-mono` (default system mono stack) is reserved for
 machine-ish content only: title badges (`[PM3]`, `[DTM]`) and the refresh console's log output —
@@ -282,6 +284,14 @@ also a Tailwind default everywhere **except** the two heading roles above: `trac
 (Phase 29, 2026-07-18) tightens the Page title (H1) and Section/card title roles only — body text,
 table cells, and badges are untouched, since tight tracking only reads well at the larger/heavier
 weights headings use.
+
+> **Exception: `CardTitle`'s `size="sm"` variant does not use tight tracking.** shadcn's `CardTitle`
+> drops to `text-sm` (body-text size) via `group-data-[size=sm]/card:text-sm` when its parent `Card`
+> is rendered `size="sm"` — at that size it's reading as body text, not a heading, so it resets to
+> `tracking-normal` via a matching `group-data-[size=sm]/card:tracking-normal` override, keeping the
+> "tight tracking only at heading weights" rule intact rather than letting it leak into body-size
+> text. Caught in PR #16's review before any call site used `size="sm"`, so this was a latent-only
+> inconsistency, never a visible regression.
 
 > **Badge size is component-baked, not a per-use knob.** shadcn's `Badge` base variant
 > (`packages/ui/components/ui/badge.tsx`) already hardcodes `text-xs font-medium` — every badge

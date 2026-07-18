@@ -2321,7 +2321,7 @@ Headings use default (0) letter-spacing. User-facing change to the `.exe` — **
 
 > **Note:** Validation item 4's checklist text predicted "no unit test should assert on
 > `font-family`/`tracking` strings" — that did **not** hold in the end. A new structural-guard
-> test, `packages/core/tests/typography-refresh.test.ts` (11 cases), was added to pin the shipped
+> test, `packages/core/tests/typography-refresh.test.ts` (14 cases), was added to pin the shipped
 > font stack and all three `tracking-tight` additions against regression, mirroring the
 > `ci-workflow.test.ts`/`release-workflow.test.ts` pattern: it asserts the shipped shape on the
 > real files, then proves those assertions aren't vacuously true with negative-control fixtures
@@ -2331,8 +2331,33 @@ Headings use default (0) letter-spacing. User-facing change to the `.exe` — **
 > no exceptions: no `text-2xl`/`text-base`/`text-sm`/`text-xs` class changed anywhere; the new
 > test's negative controls double as proof, pinning `text-2xl font-semibold` and
 > `text-base leading-snug font-medium` as unchanged alongside the added `tracking-tight`. `npm test`
-> reproduced **492/492** total (290/290 core — up from 279 before this phase, the new file's 11
+> reproduced **495/495** total (293/293 core — up from 279 before this phase, the new file's 14
 > cases — and 202/202 desktop, unchanged), `npm run typecheck --workspaces --if-present`,
 > `npm run lint`, and `npm run format:check` all clean. **Validation item 7 remains open by
 > design** — it requires a human looking at the rendered app, matching this repo's convention for
 > manual/user-only validation steps (see Phase 27's item 7, Phase 28's item 6).
+
+> **PR #16 review follow-up (2026-07-18):** a code-quality review caught three issues, all fixed
+> in the same PR. (1) The `"Inter"` fallback in item 1's font stack was never reachable in
+> practice — this app bundles no font files and Inter isn't a stock system font on Windows/macOS,
+> so the entry silently fell through to `ui-sans-serif`/`system-ui` on essentially every real
+> machine. Dropped from `packages/ui/globals.css` and from this spec's own §5 description;
+> the shipped stack is now `"Segoe UI Variable", -apple-system, BlinkMacSystemFont, ui-sans-serif,
+> system-ui, sans-serif` — three entries, each genuinely reachable. (2)/(3) `typography-refresh.test.ts`
+> originally matched the CSS font-stack declaration and the `CardTitle` className with
+> whitespace-literal / full-string regexes — a routine Prettier re-wrap or an unrelated future
+> `CardTitle` class tweak (e.g. to `leading-snug`) would have failed the suite even with the
+> targeted property unchanged. Rewrote both checks to extract the relevant value first (the
+> `--font-sans` declaration's value, the `CardTitle` function's base `cn(...)` string) and assert
+> on it whitespace-normalized / token-set membership rather than pinning the raw source text, so
+> the test now fails only when the font stack's actual composition or the `tracking-tight` token
+> itself regresses, not on cosmetic reformatting. The rewrite added 3 more cases (11 → 14) covering
+> the size=sm tracking-normal fix below and a substring-match false-positive guard; all still pass
+> with updated negative controls proving the narrower assertions still reject the pre-Phase-29 shape.
+> (4) A second review round caught that `CardTitle`'s unconditional `tracking-tight` contradicted
+> this same spec's "tight tracking only at the larger/heavier heading weights" rule for the
+> `size="sm"` card variant, which drops the title to `text-sm` (body size) via
+> `group-data-[size=sm]/card:text-sm` — no call site passes `size="sm"` today, so nothing visibly
+> regressed, but nothing would have caught it either. Fixed by adding
+> `group-data-[size=sm]/card:tracking-normal` alongside the existing `:text-sm` override, and added
+> a dedicated test asserting that class is present so a future edit can't silently drop it.
