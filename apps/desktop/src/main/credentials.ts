@@ -14,6 +14,7 @@
  */
 
 import { safeStorage } from "electron";
+import { randomBytes } from "crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 // logger.ts is core-free too (see its header comment) — safe to import
@@ -185,10 +186,11 @@ export function loadCredentials(file: string): void {
  * back to `""`, which `loadCredentials` treats as unset, same as blanking it
  * in plaintext did).
  *
- * The rewrite itself is atomic: the new content is written to a sibling
- * `.tmp` file and renamed over `file`, so a mid-write crash/kill/power-loss
- * can never leave `config.env` truncated — the rename is all-or-nothing on
- * both POSIX and same-volume Windows filesystems.
+ * The rewrite itself is atomic: the new content is written to a sibling,
+ * per-call-unique `.tmp` file (pid + random suffix, so two concurrent writers
+ * never target the same tmp path) and renamed over `file`, so a mid-write
+ * crash/kill/power-loss can never leave `config.env` truncated — the rename
+ * is all-or-nothing on both POSIX and same-volume Windows filesystems.
  */
 export function upsertCredential(file: string, key: string, value: string): void {
   ensureCredentialsFile(file);
@@ -213,7 +215,11 @@ export function upsertCredential(file: string, key: string, value: string): void
 
   if (!replaced) lines.push(`${key}=${stored}`);
 
-  const tmpFile = `${file}.tmp`;
+  // Unique per call (pid + a random suffix), not a fixed `${file}.tmp` — two
+  // writers racing (two app instances, or two near-simultaneous credential
+  // updates) would otherwise both target the same tmp path and could clobber
+  // each other before either rename runs; renaming is only atomic per-writer.
+  const tmpFile = `${file}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
   writeFileSync(tmpFile, lines.join("\n"), "utf-8");
   renameSync(tmpFile, file);
 }

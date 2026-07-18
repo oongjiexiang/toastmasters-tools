@@ -10,7 +10,8 @@
   ],
   "overrides": {
     "jsdom": "24.1.0",
-    "cssstyle": "4.1.0"
+    "cssstyle": "4.1.0",
+    "typescript": "5.9.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

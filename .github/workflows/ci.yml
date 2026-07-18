@@ -32,6 +32,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Fails fast on type errors in any workspace (packages/core, packages/ui,
+      # apps/desktop) before the slower test suite runs. Phase 23 added this
+      # after a hoisting-driven TypeScript version mismatch broke packages/ui's
+      # typecheck without failing `npm test`, which has no typecheck step of
+      # its own.
+      - name: Typecheck all workspaces
+        run: npm run typecheck --workspaces --if-present
+
       # core + desktop. The desktop suite rebuilds and evaluates the
       # electron-vite main bundle; no display or real Electron launch is needed.
       - name: Unit / API / bundle tests
