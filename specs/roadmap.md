@@ -2336,3 +2336,109 @@ Headings use default (0) letter-spacing. User-facing change to the `.exe` — **
 > `npm run lint`, and `npm run format:check` all clean. **Validation item 7 remains open by
 > design** — it requires a human looking at the rendered app, matching this repo's convention for
 > manual/user-only validation steps (see Phase 27's item 7, Phase 28's item 6).
+
+---
+
+## Phase 30 — Export the club progress summary as a CSV report (minor → 1.13.0)
+
+_The tool's stated purpose is **weekly/monthly reporting** (README), but today the only export is
+the **raw TI membership CSV** (`DOWNLOAD_MEMBERSHIP_CSV`, the "Membership CSV" button) — the
+untransformed roster, not the pathway-progress picture the VPE actually reports on. To share a
+progress update with the club/area/district the VPE currently has to eyeball the dashboard and
+retype it. This phase adds a one-click **"Export progress report"** that saves the dashboard's own
+derived summary (member, title, pathway, next level, projects remaining, status) as a CSV the VPE
+can drop into an email or spreadsheet. User-facing change to the `.exe` — **minor bump →
+`1.13.0`**, matching this repo's convention for visible new features (Phase 16, Phase 20)._
+
+> **Finding (grounds the scope — read directly off the code, not assumed):** the derived summary
+> already exists as a transport-agnostic read-model — `listMembers()`
+> (`packages/core/queries.ts:150`) returns `MemberSummary[]`, each with `name`, `email`, `title`,
+> and a `pathways[]` array of `{ pathway, title, nextLevel, remaining, status }`. Nothing consumes
+> it as an export yet; the renderer only renders it into the table. The **save-to-disk plumbing
+> also already exists** and this phase mirrors it exactly: `IPC.DOWNLOAD_MEMBERSHIP_CSV` →
+> `apps/desktop/src/main/index.ts:181` (`dialog.showSaveDialog` → write file) →
+> `downloadMembershipCsv()` in `apps/desktop/src/renderer/lib/api.ts` → the `membershipCsvControl`
+> slot button in `DashboardView.tsx`/`DashboardHeader.tsx`. So this is a **new serializer + a
+> parallel copy of an established IPC/handler/button path**, not new architecture. Note the CSV
+> serializer must be **hand-rolled** — `csv-stringify`/`buildCsv` were deliberately dropped in
+> Phase 10 (no importer remained), and this app has no CDN/runtime deps to add; a small pure
+> function is the established preference and is trivially unit-testable.
+
+- **(item 1) Core: a pure CSV serializer for the summary.** Add `buildProgressReportCsv(members:
+  MemberSummary[]): string` to `packages/core/queries.ts` (export it from the **existing**
+  `@toastmasters/core/queries` subpath — no new `exports`-map entry, so no
+  `packages/core/tests/workspace.test.ts` exports-guard change). Emit **one row per
+  (member, pathway)** — a member enrolled in two paths yields two rows — with a header row and
+  these exact columns, in order: `Name, Email, Title, Pathway, Next Level, Projects Remaining,
+  Status`. `Name`/`Email`/`Title` are the member-level fields; `Pathway`/`Next Level`/`Projects
+  Remaining` come from the `PathwaySummary`; `Status` is the **human-readable badge label** the
+  table already shows (`completed`→`Completed`, `ready`→`Ready`, `close`→`Close`,
+  `in-progress`→`In Progress`, `not-started`→`Not Started`) — reuse an existing status-label map if
+  one is already shared in `packages/ui`, otherwise define the mapping locally in the serializer.
+  **RFC-4180-style escaping is load-bearing:** pathway names and member names can contain commas
+  (`Presentation Mastery`, `O'Brien, Jr.`) — any field containing a comma, double-quote, or newline
+  must be wrapped in double-quotes with embedded quotes doubled. Use `\r\n` line endings (Excel-safe).
+- **(item 2) Main: a `DOWNLOAD_PROGRESS_CSV` IPC + handler.** Add the channel constant to
+  `apps/desktop/src/shared/ipc.ts` (`IPC.DOWNLOAD_PROGRESS_CSV`) and a `downloadProgressCsv(): Promise<IpcResult<string | null>>`
+  method on `ToastmastersBridge` there (same signature as `downloadMembershipCsv` — resolves to the
+  saved path, or `null` when the user cancels the dialog). Handler in
+  `apps/desktop/src/main/index.ts` mirrors the `DOWNLOAD_MEMBERSHIP_CSV` handler: call
+  `core.listMembers()`, and
+  - if it returns `{ ok: false, ... }` (`SNAPSHOT_MISSING`), return that as the `IpcResult` error so
+    the renderer toasts "No data yet" — do **not** open a save dialog;
+  - if it returns `ok` but with **zero** members (fresh install, `latestSnapshotAt: null`), return an
+    error `IpcResult` with a clear "No members to export — Refresh first." message, again without a
+    dialog;
+  - otherwise serialize via `buildProgressReportCsv` (re-export it through
+    `apps/desktop/src/main/core.ts` alongside the existing `listMembers` re-export), `showSaveDialog`
+    with a default filename of `progress-report-<YYYY-MM-DD>.csv` in `app.getPath("downloads")` and a
+    `CSV` filter, write the file, and return the saved path.
+  Wire it into the preload bridge (`apps/desktop/src/preload/index.ts`) exactly as
+  `downloadMembershipCsv` is.
+- **(item 3) Renderer: an "Export progress report" button.** Add `downloadProgressCsv()` to
+  `apps/desktop/src/renderer/lib/api.ts` (mirror `downloadMembershipCsv`) and a `handleExportReport`
+  in `DashboardView.tsx` mirroring `handleDownloadCsv` (success toast `Saved to <path>` when a path
+  comes back, no toast on cancel/`null`, error toast on throw). Surface it next to the existing
+  "Membership CSV" button: add a new **optional** `progressCsvControl?: React.ReactNode` slot to
+  `DashboardHeader` (`packages/ui/components/DashboardHeader.tsx`), rendered in the same button
+  group as `membershipCsvControl` (line ~123) — an optional slot keeps every other consumer
+  unaffected, following the `authControl`/`themeControl` precedent. Label it "Export report" (or
+  "Progress CSV") with a `FileDown`/`Download` `lucide-react` icon, `variant="outline" size="sm"` to
+  match its neighbour.
+- **(item 4) Tests.** Unit-test `buildProgressReportCsv` in `packages/core/tests` (mirror the
+  existing `queries` test style): header row present; one row per member-pathway (a two-pathway
+  member → two rows); status enum → badge-label mapping; **escaping** of a field containing a comma
+  and one containing a double-quote; empty input → header row only. Add a `main-ipc.test.ts` case for
+  the new handler (mock `listMembers` + `dialog.showSaveDialog`): asserts the `SNAPSHOT_MISSING` and
+  empty-members paths return an error `IpcResult` **without** calling `showSaveDialog`, and the happy
+  path writes the serialized CSV and returns the path. Extend `preload.test.ts` to assert the bridge
+  exposes `downloadProgressCsv`.
+- **(item 5) Docs.** In `README.md`'s Dashboard section, add a short "Progress report download"
+  bullet under (or beside) the existing "Membership file download" one, describing what the exported
+  CSV contains. In `apps/desktop/USER_GUIDE.md`, add a numbered step under the reporting/export
+  section: click **Export report**, choose where to save, open the CSV in Excel/Sheets for the
+  weekly/monthly update.
+- **Version bump:** minor-bump every workspace `package.json` `version` to `1.13.0`; after
+  validation, tag `v1.13.0` (or let the merge-to-`main` automation cut it).
+
+**Validation:**
+1. [ ] `grep -n "buildProgressReportCsv" packages/core/queries.ts` — the serializer exists and is
+   exported from the `@toastmasters/core/queries` subpath.
+2. [ ] `grep -n "DOWNLOAD_PROGRESS_CSV" apps/desktop/src/shared/ipc.ts apps/desktop/src/main/index.ts apps/desktop/src/preload/index.ts`
+   — channel declared, handler registered, and bridged in preload; `downloadProgressCsv` is on
+   `ToastmastersBridge` and in `apps/desktop/src/renderer/lib/api.ts`.
+3. [ ] `grep -n "progressCsvControl" packages/ui/components/DashboardHeader.tsx apps/desktop/src/renderer/views/DashboardView.tsx`
+   — the optional slot exists and the renderer passes an "Export report" button into it.
+4. [ ] A unit test proves the serializer's row-per-pathway shape, the status-label mapping, and
+   comma/quote escaping (RFC-4180); a `main-ipc` test proves the no-data paths return an error
+   `IpcResult` without opening a save dialog and the happy path writes the CSV and returns the path.
+5. [ ] `npm test` green (floor: the Phase 29 count, 492 — 290 core + 202 desktop) plus the new
+   cases; `npm run typecheck --workspaces --if-present`, `npm run lint`, and `npm run format:check`
+   all clean.
+6. [ ] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
+   `1.13.0`.
+7. [ ] **Manual (user):** with real data loaded, click **Export report**, save the CSV, and open it
+   in a spreadsheet — confirm one row per member-pathway, readable status labels, and that a member
+   or pathway name containing a comma stays in a single column (escaping held). Confirm the button is
+   disabled-path-safe on a fresh install (toasts "No data yet"/"No members to export", no empty file
+   dialog), and that the existing "Membership CSV" download is unaffected.
