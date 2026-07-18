@@ -38,16 +38,27 @@ import { join } from "path";
  */
 const { FakeBrowserWindow, FakeWebContents } = vi.hoisted(() => {
   class FakeWebContents {
-    private listeners: Record<string, Array<(event: unknown, url: string) => void>> = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    private listeners: Record<string, Array<(...args: any[]) => void>> = {
       "did-navigate": [],
       "did-navigate-in-page": [],
+      "console-message": [],
+      "before-input-event": [],
     };
 
-    on(event: string, listener: (event: unknown, url: string) => void): void {
+    /** Phase 27: `openLoginWindow` calls `webContents.reload()` both from the
+     *  auto-retry path (on a capped, timed-out failure signature) and the
+     *  manual F5/Ctrl+R `before-input-event` path — a plain spy is enough for
+     *  either, since the fake never actually re-navigates. */
+    reload = vi.fn();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    on(event: string, listener: (...args: any[]) => void): void {
       this.listeners[event]?.push(listener);
     }
 
-    off(event: string, listener: (event: unknown, url: string) => void): void {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    off(event: string, listener: (...args: any[]) => void): void {
       const arr = this.listeners[event];
       if (!arr) return;
       const i = arr.indexOf(listener);
@@ -60,6 +71,32 @@ const { FakeBrowserWindow, FakeWebContents } = vi.hoisted(() => {
 
     fireDidNavigateInPage(url: string): void {
       for (const l of [...this.listeners["did-navigate-in-page"]]) l(undefined, url);
+    }
+
+    /**
+     * Mirrors Electron's real `console-message` event args:
+     * `(event, level, message, line, sourceId)`. `auth.ts`'s
+     * `onConsoleMessage` only reads the 3rd positional arg (`message`), so
+     * the fake only needs to supply that one faithfully — the others are
+     * placeholder values of the right shape.
+     */
+    fireConsoleMessage(message: string): void {
+      for (const l of [...this.listeners["console-message"]]) l(undefined, 3, message, 0, "");
+    }
+
+    /**
+     * Mirrors Electron's real `before-input-event` args: `(event, input)`.
+     * `auth.ts`'s `onBeforeInput` reads `input.type`, `input.key`,
+     * `input.control`, and `input.meta` — the fake's `input` param carries
+     * exactly that subset.
+     */
+    fireBeforeInputEvent(input: {
+      type: string;
+      key: string;
+      control?: boolean;
+      meta?: boolean;
+    }): void {
+      for (const l of [...this.listeners["before-input-event"]]) l(undefined, input);
     }
   }
 
@@ -79,8 +116,14 @@ const { FakeBrowserWindow, FakeWebContents } = vi.hoisted(() => {
     closedCallback: (() => void) | null = null;
     destroyed = false;
     webContents = new FakeWebContents();
+    /** The exact options `openLoginWindow` constructed this window with —
+     *  captured (rather than discarded) so the Phase 27 security-posture
+     *  test can assert on `webPreferences` directly, instead of merely
+     *  inferring the hardened settings held from other tests passing. */
+    options: unknown;
 
-    constructor(_options?: unknown) {
+    constructor(options?: unknown) {
+      this.options = options;
       FakeBrowserWindow.instances.push(this);
     }
 
@@ -137,8 +180,10 @@ import {
   applyCookies,
   currentAuthStatus,
   harvestCookies,
+  isKnownLoginFailureSignature,
   logOut,
   looksLikeLoginPage,
+  openLoginWindow,
   runLoginFlow,
   watchForCapture,
   watchForNavigationCapture,
@@ -1331,9 +1376,24 @@ describe("runLoginFlow wires watchForNavigationCapture into openLoginWindow, so 
     await new Promise((r) => setTimeout(r, 0));
 
     expect(tiWindow.isDestroyed()).toBe(true);
-    // unsubscribe() removes both listener types — exactly one EFFECTIVE
-    // cancel() means exactly 2 off() calls, not 4.
-    expect(offSpy).toHaveBeenCalledTimes(2);
+    // watchForNavigationCapture's unsubscribe() removes both of ITS listener
+    // types (did-navigate, did-navigate-in-page) — exactly one EFFECTIVE
+    // cancel() means exactly 2 off() calls for those two events, not 4 (the
+    // second, closed-handler-triggered cancel() call must be a no-op).
+    //
+    // Phase 27: `off` is now ALSO called for "console-message" and
+    // "before-input-event" — but only once each, unconditionally, from
+    // openLoginWindow's own "closed" handler (a separate listener pair with
+    // no idempotency concern of its own, since it only ever unsubscribes
+    // once, on close). This test's job is specifically to prove the
+    // capture-signal cancel() idempotency, so it scopes the assertion to
+    // just the two navigation events rather than the raw total call count —
+    // decoupling it from how many OTHER listener types this window happens
+    // to have.
+    const navOffCalls = offSpy.mock.calls.filter(
+      ([event]) => event === "did-navigate" || event === "did-navigate-in-page",
+    );
+    expect(navOffCalls).toHaveLength(2);
 
     const applied = await flow;
     expect(applied).toEqual({ basecamp: true, ti: true });
@@ -1483,5 +1543,516 @@ describe("looksLikeLoginPage: known heuristic limitation — the loose substring
     await Promise.resolve();
 
     expect(resolved).toBe(false);
+  });
+});
+
+/**
+ * Phase 27 — Basecamp login window hangs on a blank page (see roadmap
+ * "## Phase 27" and the module header comment above
+ * `isKnownLoginFailureSignature`/`openLoginWindow` in `src/main/auth.ts`).
+ *
+ * Flushes N pending microtask turns — used below in place of the
+ * `await new Promise((r) => setTimeout(r, 0))` macrotask-flush idiom used
+ * elsewhere in this file, since the Phase 27 tests run under
+ * `vi.useFakeTimers()` (needed to control the 5s failure-signature grace
+ * window deterministically) and a faked `setTimeout(..., 0)` would never
+ * fire without an explicit `vi.advanceTimersByTimeAsync` call. Native
+ * Promise `.then` scheduling is NOT part of what `vi.useFakeTimers()` fakes
+ * (it only replaces timer/macrotask APIs), so plain `await Promise.resolve()`
+ * still flushes real microtasks even while fake timers are installed.
+ */
+async function flushMicrotasks(turns = 10): Promise<void> {
+  for (let i = 0; i < turns; i++) await Promise.resolve();
+}
+
+/** The real observed Basecamp third-party crash message (see the module
+ *  header "Finding" in src/main/auth.ts) — the load-bearing failure
+ *  signature used throughout the Phase 27 tests below. */
+const I18N_FAILURE_MESSAGE =
+  "getLocale called before configuring i18n. Call configure with messages first.";
+
+const BASECAMP_LOGIN_URL_FOR_TESTS = "https://app.basecamp.toastmasters.org/dashboard";
+
+describe("isKnownLoginFailureSignature matches Basecamp's known third-party crash signatures (Phase 27)", () => {
+  it("matches the real observed i18n-crash message", () => {
+    expect(isKnownLoginFailureSignature(I18N_FAILURE_MESSAGE)).toBe(true);
+  });
+
+  it("matches a CORS-blocked login_refresh XHR console warning", () => {
+    expect(
+      isKnownLoginFailureSignature(
+        "Access to XMLHttpRequest at 'https://basecamp.toastmasters.org/login_refresh' " +
+          "from origin 'https://app.basecamp.toastmasters.org' has been blocked by CORS policy: " +
+          "No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+      ),
+    ).toBe(true);
+  });
+
+  it("is case-insensitive", () => {
+    expect(isKnownLoginFailureSignature(I18N_FAILURE_MESSAGE.toUpperCase())).toBe(true);
+  });
+
+  it("negative control: does NOT match an unrelated console message", () => {
+    // A generic, plausible console line that shares no vocabulary with
+    // either signature — proves the matcher isn't accidentally permissive
+    // (e.g. matching on a single common word like "error" or "login").
+    expect(
+      isKnownLoginFailureSignature(
+        "Deprecation warning: 'unload' event listeners are deprecated and will be removed.",
+      ),
+    ).toBe(false);
+  });
+
+  it("negative control: a message that merely mentions 'i18n' without the specific failure phrasing does not match", () => {
+    expect(isKnownLoginFailureSignature("i18n bundle loaded successfully")).toBe(false);
+  });
+});
+
+describe("openLoginWindow: Phase 27 console-message failure-signature detection, bounded auto-reload", () => {
+  beforeEach(() => {
+    FakeBrowserWindow.instances.length = 0;
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("reloads once per recurrence of the failure signature, up to MAX_AUTO_RELOADS (2), then holds the cap on a third recurrence", async () => {
+    const openPromise = openLoginWindow(BASECAMP_LOGIN_URL_FOR_TESTS);
+    const win = FakeBrowserWindow.instances[0];
+    expect(win).toBeDefined();
+
+    // 1st occurrence: the signature fires, but reload must NOT happen until
+    // the grace window elapses (item 2's "grace window before reload").
+    win.webContents.fireConsoleMessage(I18N_FAILURE_MESSAGE);
+    expect(win.webContents.reload).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(win.webContents.reload).toHaveBeenCalledTimes(1);
+
+    // 2nd occurrence: the reloaded page crashed again the same way.
+    win.webContents.fireConsoleMessage(I18N_FAILURE_MESSAGE);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(win.webContents.reload).toHaveBeenCalledTimes(2);
+
+    // 3rd occurrence: MAX_AUTO_RELOADS (2) must hold — no 3rd reload, ever,
+    // no matter how long we wait. This is the "not unbounded" requirement
+    // (roadmap Validation item 2 / genuine-outage protection).
+    win.webContents.fireConsoleMessage(I18N_FAILURE_MESSAGE);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(win.webContents.reload).toHaveBeenCalledTimes(2);
+
+    win.close();
+    await openPromise;
+  });
+
+  it("negative control: a successful capture within the grace window cancels the pending reload — reload() is never called", async () => {
+    let resolveCapture!: () => void;
+    const capturePromise = new Promise<void>((resolve) => {
+      resolveCapture = resolve;
+    });
+    const cancel = vi.fn();
+    const buildCaptureSignal = () => ({ promise: capturePromise, cancel });
+
+    const openPromise = openLoginWindow(BASECAMP_LOGIN_URL_FOR_TESTS, buildCaptureSignal);
+    const win = FakeBrowserWindow.instances[0];
+
+    win.webContents.fireConsoleMessage(I18N_FAILURE_MESSAGE);
+
+    // Advance MOST, but not all, of the grace window, then resolve capture —
+    // simulating the user's login completing just before the reload timer
+    // would have fired.
+    await vi.advanceTimersByTimeAsync(4000);
+    resolveCapture();
+    // Flush the resolved-capture chain: capture.promise.then -> clearGraceTimer
+    // -> capture.cancel() -> win.close() -> "closed" handler -> resolve().
+    await flushMicrotasks();
+
+    expect(win.isDestroyed()).toBe(true);
+    // openLoginWindow calls capture.cancel() from two places for every
+    // successful capture — once from `capture.promise.then(...)` right
+    // before `win.close()`, and again unconditionally from the "closed"
+    // handler once that close actually fires (see the dedicated idempotency
+    // test above, "(adversarial) cancel() being invoked via BOTH..."). This
+    // plain `vi.fn()` stub has no idempotency guard of its own (unlike the
+    // real `watchForNavigationCapture`-built `cancel`), so both calls land —
+    // proving the capture signal really was cancelled (not just that the
+    // window happened to close), which is what this test needs.
+    expect(cancel).toHaveBeenCalledTimes(2);
+
+    // Advance PAST where the original grace window would have elapsed — if
+    // the timer weren't genuinely cancelled, reload() would fire here. (The
+    // window is already destroyed, and the fake's `reload` is still a plain
+    // spy either way, so this proves the timer itself never fired, not just
+    // that a destroyed-window guard silently absorbed it.)
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(win.webContents.reload).not.toHaveBeenCalled();
+
+    const result = await openPromise;
+    // A captured login is never a "gave up" — this is the success path.
+    expect(result).toEqual({ gaveUp: false });
+  });
+
+  /*
+   * NEGATIVE CONTROL for the negative control above (documentation, verified
+   * by hand against a temporarily-broken src/main/auth.ts, then reverted —
+   * do not leave any such edit in place): `openLoginWindow` actually clears
+   * the pending `graceTimer` from TWO separate places — once in
+   * `capture.promise.then(...)` (the "happy path" cancel, right before
+   * `win.close()`) and again, unconditionally, inside the `"closed"` handler
+   * itself. This is deliberate defense-in-depth, so removing `clearGraceTimer
+   * ()` from JUST ONE of the two call sites is NOT enough to make this test
+   * go red — the other call site still cancels the real (fake-timers-backed)
+   * `setTimeout` before it can ever fire, confirmed empirically. Only
+   * removing BOTH `clearGraceTimer()` calls lets the timer survive past
+   * `win.close()`, at which point `expect(win.webContents.reload).not
+   * .toHaveBeenCalled()` above goes RED (`reload()` is called once, with the
+   * window already destroyed — the timer callback's own `win.isDestroyed()`
+   * guard does NOT save it, because in this fake `close()` is synchronous, so
+   * `isDestroyed()` is already true well before the real 5s timer elapses;
+   * the guard exists for the different race where `win.close()` in real
+   * Electron doesn't destroy the window instantly). This confirms the
+   * reload-call assertion is a genuine, non-vacuous regression test for BOTH
+   * `clearGraceTimer()` call sites collectively cancelling the grace window on
+   * capture — not just an artifact of the window having closed.
+   */
+});
+
+describe("openLoginWindow: 'gaveUp' resolution (Phase 27 item 4)", () => {
+  beforeEach(() => {
+    FakeBrowserWindow.instances.length = 0;
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("resolves { gaveUp: true } once MAX_AUTO_RELOADS is exhausted, capture never resolved, and the window is (eventually, manually) closed", async () => {
+    const openPromise = openLoginWindow(BASECAMP_LOGIN_URL_FOR_TESTS);
+    const win = FakeBrowserWindow.instances[0];
+
+    for (let i = 0; i < 2; i++) {
+      win.webContents.fireConsoleMessage(I18N_FAILURE_MESSAGE);
+      await vi.advanceTimersByTimeAsync(5000);
+    }
+    expect(win.webContents.reload).toHaveBeenCalledTimes(2);
+
+    // The window is still open at this point — hitting the cap does not, by
+    // itself, close the window (only the user, or a successful capture,
+    // does). Confirm that before closing it ourselves.
+    expect(win.isDestroyed()).toBe(false);
+
+    win.close();
+    const result = await openPromise;
+
+    expect(result).toEqual({ gaveUp: true });
+  });
+
+  it("resolves { gaveUp: false } on a plain user-cancel with no failure signature ever fired", async () => {
+    const openPromise = openLoginWindow(BASECAMP_LOGIN_URL_FOR_TESTS);
+    const win = FakeBrowserWindow.instances[0];
+
+    win.close();
+    const result = await openPromise;
+
+    expect(result).toEqual({ gaveUp: false });
+  });
+
+  it("resolves { gaveUp: false } when the window closes after only a PARTIAL retry sequence (cap not yet reached) — 'gave up' means the cap was hit, not merely 'closed without capturing'", async () => {
+    const openPromise = openLoginWindow(BASECAMP_LOGIN_URL_FOR_TESTS);
+    const win = FakeBrowserWindow.instances[0];
+
+    // Only ONE reload happens — the cap (2) is never reached.
+    win.webContents.fireConsoleMessage(I18N_FAILURE_MESSAGE);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(win.webContents.reload).toHaveBeenCalledTimes(1);
+
+    win.close();
+    const result = await openPromise;
+
+    expect(result).toEqual({ gaveUp: false });
+  });
+});
+
+describe("openLoginWindow: F5/Ctrl+R manual reload via before-input-event (Phase 27 item 3)", () => {
+  beforeEach(() => {
+    FakeBrowserWindow.instances.length = 0;
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("reloads on an F5 keydown", async () => {
+    const openPromise = openLoginWindow(BASECAMP_LOGIN_URL_FOR_TESTS);
+    const win = FakeBrowserWindow.instances[0];
+
+    win.webContents.fireBeforeInputEvent({ type: "keyDown", key: "F5" });
+
+    expect(win.webContents.reload).toHaveBeenCalledTimes(1);
+
+    win.close();
+    await openPromise;
+  });
+
+  it("reloads on a Ctrl+R keydown", async () => {
+    const openPromise = openLoginWindow(BASECAMP_LOGIN_URL_FOR_TESTS);
+    const win = FakeBrowserWindow.instances[0];
+
+    win.webContents.fireBeforeInputEvent({ type: "keyDown", key: "r", control: true });
+
+    expect(win.webContents.reload).toHaveBeenCalledTimes(1);
+
+    win.close();
+    await openPromise;
+  });
+
+  it("reloads on a Cmd+R (meta) keydown too", async () => {
+    const openPromise = openLoginWindow(BASECAMP_LOGIN_URL_FOR_TESTS);
+    const win = FakeBrowserWindow.instances[0];
+
+    win.webContents.fireBeforeInputEvent({ type: "keyDown", key: "r", meta: true });
+
+    expect(win.webContents.reload).toHaveBeenCalledTimes(1);
+
+    win.close();
+    await openPromise;
+  });
+
+  it("negative control: ignores a plain 'r' keydown with neither Ctrl nor Cmd held", async () => {
+    const openPromise = openLoginWindow(BASECAMP_LOGIN_URL_FOR_TESTS);
+    const win = FakeBrowserWindow.instances[0];
+
+    win.webContents.fireBeforeInputEvent({ type: "keyDown", key: "r" });
+
+    expect(win.webContents.reload).not.toHaveBeenCalled();
+
+    win.close();
+    await openPromise;
+  });
+
+  it("negative control: ignores a keyUp event (only keyDown triggers a reload)", async () => {
+    const openPromise = openLoginWindow(BASECAMP_LOGIN_URL_FOR_TESTS);
+    const win = FakeBrowserWindow.instances[0];
+
+    win.webContents.fireBeforeInputEvent({ type: "keyUp", key: "F5" });
+
+    expect(win.webContents.reload).not.toHaveBeenCalled();
+
+    win.close();
+    await openPromise;
+  });
+
+  it("still reloads on F5 even after the auto-retry cap has already been exhausted — the manual escape hatch is a distinct, uncapped listener", async () => {
+    const openPromise = openLoginWindow(BASECAMP_LOGIN_URL_FOR_TESTS);
+    const win = FakeBrowserWindow.instances[0];
+
+    // Exhaust the auto-reload cap (2) via the failure-signature path.
+    for (let i = 0; i < 2; i++) {
+      win.webContents.fireConsoleMessage(I18N_FAILURE_MESSAGE);
+      await vi.advanceTimersByTimeAsync(5000);
+    }
+    expect(win.webContents.reload).toHaveBeenCalledTimes(2);
+
+    // A third failure signature is correctly suppressed by the cap...
+    win.webContents.fireConsoleMessage(I18N_FAILURE_MESSAGE);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(win.webContents.reload).toHaveBeenCalledTimes(2);
+
+    // ...but the user's own F5 keypress is unaffected by that cap.
+    win.webContents.fireBeforeInputEvent({ type: "keyDown", key: "F5" });
+    expect(win.webContents.reload).toHaveBeenCalledTimes(3);
+
+    win.close();
+    await openPromise;
+  });
+});
+
+describe("openLoginWindow: security posture (Phase 27) — hardened webPreferences must survive future changes", () => {
+  beforeEach(() => {
+    FakeBrowserWindow.instances.length = 0;
+  });
+
+  it("constructs the BrowserWindow with sandbox:true, contextIsolation:true, nodeIntegration:false, and no preload key", async () => {
+    const openPromise = openLoginWindow(BASECAMP_LOGIN_URL_FOR_TESTS);
+    const win = FakeBrowserWindow.instances[0];
+
+    const options = win.options as { webPreferences?: Record<string, unknown> } | undefined;
+    expect(options?.webPreferences).toBeDefined();
+    const webPreferences = options!.webPreferences!;
+
+    expect(webPreferences.sandbox).toBe(true);
+    expect(webPreferences.contextIsolation).toBe(true);
+    expect(webPreferences.nodeIntegration).toBe(false);
+    // No preload key at all — not `undefined`, ABSENT — this window must
+    // never gain access to our IPC bridge, since it renders a third-party
+    // page. `"preload" in webPreferences` would still be true for an
+    // explicit `preload: undefined`, so this is a genuinely stricter check
+    // than a falsy-value assertion.
+    expect("preload" in webPreferences).toBe(false);
+
+    win.close();
+    await openPromise;
+  });
+
+  /*
+   * NEGATIVE CONTROL (documentation, verified by hand against a temporarily-
+   * weakened src/main/auth.ts, then reverted — do not leave any such edit in
+   * place): with `openLoginWindow`'s `webPreferences` changed to add e.g.
+   * `preload: path.join(__dirname, "preload.js")` (weakening the security
+   * posture the login window relies on, since this window shows a
+   * third-party page it must never bridge into our IPC), the
+   * `expect("preload" in webPreferences).toBe(false)` assertion above goes
+   * RED — proving this test would actually catch that regression, not just
+   * imply it by other tests continuing to pass.
+   */
+});
+
+describe("runLoginFlow: Phase 27 basecampGaveUp propagation", () => {
+  beforeEach(() => {
+    FakeBrowserWindow.instances.length = 0;
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("sets basecampGaveUp: true when the Basecamp window exhausts its auto-reload cap, the sessionid never lands, and the user closes the permanently-blank window", async () => {
+    const byUrl: Record<string, Array<{ name: string; value: string }>> = {
+      [BASECAMP_URL]: [],
+      [TI_URL]: [],
+    };
+    const cookies = cookieSource(byUrl);
+    vi.mocked(electron.session.fromPartition).mockReturnValue({
+      cookies,
+    } as unknown as ReturnType<typeof electron.session.fromPartition>);
+
+    const flow = runLoginFlow(credsFile);
+    expect(FakeBrowserWindow.instances).toHaveLength(1);
+
+    // TI login captures only the TI cookie — no SSO into Basecamp this run.
+    byUrl[TI_URL] = [{ name: "auth", value: "abc" }];
+    const tiWindow = FakeBrowserWindow.instances[0];
+    tiWindow.webContents.fireDidNavigate("https://www.toastmasters.org/dashboard");
+    await flushMicrotasks();
+
+    expect(tiWindow.isDestroyed()).toBe(true);
+    await flushMicrotasks();
+    expect(FakeBrowserWindow.instances).toHaveLength(2);
+    const bcWindow = FakeBrowserWindow.instances[1];
+
+    // The Basecamp window hits Basecamp's own known third-party crash twice
+    // in a row (the cap holds on the second) — sessionid never lands.
+    for (let i = 0; i < 2; i++) {
+      bcWindow.webContents.fireConsoleMessage(I18N_FAILURE_MESSAGE);
+      await vi.advanceTimersByTimeAsync(5000);
+    }
+    expect(bcWindow.webContents.reload).toHaveBeenCalledTimes(2);
+
+    // The user eventually gives up and closes the permanently-blank window
+    // themselves (as they had to do before this fix, except now bounded
+    // retries already happened automatically first).
+    bcWindow.close();
+
+    const result = await flow;
+
+    expect(result.basecampGaveUp).toBe(true);
+    expect(result.basecamp).toBe(false);
+    expect(result.ti).toBe(true);
+  });
+
+  it("negative control: basecampGaveUp is unset on the SSO fast path — the Basecamp cookie lands via the TI window and the second window never opens", async () => {
+    const byUrl: Record<string, Array<{ name: string; value: string }>> = {
+      [BASECAMP_URL]: [],
+      [TI_URL]: [],
+    };
+    const cookies = cookieSource(byUrl);
+    vi.mocked(electron.session.fromPartition).mockReturnValue({
+      cookies,
+    } as unknown as ReturnType<typeof electron.session.fromPartition>);
+
+    const flow = runLoginFlow(credsFile);
+    const tiWindow = FakeBrowserWindow.instances[0];
+
+    byUrl[BASECAMP_URL] = [{ name: "sessionid", value: "SID-1" }];
+    byUrl[TI_URL] = [{ name: "auth", value: "abc" }];
+    tiWindow.webContents.fireDidNavigate("https://www.toastmasters.org/dashboard");
+    await flushMicrotasks();
+
+    const result = await flow;
+
+    expect(result).toEqual({ basecamp: true, ti: true });
+    // Genuinely absent, not just falsy — proves runLoginFlow never even
+    // considers setting it on the fast path, matching the type's `?:`
+    // optionality.
+    expect("basecampGaveUp" in result).toBe(false);
+    expect(FakeBrowserWindow.instances).toHaveLength(1);
+  });
+
+  it("negative control: basecampGaveUp is unset when the Basecamp window captures the cookie normally, with no failure signature ever firing", async () => {
+    const byUrl: Record<string, Array<{ name: string; value: string }>> = {
+      [BASECAMP_URL]: [],
+      [TI_URL]: [],
+    };
+    const cookies = cookieSource(byUrl);
+    vi.mocked(electron.session.fromPartition).mockReturnValue({
+      cookies,
+    } as unknown as ReturnType<typeof electron.session.fromPartition>);
+
+    const flow = runLoginFlow(credsFile);
+    const tiWindow = FakeBrowserWindow.instances[0];
+
+    byUrl[TI_URL] = [{ name: "auth", value: "abc" }];
+    tiWindow.webContents.fireDidNavigate("https://www.toastmasters.org/dashboard");
+    await flushMicrotasks();
+    expect(tiWindow.isDestroyed()).toBe(true);
+    await flushMicrotasks();
+
+    expect(FakeBrowserWindow.instances).toHaveLength(2);
+    const bcWindow = FakeBrowserWindow.instances[1];
+
+    byUrl[BASECAMP_URL] = [{ name: "sessionid", value: "SID-2" }];
+    bcWindow.webContents.fireDidNavigate("https://app.basecamp.toastmasters.org/dashboard");
+    await flushMicrotasks();
+
+    const result = await flow;
+
+    expect(result).toEqual({ basecamp: true, ti: true });
+    expect("basecampGaveUp" in result).toBe(false);
+  });
+
+  it("negative control: basecampGaveUp is unset (false-shaped) when the Basecamp window is closed manually with NO failure signature ever fired — a plain user-cancel is not a 'gave up'", async () => {
+    const byUrl: Record<string, Array<{ name: string; value: string }>> = {
+      [BASECAMP_URL]: [],
+      [TI_URL]: [],
+    };
+    const cookies = cookieSource(byUrl);
+    vi.mocked(electron.session.fromPartition).mockReturnValue({
+      cookies,
+    } as unknown as ReturnType<typeof electron.session.fromPartition>);
+
+    const flow = runLoginFlow(credsFile);
+    const tiWindow = FakeBrowserWindow.instances[0];
+
+    byUrl[TI_URL] = [{ name: "auth", value: "abc" }];
+    tiWindow.webContents.fireDidNavigate("https://www.toastmasters.org/dashboard");
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(FakeBrowserWindow.instances).toHaveLength(2);
+    const bcWindow = FakeBrowserWindow.instances[1];
+
+    // The user closes the Basecamp window immediately, having never seen the
+    // crash at all (e.g. they just changed their mind).
+    bcWindow.close();
+
+    const result = await flow;
+
+    expect(result).toEqual({ basecamp: false, ti: true });
+    expect("basecampGaveUp" in result).toBe(false);
   });
 });
