@@ -4,7 +4,7 @@ import { IPC, type ToastmastersBridge } from "../shared/ipc";
 /**
  * The only channel between the renderer and Node. `contextIsolation` is on and
  * `nodeIntegration` is off (see main/index.ts), so the renderer can reach nothing
- * but the functions below — the six web-parity data calls, `cancelRefresh`
+ * but the functions below — the seven web-parity data calls, `cancelRefresh`
  * (Phase 22), the three Electron-only auth calls (`login` / `authStatus` added
  * in Phase 12, `logout` added in Phase 17), and the one-way `onRefreshLog`
  * subscription that streams live refresh progress to the renderer.
