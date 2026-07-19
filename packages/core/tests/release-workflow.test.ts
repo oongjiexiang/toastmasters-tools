@@ -1,8 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "fs";
-import { dirname, join, resolve } from "path";
-import { fileURLToPath } from "url";
 import { load as loadYaml } from "js-yaml";
+import { loadWorkflowFile, type WorkflowStep, type WorkflowJob } from "./fixtures/workflow-shapes";
 
 /**
  * Phase 15 structural invariant for the release workflow.
@@ -19,25 +17,6 @@ import { load as loadYaml } from "js-yaml";
  * there is no overlapping logic to reconcile here.
  */
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const CORE_DIR = resolve(__dirname, "..");
-const REPO_ROOT = resolve(CORE_DIR, "../..");
-const RELEASE_WORKFLOW_PATH = join(REPO_ROOT, ".github", "workflows", "release.yml");
-
-interface WorkflowStep {
-  id?: string;
-  name?: string;
-  uses?: string;
-  if?: string;
-  with?: Record<string, unknown>;
-  run?: string;
-}
-
-interface WorkflowJob {
-  "runs-on"?: string;
-  steps?: WorkflowStep[];
-}
-
 interface ReleaseWorkflow {
   on?: {
     push?: {
@@ -47,6 +26,44 @@ interface ReleaseWorkflow {
     workflow_dispatch?: unknown;
   };
   jobs?: Record<string, WorkflowJob>;
+}
+
+/**
+ * The valid, post-Phase-15 shape of release.yml's trigger/build-windows
+ * contract, as a plain object rather than a YAML string — mirrors
+ * ci-workflow.test.ts's baseWorkflow() idiom. Each negative control below
+ * starts from a fresh copy (never a shared reference) and mutates exactly
+ * the one thing under test, instead of restating the whole trigger/build
+ * block per fixture.
+ */
+function baseReleaseWorkflow(): ReleaseWorkflow {
+  return {
+    on: {
+      push: {
+        tags: ["v[0-9]+.[0-9]+*", "[0-9]+.[0-9]+*"],
+        branches: ["main"],
+      },
+      workflow_dispatch: null,
+    },
+    jobs: {
+      "build-windows": {
+        "runs-on": "windows-2022",
+        steps: [
+          { uses: "actions/setup-python@v5", with: { "python-version": "3.11" } },
+          {
+            name: "Publish GitHub Release",
+            if: "startsWith(github.ref, 'refs/tags/')",
+            uses: "softprops/action-gh-release@v2",
+          },
+          {
+            name: "Publish rolling main pre-release",
+            if: "github.ref == 'refs/heads/main'",
+            uses: "softprops/action-gh-release@v2",
+          },
+        ],
+      },
+    },
+  };
 }
 
 /**
@@ -108,8 +125,7 @@ function assertReleaseWorkflowShape(workflow: ReleaseWorkflow): void {
 }
 
 describe("release.yml triggers and build job (Phase 15)", () => {
-  const raw = readFileSync(RELEASE_WORKFLOW_PATH, "utf8");
-  const workflow = loadYaml(raw) as ReleaseWorkflow;
+  const workflow = loadWorkflowFile<ReleaseWorkflow>(".github", "workflows", "release.yml");
 
   it("parses as YAML with an on.push section", () => {
     expect(workflow.on?.push).toBeDefined();
@@ -122,110 +138,47 @@ describe("release.yml triggers and build job (Phase 15)", () => {
 
 describe("negative control: broken/old trigger configs are rejected", () => {
   // Proves assertReleaseWorkflowShape can actually fail, and isn't a vacuous
-  // pass no matter what release.yml contains.
+  // pass no matter what release.yml contains. Each fixture below is
+  // baseReleaseWorkflow() with exactly one deviation applied.
+
+  // Guards against every "toThrow" below being vacuously true: if
+  // baseReleaseWorkflow() itself already failed for an unrelated reason,
+  // every negative control would pass regardless of its own mutation.
+  it("baseReleaseWorkflow() itself satisfies assertReleaseWorkflowShape with no mutation applied", () => {
+    expect(() => assertReleaseWorkflowShape(baseReleaseWorkflow())).not.toThrow();
+  });
 
   it("fails when the push.branches: [main] trigger is missing (pre-Phase-15 shape)", () => {
-    const preP15 = loadYaml(`
-on:
-  push:
-    tags:
-      - "v[0-9]+.[0-9]+*"
-      - "[0-9]+.[0-9]+*"
-  workflow_dispatch:
-jobs:
-  build-windows:
-    runs-on: windows-2022
-    steps:
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-`) as ReleaseWorkflow;
+    const workflow = baseReleaseWorkflow();
+    delete workflow.on!.push!.branches;
 
-    expect(() => assertReleaseWorkflowShape(preP15)).toThrow();
+    expect(() => assertReleaseWorkflowShape(workflow)).toThrow();
   });
 
   it("fails when runs-on has drifted to windows-latest instead of windows-2022", () => {
-    const wrongRunner = loadYaml(`
-on:
-  push:
-    tags:
-      - "v[0-9]+.[0-9]+*"
-      - "[0-9]+.[0-9]+*"
-    branches:
-      - main
-  workflow_dispatch:
-jobs:
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-      - name: Publish rolling main pre-release
-        if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
-`) as ReleaseWorkflow;
+    const workflow = baseReleaseWorkflow();
+    workflow.jobs!["build-windows"]!["runs-on"] = "windows-latest";
 
-    expect(() => assertReleaseWorkflowShape(wrongRunner)).toThrow();
+    expect(() => assertReleaseWorkflowShape(workflow)).toThrow();
   });
 
   it("fails when the rolling main pre-release step is missing entirely", () => {
-    const noMainPublish = loadYaml(`
-on:
-  push:
-    tags:
-      - "v[0-9]+.[0-9]+*"
-      - "[0-9]+.[0-9]+*"
-    branches:
-      - main
-  workflow_dispatch:
-jobs:
-  build-windows:
-    runs-on: windows-2022
-    steps:
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-`) as ReleaseWorkflow;
+    const workflow = baseReleaseWorkflow();
+    workflow.jobs!["build-windows"]!.steps = workflow.jobs!["build-windows"]!.steps!.filter(
+      (step) => step.name !== "Publish rolling main pre-release",
+    );
 
-    expect(() => assertReleaseWorkflowShape(noMainPublish)).toThrow();
+    expect(() => assertReleaseWorkflowShape(workflow)).toThrow();
   });
 
   it("fails when setup-python is pinned to the wrong version", () => {
-    const wrongPython = loadYaml(`
-on:
-  push:
-    tags:
-      - "v[0-9]+.[0-9]+*"
-      - "[0-9]+.[0-9]+*"
-    branches:
-      - main
-  workflow_dispatch:
-jobs:
-  build-windows:
-    runs-on: windows-2022
-    steps:
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-      - name: Publish rolling main pre-release
-        if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
-`) as ReleaseWorkflow;
+    const workflow = baseReleaseWorkflow();
+    const setupPythonStep = workflow.jobs!["build-windows"]!.steps!.find(
+      (step) => step.uses === "actions/setup-python@v5",
+    );
+    setupPythonStep!.with = { "python-version": "3.12" };
 
-    expect(() => assertReleaseWorkflowShape(wrongPython)).toThrow();
+    expect(() => assertReleaseWorkflowShape(workflow)).toThrow();
   });
 });
 
@@ -299,8 +252,7 @@ function assertPhase22TagAutomationShape(workflow: ReleaseWorkflow): void {
 }
 
 describe("release.yml auto-tags and auto-releases on merge to main (Phase 22)", () => {
-  const raw = readFileSync(RELEASE_WORKFLOW_PATH, "utf8");
-  const workflow = loadYaml(raw) as ReleaseWorkflow;
+  const workflow = loadWorkflowFile<ReleaseWorkflow>(".github", "workflows", "release.yml");
 
   it("satisfies the full Phase 22 tag-check/create/publish contract", () => {
     assertPhase22TagAutomationShape(workflow);
