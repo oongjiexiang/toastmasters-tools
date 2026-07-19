@@ -2256,7 +2256,7 @@ Phase 15 used for its pipeline-only patch._
 
 ---
 
-## Phase 29 — Not started (Dashboard typography refresh: sleeker font + heading tracking, minor → 1.12.0)
+## Phase 29 — Done (Dashboard typography refresh: sleeker font + heading tracking, minor → 1.12.0)
 
 _Direct VPE request: the app's typography should read "more sleek." Today `packages/ui/globals.css`
 sets `--font-sans: var(--font-sans)` — a no-op that just falls through to Tailwind/shadcn's
@@ -2271,7 +2271,7 @@ Headings use default (0) letter-spacing. User-facing change to the `.exe` — **
 > "sleeker" read comes from the font family and heading letter-spacing below. If an item below
 > turns out to need a size change to look right, stop and flag it rather than silently rescaling.
 
-- [ ] **(item 1) Font family.** Change `packages/ui/globals.css`'s `--font-sans` from the
+- [x] **(item 1) Font family.** Change `packages/ui/globals.css`'s `--font-sans` from the
       self-referential no-op to an explicit, offline-safe stack: lead with each OS's newer,
       more refined native UI font — `"Segoe UI Variable"` (Windows 11 — this app's primary
       platform — noticeably crisper/more geometric than classic Segoe UI), then `-apple-system` /
@@ -2283,38 +2283,181 @@ Headings use default (0) letter-spacing. User-facing change to the `.exe` — **
       `electron-builder`/`electron-vite` asset pipeline. Add `antialiased` to the existing
       `html { @apply font-sans; }` rule for crisper rendering at this app's small (12–14px) body
       sizes.
-- [ ] **(item 2) Heading letter-spacing.** Add `tracking-tight` to the two heading roles only:
+- [x] **(item 2) Heading letter-spacing.** Add `tracking-tight` to the two heading roles only:
       `DashboardHeader`'s `<h1>`, `MemberDetailView`'s `<h1>`, and the shared `CardTitle` primitive
       (`packages/ui/components/ui/card.tsx`) so every `Card` — error, empty, "Member not found" —
       picks it up automatically without per-usage edits. Leave body text, table cells, and badges
       at default tracking; tight tracking only reads well at the larger/heavier weights headings
       use, per the `ui-ux-designer` review this item should get before landing.
-- [ ] **Update `specs/ui-design-react.md` §5 (Typography) once implemented** — it currently
+- [x] **Update `specs/ui-design-react.md` §5 (Typography) once implemented** — it currently
       documents "no custom stack" and "no custom [letter-spacing] values are set anywhere," which
       will no longer be true. Update the font-family paragraph and the type-roles table's H1/card-
       title rows to describe the shipped stack and `tracking-tight`, dated to this phase, following
       the same "documentation of what shipped" convention the rest of §5 already uses — do not
       pre-edit that spec before the code change lands (traceability: spec documents shipped state,
       this roadmap entry documents planned state).
-- [ ] **Version bump:** minor-bump every workspace `package.json` `version` to `1.12.0`; after
+- [x] **Version bump:** minor-bump every workspace `package.json` `version` to `1.12.0`; after
       validation, tag `v1.12.0` (or let the merge-to-`main` automation cut it).
 
 **Validation:**
-1. [ ] `grep -n '"Segoe UI Variable"' packages/ui/globals.css` — the new font stack is set (not
+1. [x] `grep -n '"Segoe UI Variable"' packages/ui/globals.css` — the new font stack is set (not
    the old self-referential `var(--font-sans)` no-op).
-2. [ ] `grep -rn "tracking-tight" packages/ui/components/DashboardHeader.tsx
+2. [x] `grep -rn "tracking-tight" packages/ui/components/DashboardHeader.tsx
    apps/desktop/src/renderer/views/MemberDetailView.tsx packages/ui/components/ui/card.tsx` — all
    three heading sites present.
-3. [ ] No `text-2xl|text-base|text-sm|text-xs` class anywhere in `packages/ui` or
+3. [x] No `text-2xl|text-base|text-sm|text-xs` class anywhere in `packages/ui` or
    `apps/desktop/src/renderer` changed value (a `git diff` size-class check) — confirms the
    "sizes stay put" constraint held.
-4. [ ] `npm test` green (floor: the Phase 28 count) — no unit test should assert on
+4. [x] `npm test` green (floor: the Phase 28 count) — no unit test should assert on
    `font-family`/`tracking` strings, so this should be a no-regression change; `npm run typecheck
    --workspaces --if-present`, `npm run lint`, and `npm run format:check` all clean.
-5. [ ] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
+5. [x] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
    `1.12.0`.
-6. [ ] `specs/ui-design-react.md` §5 updated to describe the shipped font stack and
+6. [x] `specs/ui-design-react.md` §5 updated to describe the shipped font stack and
    `tracking-tight`, dated to this phase.
 7. [ ] **Manual (user):** open the dashboard and member-detail views and confirm the headings and
    body text read visibly "sleeker" — refined font rendering, slightly tighter page/card titles —
    with no layout shift, truncation, or overflow regression anywhere §8's dense table rows appear.
+
+> **Note:** Validation item 4's checklist text predicted "no unit test should assert on
+> `font-family`/`tracking` strings" — that did **not** hold in the end. A new structural-guard
+> test, `packages/core/tests/typography-refresh.test.ts` (14 cases), was added to pin the shipped
+> font stack and all three `tracking-tight` additions against regression, mirroring the
+> `ci-workflow.test.ts`/`release-workflow.test.ts` pattern: it asserts the shipped shape on the
+> real files, then proves those assertions aren't vacuously true with negative-control fixtures
+> reproducing the exact pre-Phase-29 `globals.css` and heading markup (self-referential
+> `--font-sans: var(--font-sans)`, no `antialiased`, no `tracking-tight`) — each of which the
+> positive assertions correctly reject. The "sizes stay put" constraint (item 3 above) held with
+> no exceptions: no `text-2xl`/`text-base`/`text-sm`/`text-xs` class changed anywhere; the new
+> test's negative controls double as proof, pinning `text-2xl font-semibold` and
+> `text-base leading-snug font-medium` as unchanged alongside the added `tracking-tight`. `npm test`
+> reproduced **495/495** total (293/293 core — up from 279 before this phase, the new file's 14
+> cases — and 202/202 desktop, unchanged), `npm run typecheck --workspaces --if-present`,
+> `npm run lint`, and `npm run format:check` all clean. **Validation item 7 remains open by
+> design** — it requires a human looking at the rendered app, matching this repo's convention for
+> manual/user-only validation steps (see Phase 27's item 7, Phase 28's item 6).
+
+> **PR #16 review follow-up (2026-07-18):** a code-quality review caught three issues, all fixed
+> in the same PR. (1) The `"Inter"` fallback in item 1's font stack was never reachable in
+> practice — this app bundles no font files and Inter isn't a stock system font on Windows/macOS,
+> so the entry silently fell through to `ui-sans-serif`/`system-ui` on essentially every real
+> machine. Dropped from `packages/ui/globals.css` and from this spec's own §5 description;
+> the shipped stack is now `"Segoe UI Variable", -apple-system, BlinkMacSystemFont, ui-sans-serif,
+> system-ui, sans-serif` — three entries, each genuinely reachable. (2)/(3) `typography-refresh.test.ts`
+> originally matched the CSS font-stack declaration and the `CardTitle` className with
+> whitespace-literal / full-string regexes — a routine Prettier re-wrap or an unrelated future
+> `CardTitle` class tweak (e.g. to `leading-snug`) would have failed the suite even with the
+> targeted property unchanged. Rewrote both checks to extract the relevant value first (the
+> `--font-sans` declaration's value, the `CardTitle` function's base `cn(...)` string) and assert
+> on it whitespace-normalized / token-set membership rather than pinning the raw source text, so
+> the test now fails only when the font stack's actual composition or the `tracking-tight` token
+> itself regresses, not on cosmetic reformatting. The rewrite added 3 more cases (11 → 14) covering
+> the size=sm tracking-normal fix below and a substring-match false-positive guard; all still pass
+> with updated negative controls proving the narrower assertions still reject the pre-Phase-29 shape.
+> (4) A second review round caught that `CardTitle`'s unconditional `tracking-tight` contradicted
+> this same spec's "tight tracking only at the larger/heavier heading weights" rule for the
+> `size="sm"` card variant, which drops the title to `text-sm` (body size) via
+> `group-data-[size=sm]/card:text-sm` — no call site passes `size="sm"` today, so nothing visibly
+> regressed, but nothing would have caught it either. Fixed by adding
+> `group-data-[size=sm]/card:tracking-normal` alongside the existing `:text-sm` override, and added
+> a dedicated test asserting that class is present so a future edit can't silently drop it.
+
+---
+
+## Phase 30 — Not started (Export the member overview as CSV for reporting, minor → 1.13.0)
+
+_`specs/mission.md` names the tool's **Output** as "CSV files consumed in Google Sheets or Excel
+for weekly/monthly reporting" and its **Core Value** as "produces clean CSVs the VPE can use
+immediately." That is the whole point — a synthesized "who is one project away from their next
+level" view the two portals can't give. But since Phase 6 deleted `summary.csv` ("the dashboard is
+now authoritative"), the GUI era never shipped a replacement: the desktop app can **display** the
+synthesized overview but cannot **export** it. The only export today
+(`DOWNLOAD_MEMBERSHIP_CSV`, `apps/desktop/src/main/index.ts:181`) copies the **raw TI membership
+file** — the unprocessed roster, not the pathway/title/next-level/remaining/status synthesis that
+is the tool's actual differentiator. So a VPE who wants this month's report in a spreadsheet has to
+retype what's on screen. This phase closes that gap with a one-click "Export overview CSV." User-
+facing change to the `.exe` — **minor bump → `1.13.0`**, matching this repo's convention for
+visible features (Phase 16, 20, 25, 29)._
+
+> **Finding (grounds the scope — read directly off the code, not assumed):** the read-model that
+> powers the on-screen table, `listMembers` in `packages/core/queries.ts`, already returns exactly
+> the reportable fields — `MemberSummary { email, name, title, pathways[] }` where each
+> `PathwaySummary` carries `{ pathway, title, nextLevel, remaining, status }`
+> (`packages/core/queries.ts:64-77`). No new query, no new scrape, no schema change is needed — this
+> is a serialization + save-dialog feature over data that already exists in memory. A member can
+> hold **multiple pathways** (the Phase 19/20 expand/collapse rows), so the CSV must emit **one row
+> per (member × pathway)**, not one per member, to stay lossless. `csv-stringify` was the documented
+> stack choice (`tech-stack.md`, "CSV I/O") and was only dropped in Phase 10 because it was orphaned
+> after the Phase 6 cleanup — re-adding it (rather than hand-rolling RFC-4180 quoting) is correct
+> here, because member names legitimately contain commas.
+
+- [ ] **(item 1) Core CSV builder.** Add a pure, framework-agnostic `buildOverviewCsv(members:
+      MemberSummary[]): string` to `packages/core/queries.ts` (already exported as
+      `@toastmasters/core/queries` — no new `exports` subpath, so no
+      `packages/core/tests/workspace.test.ts` surface change). Emit a header row and one data row
+      per (member × pathway): columns `Name, Email, Overall Title, Pathway, Pathway Title, Next
+      Level, Projects Remaining, Status`. Map the `status` union to human-readable labels matching
+      the dashboard badges (`completed` → `Completed`, `ready` → `Ready`, `close` → `Close`,
+      `in-progress` → `In Progress`, `not-started` → `Not Started`). Serialize with **`csv-stringify`**
+      (re-add the dependency to `packages/core/package.json` — it was the documented stack choice,
+      removed as orphaned in Phase 10, not rejected) for RFC-4180-correct quoting of names
+      containing commas/quotes. A member with an empty `pathways[]` still emits one row (blank
+      pathway columns) so nobody silently drops out of the report.
+- [ ] **(item 2) IPC + main-process save handler.** Add an `EXPORT_OVERVIEW_CSV` channel to
+      `apps/desktop/src/shared/ipc.ts` and an `exportOverviewCsv(): Promise<IpcResult<string | null>>`
+      method on `ToastmastersBridge` (resolves to the saved path, or `null` on cancel — mirror the
+      exact shape of the existing `downloadMembershipCsv`). Bridge it in
+      `apps/desktop/src/preload/index.ts`. The main handler (`apps/desktop/src/main/index.ts`) calls
+      `core.listMembers()`, builds the CSV via item 1, and writes it through `dialog.showSaveDialog`
+      with `defaultPath: join(app.getPath("downloads"), "toastmasters-overview-<YYYY-MM-DD>.csv")`
+      and a `.csv` filter — reusing the `DOWNLOAD_MEMBERSHIP_CSV` handler's structure. Export the
+      **full roster snapshot**, independent of the Phase 20 on-screen search filter (a monthly report
+      wants everyone, not the current filtered subset) — document this choice in item 5.
+- [ ] **(item 3) Renderer control, never a dead button.** Add an **Export CSV** button to
+      `DashboardHeader` (`packages/ui/components/DashboardHeader.tsx`) via a new optional slot,
+      following the established `authControl`/`themeControl` slot pattern (undefined-safe, no change
+      for any other consumer). Wire it in the desktop renderer to call
+      `window.toastmasters.exportOverviewCsv()`, with a Sonner toast: success ("Overview exported to
+      <path>") / error / neutral on cancel. **Disable or hide the button when there is no snapshot to
+      export** (empty member list / `SNAPSHOT_MISSING`), applying the same "never a dead control"
+      rule Phases 17/19/20 already enforce elsewhere — the button must not offer to export an empty
+      report.
+- [ ] **(item 4) Tests.** Unit-test `buildOverviewCsv` in `packages/core/tests/`: header row +
+      column order; one row per (member × pathway) for a multi-pathway member; correct status-label
+      mapping; RFC-4180 quoting of a name containing a comma (a genuine negative control that would
+      fail on a naive `join(",")`); and the empty-`pathways[]` member still emitting a row. Extend
+      `apps/desktop/tests/main-ipc.test.ts` and `preload.test.ts` for the new channel/bridge method
+      (mocked `dialog.showSaveDialog` returning both a path and a cancel), and add a
+      `DashboardHeader`/renderer test asserting the Export button is absent/disabled when the member
+      list is empty and present when it is not.
+- [ ] **(item 5) Docs.** Add an "Export the overview" step to `apps/desktop/USER_GUIDE.md` (where to
+      click, what the file contains, that it opens in Google Sheets/Excel, and that it exports the
+      **whole club** regardless of any active search filter). Note the distinction from the existing
+      "Download membership file" (raw TI roster) so the VPE isn't confused about which is which.
+      Docs-only touch to `README.md`'s **Dashboard** section if the "Membership file download"
+      description needs a sibling line for the new export.
+- [ ] **Version bump:** minor-bump every workspace `package.json` `version` to `1.13.0`; after
+      validation, tag `v1.13.0` (or let the merge-to-`main` automation cut it).
+
+**Validation:**
+1. [ ] `grep -n "buildOverviewCsv" packages/core/queries.ts` — the pure builder exists in the
+   already-exported read-model module (no new `exports` subpath).
+2. [ ] `grep -n "EXPORT_OVERVIEW_CSV" apps/desktop/src/shared/ipc.ts apps/desktop/src/main/index.ts
+   apps/desktop/src/preload/index.ts` — channel declared, main handler registered, preload bridge
+   present.
+3. [ ] A unit test on `buildOverviewCsv` proves: header + column order; a multi-pathway member emits
+   one row per pathway; the status labels match the dashboard badges; a name containing a comma is
+   quoted (negative control — fails on a naive comma-join); an empty-`pathways[]` member still emits
+   a row.
+4. [ ] A renderer/component test proves the **Export CSV** button is not rendered (or is disabled)
+   when the member list is empty, and is active when it is not — the "never a dead control" guard.
+5. [ ] `npm test` green (floor: the Phase 29 count, 495 — 293 core + 202 desktop) plus the new cases;
+   `npm run typecheck --workspaces --if-present`, `npm run lint`, and `npm run format:check` all
+   clean.
+6. [ ] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
+   `1.13.0`.
+7. [ ] **Manual (user):** run a refresh, click **Export CSV**, save the file, and open it in Google
+   Sheets/Excel — confirm every active member appears with the right pathway/title/next-level/
+   remaining/status, that a multi-pathway member shows one row per pathway, that a name with a comma
+   is intact (not split across columns), and that the button is unavailable on a fresh/never-
+   refreshed install.
