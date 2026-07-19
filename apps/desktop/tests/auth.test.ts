@@ -142,6 +142,8 @@ import {
   runLoginFlow,
   watchForCapture,
   watchForNavigationCapture,
+  BASECAMP_LOGIN_URL,
+  BASECAMP_COOKIE_URL,
   type CookieSource,
   type CookieWatcher,
   type HarvestedCookies,
@@ -887,6 +889,24 @@ describe("looksLikeLoginPage classifies URLs by a loose pathname substring match
 
   it("is false (not throwing) for an unparsable URL", () => {
     expect(looksLikeLoginPage("not-a-url")).toBe(false);
+  });
+});
+
+describe("the Basecamp login window opens the SPA host that mints the authenticated session, not the bare API host (Phase 27)", () => {
+  // Phase 27's first attempt repointed BASECAMP_LOGIN_URL at the bare API host
+  // `basecamp.toastmasters.org/`, reasoning it should match the harvest host. That
+  // regressed refresh to HTTP 401/403: the bare host only 302-redirects an
+  // unauthenticated visit and leaves an ANONYMOUS sessionid, which the nav-capture
+  // gate still captures. The authenticated sessionid is minted by the Base Camp app
+  // SPA (`app.basecamp.toastmasters.org`) completing its TI-SSO handshake. So the
+  // login host and the harvest/API host are DELIBERATELY DIFFERENT — this guards
+  // against collapsing them again.
+  it("opens the app.basecamp SPA host (which drives the authenticated SSO handshake)", () => {
+    expect(new URL(BASECAMP_LOGIN_URL).host).toBe("app.basecamp.toastmasters.org");
+  });
+
+  it("does NOT open the bare API host we harvest from (that only yields an anonymous session)", () => {
+    expect(new URL(BASECAMP_LOGIN_URL).host).not.toBe(new URL(BASECAMP_COOKIE_URL).host);
   });
 });
 
