@@ -2170,9 +2170,93 @@ patch bump → `1.11.2`._
 > bumped (CI's `node-version: "20"` already resolves to a new-enough 20.x, so CI was unaffected).
 > Local `node_modules` was also stale (Electron 33 vs the pinned 43) and was re-synced.
 
+> **Correction (2026-07-19, the "Done" status above was premature — the crash was never actually
+> fixed):** a `workflow_dispatch` build from `main` at the PR #18 merge commit (`aa6f87c`) reproduced
+> the identical `TypeError: Object has been destroyed` crash on a successful login, closing the
+> second (Basecamp) window. Root cause: this phase's fix commit (`f846e93`) was authored on a branch
+> forked **before** a separately-merged PR #14 (`74b722c`, "fix Basecamp login window hanging on a
+> blank page") added the auto-reload resilience machinery — `console-message` listener,
+> `before-input-event` F5/Ctrl+R rebinding, `gaveUp` plumbing — to `openLoginWindow`. `f846e93` only
+> touched the `BASECAMP_LOGIN_URL`/`BASECAMP_COOKIE_URL` doc comments; there was no machinery on that
+> branch yet to remove, despite the commit message's claim ("This drops that machinery entirely").
+> When the feature branch subsequently merged `main` back in (`ccf167f`, a clean auto-merge — nothing
+> conflicted), PR #14's machinery merged in untouched and PR #18 shipped believing the crash was
+> gone. **Findings #1 and #2 above are still both correct** (the crash mechanism and the
+> `BASECAMP_LOGIN_URL` host requirement are accurately root-caused) — only the claim that the
+> machinery was absent from the shipped tree, and validation items 1 and 3, do not hold: `git show
+> aa6f87c:apps/desktop/src/main/auth.ts` shows `win.once("closed", …)` still calling
+> `win.webContents.off(…)` after the window is destroyed, on `main`, today. The PR's "Note (shipped,
+> verified…)" re-extraction claim was evidently checked against the wrong build. **The real fix is
+> Phase 28 below** — which also revisits the original "delete the machinery" premise: PR #14 added it
+> for a real, separate bug (the blank-page hang), so deleting it would silently reintroduce that bug
+> rather than genuinely fixing anything.
+
 ---
 
-## Phase 28 — Not started (Add a typecheck gate to CI, patch → 1.11.3)
+## Phase 28 — Done (Fix: actually remove the `win.webContents` post-destroy dereference that still crashes login on close, patch → 1.11.3)
+
+_Phase 27 was marked Done without the crash actually being fixed — see the Correction note above.
+The `win.once("closed", …)` handler in `openLoginWindow` (`apps/desktop/src/main/auth.ts`) still
+called `win.webContents.off(...)` after the window (and its native `webContents` getter) had been
+destroyed, throwing `TypeError: Object has been destroyed` on every successful login that closed the
+second window. **This phase keeps PR #14's auto-reload resilience machinery** (it fixes a real,
+separate bug — the blank-page hang — and deleting it would silently reintroduce that bug) and fixes
+only the actual defect: capture the `webContents` reference once, immediately after the
+`BrowserWindow` is constructed, and use that captured reference — never `win.webContents` — anywhere
+inside `openLoginWindow`, including the `closed` handler. **Bug fix to an existing shipped flow, no
+new feature — patch bump → `1.11.3`.**_
+
+> **Why the Phase 27 test suite didn't catch this:** `apps/desktop/tests/auth.test.ts`'s
+> `FakeBrowserWindow.webContents` was a plain field, always readable — unlike real Electron's
+> `BrowserWindow.webContents`, which is a native getter that throws once the window is destroyed. So
+> every existing `win.close()`-driven test exercised the `closed` handler without ever hitting the
+> throw, green by construction. Fixed by adding an opt-in `FakeBrowserWindow.strictWebContentsAccess`
+> flag (default `false`, so every pre-existing test — several of which read `win.webContents` for
+> inspection *after* calling `win.close()` — keeps its current lenient behaviour unchanged) that a new,
+> dedicated describe block turns on to reproduce the real throwing contract precisely where the bug
+> lives.
+
+- [x] **(item 1) Capture `webContents` once, right after construction.** `const webContents =
+      win.webContents;` immediately after `new BrowserWindow(...)`; every subsequent read
+      (`buildCaptureSignal`, `safeReload`, the `console-message`/`before-input-event` listener
+      registration, and the `closed` handler's `.off()` calls) uses this captured reference instead
+      of re-reading `win.webContents`. `win.isDestroyed()` and `win.loadURL()`/`win.close()` calls on
+      `win` itself are unaffected — only `.webContents` reads move to the captured reference.
+- [x] **(item 2) Keep the Phase 27 resilience machinery.** No change to `console-message` detection,
+      the auto-reload cap, F5/Ctrl+R rebinding, or `gaveUp` plumbing — PR #14 added it for the
+      blank-page-hang bug, which is still real. This phase is a pure crash fix, not a rollback.
+- [x] **Tests.** Add `apps/desktop/tests/auth.test.ts::FakeBrowserWindow.strictWebContentsAccess`
+      (opt-in, default off) so `.webContents` throws `TypeError: Object has been destroyed` once
+      `destroyed` is true, mirroring real Electron. A new describe block opts in and closes a live
+      `openLoginWindow` window, asserting `win.close()` does not throw and the promise resolves
+      `{ gaveUp: false }` — proven to fail against the pre-fix source (verified: both new tests threw
+      `TypeError: Object has been destroyed` before the `auth.ts` change above, passed after).
+- [x] **Version bump:** patch-bump every workspace `package.json` `version` to `1.11.3`; after
+      validation, tag `v1.11.3` (or let the merge-to-`main` automation cut it).
+
+**Validation:**
+1. [x] `grep -n "const webContents = win.webContents" apps/desktop/src/main/auth.ts` — the reference
+   is captured once, immediately after construction.
+2. [x] `grep -n "win.webContents" apps/desktop/src/main/auth.ts` — **no matches** inside
+   `openLoginWindow` (the export's JSDoc above it may still say `win.webContents` in prose; only the
+   executable code matters here) — every live use goes through the captured `webContents` local.
+3. [x] The two new `strictWebContentsAccess` regression tests in `auth.test.ts` reproduce the crash
+   (throw `TypeError: Object has been destroyed`) against the pre-fix source and pass clean against
+   the fixed source — confirmed by running both ways.
+4. [x] `npm test` green: **272 core + 206 desktop = 478**, reproduced. Desktop is up 2 from the 204
+   already on `main` at this phase's start (PR #14's Phase 27 tests had already landed there,
+   independently of the incomplete Phase 27 fix branch) — the 2 new `strictWebContentsAccess`
+   regression tests. `npm run typecheck --workspaces --if-present`, `npm run lint`, and `npm run
+   format:check` all clean on the touched files (`auth.ts`, `auth.test.ts`).
+5. [x] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
+   `1.11.3`.
+6. [ ] **Manual (VPE):** rebuild the `.exe`, log in via **File → Log in to Toastmasters…**, confirm a
+   successful login no longer crashes with the main-process error dialog on close, and **Refresh
+   Progress still succeeds**. **Not yet performed — requires a real rebuild and the VPE's own login.**
+
+---
+
+## Phase 29 — Not started (Add a typecheck gate to CI, patch → 1.11.4)
 
 _Phase 23's closing note flagged a concrete, evidenced CI gap: `.github/workflows/ci.yml`'s
 `test` job runs `npm test` only and **never** runs any workspace's `typecheck` script. That is
@@ -2183,7 +2267,7 @@ own validation until an out-of-band `npm run typecheck --workspaces --if-present
 Phase 23 fixed that specific error but explicitly left closing the gate itself to "a future
 phase." This is that phase: put `typecheck` into the same CI gate as the tests, so a `tsc` error
 in any workspace fails the PR check instead of a green `npm test` masking it. **Pipeline-only —
-the shipped `.exe` is byte-identical** — so a **patch bump → `1.11.3`**, the same rationale
+the shipped `.exe` is byte-identical** — so a **patch bump → `1.11.4`**, the same rationale
 Phase 15 used for its pipeline-only patch._
 
 > **Finding (grounds the scope):** all three workspaces already expose a `typecheck` script
@@ -2215,22 +2299,22 @@ Phase 15 used for its pipeline-only patch._
       same shape as `packages/core/tests/release-workflow.test.ts` (js-yaml load + a negative
       control): assert the `test` job includes the `typecheck` invocation, with a control that
       fails against the pre-phase `ci.yml` shape so the gate can't be silently dropped later.
-- [ ] **Version bump:** patch-bump every workspace `package.json` `version` to `1.11.3`; after
-      validation, tag `v1.11.3` (or let the merge-to-`main` automation cut it).
+- [ ] **Version bump:** patch-bump every workspace `package.json` `version` to `1.11.4`; after
+      validation, tag `v1.11.4` (or let the merge-to-`main` automation cut it).
 
 **Validation:**
 1. [ ] `grep -nE "typecheck" .github/workflows/ci.yml` — the `test` job runs a workspace
       typecheck; the file still parses as valid YAML (js-yaml load).
 2. [ ] `npm run typecheck --workspaces --if-present` exits 0 across `@toastmasters/core`,
       `@toastmasters/ui`, and `@toastmasters/desktop` — the new gate is green on the current tree.
-3. [ ] `npm test` green (floor: the Phase 27 count) including the
+3. [ ] `npm test` green (floor: the Phase 28 count, 478 — 272 core + 206 desktop) including the
       new `ci.yml` structural test and its negative control (which must fail on the pre-phase
       workflow shape).
 4. [ ] If the `typescript` pin was hoisted: `grep -n "typescript" package.json` shows the root
       pin and each workspace still resolves a `5.x` (no TS6 drift); `npm run typecheck` stays
       clean.
 5. [ ] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
-      `1.11.3`.
+      `1.11.4`.
 6. [ ] **Confirmed after push (requires a real PR run on GitHub, not headlessly verifiable —
       same caveat as Phase 15's item 2):** the PR's `test` check runs the typecheck step and stays
       the required context under branch protection; optionally, a deliberately-introduced `tsc`
@@ -2238,7 +2322,16 @@ Phase 15 used for its pipeline-only patch._
 
 ---
 
-## Phase 29 — Not started (Dashboard typography refresh: sleeker font + heading tracking, minor → 1.12.0)
+## Phase 30 — Not started (Dashboard typography refresh: sleeker font + heading tracking, minor → 1.12.0)
+
+> **Renumbered (2026-07-19):** this was Phase 29. It shipped as PR #16, but PR #16 merged into
+> `claude/loving-ramanujan-lw27lw`, a branch that forked from `main` *before* Phase 27/28's crash fix
+> — not into `main` itself. So none of this work is actually on `main` yet, and `main`'s tip is still
+> at `1.11.2`/`1.11.3` after Phase 28. Renumbered to Phase 30, after the real Phase 28 fix and the
+> already-queued Phase 29 (typecheck gate), so the version sequence stays monotonic
+> (`1.11.3` → `1.11.4` → `1.12.0`). The content below is unchanged from the original phase; landing
+> it still requires rebasing `claude/loving-ramanujan-lw27lw`'s typography commits onto current
+> `main` (picking up the crash fix) rather than reusing that branch as-is.
 
 _Direct VPE request: the app's typography should read "more sleek." Today `packages/ui/globals.css`
 sets `--font-sans: var(--font-sans)` — a no-op that just falls through to Tailwind/shadcn's
@@ -2290,7 +2383,7 @@ Headings use default (0) letter-spacing. User-facing change to the `.exe` — **
 3. [ ] No `text-2xl|text-base|text-sm|text-xs` class anywhere in `packages/ui` or
    `apps/desktop/src/renderer` changed value (a `git diff` size-class check) — confirms the
    "sizes stay put" constraint held.
-4. [ ] `npm test` green (floor: the Phase 28 count) — no unit test should assert on
+4. [ ] `npm test` green (floor: the Phase 29 count) — no unit test should assert on
    `font-family`/`tracking` strings, so this should be a no-regression change; `npm run typecheck
    --workspaces --if-present`, `npm run lint`, and `npm run format:check` all clean.
 5. [ ] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
