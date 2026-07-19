@@ -340,7 +340,7 @@ const PROGRESS_REPORT_HEADER = [
  */
 function csvField(value: string | number): string {
   let str = String(value);
-  if (/^[=+\-@\t\r]/.test(str.replace(/^[  ]+/, ""))) {
+  if (/^[=+\-@\t\r]/.test(str.replace(/^[ \u00A0]+/, ""))) {
     str = `'${str}`;
   }
   if (/[",\r\n]/.test(str)) {
