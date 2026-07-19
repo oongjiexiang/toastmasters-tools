@@ -19,7 +19,7 @@ function isoDaysAgo(days: number): string {
   return new Date(NOW.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
 }
 
-function renderHeader(latestSnapshotAt: string | null) {
+function renderHeader(latestSnapshotAt: string | null, appVersion?: string | null) {
   render(
     <DashboardHeader
       memberCount={38}
@@ -29,6 +29,7 @@ function renderHeader(latestSnapshotAt: string | null) {
       onRefreshProgress={vi.fn()}
       onRefreshMembership={vi.fn()}
       membershipCsvControl={null}
+      appVersion={appVersion}
     />,
   );
 }
@@ -96,5 +97,33 @@ describe("DashboardHeader — data-freshness note next to the member count (Phas
     const note = screen.getByText("Updated 22 days ago");
     expect(note.className).toContain("text-amber-600");
     expect(note.className).toContain("dark:text-amber-400");
+  });
+});
+
+describe("DashboardHeader — app version suffix next to the heading (Phase 31)", () => {
+  it("renders the version as a 'v<version>' suffix next to the title when provided", () => {
+    renderHeader(isoDaysAgo(3), "1.13.0");
+
+    expect(screen.getByText("v1.13.0")).toBeInTheDocument();
+  });
+
+  it("renders no version suffix when appVersion is null (not yet loaded) — negative control", () => {
+    renderHeader(isoDaysAgo(3), null);
+
+    expect(screen.queryByText(/^v\d/)).not.toBeInTheDocument();
+  });
+
+  it("renders no version suffix when appVersion is omitted entirely — negative control", () => {
+    renderHeader(isoDaysAgo(3));
+
+    expect(screen.queryByText(/^v\d/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the version suffix in a muted, non-heading weight — it must not compete visually with the title", () => {
+    renderHeader(isoDaysAgo(3), "1.13.0");
+
+    const suffix = screen.getByText("v1.13.0");
+    expect(suffix.className).toContain("text-muted-foreground");
+    expect(suffix.className).toContain("font-normal");
   });
 });

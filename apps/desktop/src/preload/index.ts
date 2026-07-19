@@ -6,8 +6,9 @@ import { IPC, type ToastmastersBridge } from "../shared/ipc";
  * `nodeIntegration` is off (see main/index.ts), so the renderer can reach nothing
  * but the functions below — the six web-parity data calls, `cancelRefresh`
  * (Phase 22), the three Electron-only auth calls (`login` / `authStatus` added
- * in Phase 12, `logout` added in Phase 17), and the one-way `onRefreshLog`
- * subscription that streams live refresh progress to the renderer.
+ * in Phase 12, `logout` added in Phase 17), `getAppVersion` (Phase 31), and the
+ * one-way `onRefreshLog` subscription that streams live refresh progress to the
+ * renderer.
  */
 const bridge: ToastmastersBridge = {
   listMembers: () => ipcRenderer.invoke(IPC.LIST_MEMBERS),
@@ -20,6 +21,7 @@ const bridge: ToastmastersBridge = {
   login: () => ipcRenderer.invoke(IPC.AUTH_LOGIN),
   authStatus: () => ipcRenderer.invoke(IPC.AUTH_STATUS),
   logout: () => ipcRenderer.invoke(IPC.AUTH_LOGOUT),
+  getAppVersion: () => ipcRenderer.invoke(IPC.GET_APP_VERSION),
   onRefreshLog: (listener) => {
     // Wrap so the renderer's callback never receives Electron's IpcRendererEvent.
     const handler = (_event: unknown, line: string) => listener(line);

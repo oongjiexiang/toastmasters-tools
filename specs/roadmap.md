@@ -2322,74 +2322,163 @@ Phase 15 used for its pipeline-only patch._
 
 ---
 
-## Phase 30 — Not started (Dashboard typography refresh: sleeker font + heading tracking, minor → 1.12.0)
+## Phase 30 — Done (Dashboard typography refresh: sleeker font + heading tracking, minor → 1.12.0)
 
 > **Renumbered (2026-07-19):** this was Phase 29. It shipped as PR #16, but PR #16 merged into
 > `claude/loving-ramanujan-lw27lw`, a branch that forked from `main` *before* Phase 27/28's crash fix
-> — not into `main` itself. So none of this work is actually on `main` yet, and `main`'s tip is still
-> at `1.11.2`/`1.11.3` after Phase 28. Renumbered to Phase 30, after the real Phase 28 fix and the
-> already-queued Phase 29 (typecheck gate), so the version sequence stays monotonic
-> (`1.11.3` → `1.11.4` → `1.12.0`). The content below is unchanged from the original phase; landing
-> it still requires rebasing `claude/loving-ramanujan-lw27lw`'s typography commits onto current
-> `main` (picking up the crash fix) rather than reusing that branch as-is.
+> — not into `main` itself. So none of this work was actually on `main` yet, even after PR #16
+> merged. Renumbered to Phase 30, after the real Phase 28 fix and the already-queued Phase 29
+> (typecheck gate), so the version sequence stays monotonic (`1.11.3` → `1.11.4` → `1.12.0`).
+> **Landed (2026-07-19):** the code, its regression test, and the §5 doc update below were ported
+> from `claude/loving-ramanujan-lw27lw` onto a fresh branch off current `main` (picking up the
+> Phase 28 crash fix) — deliberately *not* by merging that branch wholesale, since it also carries
+> an independent, differently-numbered implementation of the typecheck-gate phase (its own
+> "Phase 28", at `1.11.3` — a version already used by this repo's real Phase 28) and an unrelated
+> Phase 30 CSV-export spec addition. Only the typography-specific files (`packages/ui/globals.css`,
+> `DashboardHeader.tsx`, `card.tsx`, `MemberDetailView.tsx`, the new
+> `packages/core/tests/typography-refresh.test.ts`, and this section of `ui-design-react.md`) were
+> carried over; `auth.ts`/`auth.test.ts` on that branch were left behind (stale, pre-Phase-28).
 
-_Direct VPE request: the app's typography should read "more sleek." Today `packages/ui/globals.css`
-sets `--font-sans: var(--font-sans)` — a no-op that just falls through to Tailwind/shadcn's
-generic default sans stack (plain `ui-sans-serif, system-ui, sans-serif`, no explicit named font).
-Headings use default (0) letter-spacing. User-facing change to the `.exe` — **minor bump →
-`1.12.0`**, matching this repo's convention for visible UI changes (Phase 16, Phase 25)._
+_Direct VPE request: the app's typography should read "more sleek." Before this phase,
+`packages/ui/globals.css` set `--font-sans: var(--font-sans)` — a no-op that just fell through to
+Tailwind/shadcn's generic default sans stack (plain `ui-sans-serif, system-ui, sans-serif`, no
+explicit named font). Headings used default (0) letter-spacing. User-facing change to the `.exe` —
+**minor bump → `1.12.0`**, matching this repo's convention for visible UI changes (Phase 16,
+Phase 25)._
 
 > **Sizes stay put — this is a family/spacing change, not a rescale.** §8 of
 > `specs/ui-design-react.md` calls the current dense rhythm (`~0.4rem 0.75rem` cell padding,
 > `0.875rem`/14px body text) load-bearing for a data tool the VPE scans quickly. Nothing in this
-> phase should change any Tailwind text-size class (`text-2xl`, `text-sm`, `text-xs`, …) — the
-> "sleeker" read comes from the font family and heading letter-spacing below. If an item below
-> turns out to need a size change to look right, stop and flag it rather than silently rescaling.
+> phase changes any Tailwind text-size class (`text-2xl`, `text-sm`, `text-xs`, …) — the "sleeker"
+> read comes from the font family and heading letter-spacing below.
 
-- [ ] **(item 1) Font family.** Change `packages/ui/globals.css`'s `--font-sans` from the
-      self-referential no-op to an explicit, offline-safe stack: lead with each OS's newer,
-      more refined native UI font — `"Segoe UI Variable"` (Windows 11 — this app's primary
-      platform — noticeably crisper/more geometric than classic Segoe UI), then `-apple-system` /
-      `BlinkMacSystemFont` (macOS), then `"Inter"` (in case installed), falling back to
-      `ui-sans-serif, system-ui, sans-serif` so any other machine still renders correctly.
-      Deliberately **no bundled/self-hosted font file** — this is an offline Electron app with no
-      CDN access at runtime, and every entry in the stack is either OS-native or degrades
-      gracefully, so there is no font asset to vendor, license, or wire into the
-      `electron-builder`/`electron-vite` asset pipeline. Add `antialiased` to the existing
-      `html { @apply font-sans; }` rule for crisper rendering at this app's small (12–14px) body
-      sizes.
-- [ ] **(item 2) Heading letter-spacing.** Add `tracking-tight` to the two heading roles only:
+- [x] **(item 1) Font family.** `packages/ui/globals.css`'s `--font-sans` is now an explicit,
+      offline-safe stack: `"Segoe UI Variable"` (Windows 11 — this app's primary platform —
+      noticeably crisper/more geometric than classic Segoe UI), then `-apple-system` /
+      `BlinkMacSystemFont` (macOS), falling back to `ui-sans-serif, system-ui, sans-serif`.
+      **Deviation from the original plan:** the planned `"Inter"` fallback entry was dropped
+      before landing (caught in PR #16's own review) — this app bundles no font files, and Inter
+      isn't a stock system font on Windows or macOS, so it could never actually resolve; keeping
+      it would have been a dead, misleading entry in the stack. Every remaining entry is OS-native
+      and reachable on a real machine — no font asset vendored, licensed, or wired into the
+      `electron-builder`/`electron-vite` pipeline. `html { @apply font-sans antialiased; }` adds
+      `antialiased` for crisper rendering at this app's small (12–14px) body sizes.
+- [x] **(item 2) Heading letter-spacing.** `tracking-tight` added to the two heading roles:
       `DashboardHeader`'s `<h1>`, `MemberDetailView`'s `<h1>`, and the shared `CardTitle` primitive
-      (`packages/ui/components/ui/card.tsx`) so every `Card` — error, empty, "Member not found" —
-      picks it up automatically without per-usage edits. Leave body text, table cells, and badges
-      at default tracking; tight tracking only reads well at the larger/heavier weights headings
-      use, per the `ui-ux-designer` review this item should get before landing.
-- [ ] **Update `specs/ui-design-react.md` §5 (Typography) once implemented** — it currently
-      documents "no custom stack" and "no custom [letter-spacing] values are set anywhere," which
-      will no longer be true. Update the font-family paragraph and the type-roles table's H1/card-
-      title rows to describe the shipped stack and `tracking-tight`, dated to this phase, following
-      the same "documentation of what shipped" convention the rest of §5 already uses — do not
-      pre-edit that spec before the code change lands (traceability: spec documents shipped state,
-      this roadmap entry documents planned state).
-- [ ] **Version bump:** minor-bump every workspace `package.json` `version` to `1.12.0`; after
-      validation, tag `v1.12.0` (or let the merge-to-`main` automation cut it).
+      (`packages/ui/components/ui/card.tsx`), so every `Card` — error, empty, "Member not found" —
+      picks it up automatically. **Follow-on finding (also caught in PR #16 review):** `CardTitle`
+      drops to `text-sm` (body-text size) via `group-data-[size=sm]/card:text-sm` when its parent
+      `Card` is rendered `size="sm"` — at that size it reads as body text, not a heading, so a
+      matching `group-data-[size=sm]/card:tracking-normal` override was added to reset tracking
+      there too, keeping "tight tracking only at heading weights" intact. No call site used
+      `size="sm"` at the time, so this was a latent-only inconsistency, never a visible regression.
+      Body text, table cells, and badges are untouched.
+- [x] **Update `specs/ui-design-react.md` §5 (Typography)** — the font-family paragraph and the
+      type-roles table's H1/card-title rows now describe the shipped stack and `tracking-tight`,
+      dated to this phase, following the same "documentation of what shipped" convention the rest
+      of §5 already uses.
+- [x] **Tests.** `packages/core/tests/typography-refresh.test.ts` (14 tests, ported and renumbered
+      from PR #16 to reference Phase 30): pins the font stack (present, not the old self-referential
+      no-op, no unreachable `"Inter"` entry), pins `antialiased`, and pins `tracking-tight` on all
+      three heading sites plus their unchanged size classes — each with a negative control against
+      the exact pre-phase fixture content, and a reformatting-tolerance check so a routine Prettier
+      re-wrap can't false-fail the guard.
+- [x] **Version bump:** minor-bumped every workspace `package.json` `version` to `1.12.0`.
 
 **Validation:**
-1. [ ] `grep -n '"Segoe UI Variable"' packages/ui/globals.css` — the new font stack is set (not
-   the old self-referential `var(--font-sans)` no-op).
-2. [ ] `grep -rn "tracking-tight" packages/ui/components/DashboardHeader.tsx
+1. [x] `grep -n '"Segoe UI Variable"' packages/ui/globals.css` — the new font stack is set (not
+   the old self-referential `var(--font-sans)` no-op); no `"Inter"` entry present.
+2. [x] `grep -rn "tracking-tight" packages/ui/components/DashboardHeader.tsx
    apps/desktop/src/renderer/views/MemberDetailView.tsx packages/ui/components/ui/card.tsx` — all
    three heading sites present.
-3. [ ] No `text-2xl|text-base|text-sm|text-xs` class anywhere in `packages/ui` or
-   `apps/desktop/src/renderer` changed value (a `git diff` size-class check) — confirms the
+3. [x] No `text-2xl|text-base|text-sm|text-xs` class anywhere in `packages/ui` or
+   `apps/desktop/src/renderer` changed value (confirmed by inspection of the ported diff) — the
    "sizes stay put" constraint held.
-4. [ ] `npm test` green (floor: the Phase 29 count) — no unit test should assert on
-   `font-family`/`tracking` strings, so this should be a no-regression change; `npm run typecheck
-   --workspaces --if-present`, `npm run lint`, and `npm run format:check` all clean.
-5. [ ] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
+4. [x] `npm test` green: **286 core + 206 desktop = 492**, up 14 core tests from the Phase 28 floor
+   of 478 (`packages/core/tests/typography-refresh.test.ts`'s 14 tests; desktop is unchanged since
+   this phase touches no desktop-only logic, only `apps/desktop/src/renderer/**` markup already
+   covered indirectly). `npm run typecheck --workspaces --if-present`, `npm run lint`, and `npm run
+   format:check` all clean.
+5. [x] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
    `1.12.0`.
-6. [ ] `specs/ui-design-react.md` §5 updated to describe the shipped font stack and
+6. [x] `specs/ui-design-react.md` §5 updated to describe the shipped font stack and
    `tracking-tight`, dated to this phase.
 7. [ ] **Manual (user):** open the dashboard and member-detail views and confirm the headings and
    body text read visibly "sleeker" — refined font rendering, slightly tighter page/card titles —
    with no layout shift, truncation, or overflow regression anywhere §8's dense table rows appear.
+   **Not yet performed — requires a real rebuild and a human eye.**
+
+---
+
+## Phase 31 — Done (Show the app version in the title, so bug reports name a build, minor → 1.13.0)
+
+_Direct VPE request: when something isn't working, there is currently no on-screen way for a user
+to tell which build they're running — the OS window title bar and the in-app dashboard heading both
+read a bare "Toastmasters Dashboard" regardless of version. Bug reports so far have had to guess the
+version from the installer filename, if it's still around. This phase surfaces the version — read
+live from the packaged app, never hand-typed — in both places a user would naturally screenshot or
+read off when reporting a problem. User-facing change to the `.exe` — **minor bump → `1.13.0`**,
+matching this repo's convention for visible UI changes (Phase 16, Phase 25, Phase 30)._
+
+> **Source of truth: `app.getVersion()`, not a hand-maintained constant.** Electron's `app.getVersion()`
+> reads straight from the packaged app's own `package.json` (`apps/desktop/package.json`, bumped every
+> phase already) — so this display can never drift out of sync with the version the release workflow
+> tags and the installer filename carries. No renderer-side hardcoded string, no build-time constant to
+> remember to update.
+
+- [x] **(item 1) New IPC channel: `GET_APP_VERSION`.** Add `IPC.GET_APP_VERSION` to
+      `apps/desktop/src/shared/ipc.ts` and a `getAppVersion(): Promise<IpcResult<string>>` method to
+      `ToastmastersBridge`, following the exact shape every other bridge method already uses (so
+      `main-ipc.test.ts`'s "registers a handler for every declared channel" guard picks it up for
+      free). `main/index.ts` registers it via the existing `handleAuth` helper (no `core` needed,
+      same as `AUTH_STATUS`) returning `{ ok: true, data: app.getVersion() }`. `preload/index.ts`
+      bridges it the same way as every other call; `renderer/lib/api.ts` adds a plain
+      `getAppVersion(): Promise<string>` wrapper via the existing `unwrap()` helper.
+- [x] **(item 2) Window title bar.** `App.tsx` fetches the version once on mount (alongside its
+      existing app-lifetime state) and sets `document.title = "Toastmasters Dashboard v" + version`.
+      Electron syncs the native `BrowserWindow` title to `document.title` automatically (no listener
+      currently prevents that default in `main/index.ts`), so this alone updates the OS
+      title bar/taskbar entry with no main-process change beyond item 1's IPC handler. Applies
+      regardless of which view (dashboard or member-detail) is showing — the title does not change
+      per-screen, matching the current static behaviour otherwise.
+- [x] **(item 3) Dashboard heading.** `DashboardHeader` (`packages/ui/components/DashboardHeader.tsx`)
+      gains an optional `appVersion?: string | null` prop (same "optional slot, may not have loaded
+      yet" idiom as `authControl`/`themeControl`) and renders it as a small muted suffix next to the
+      `<h1>Toastmasters Dashboard</h1>` text — e.g. `v1.13.0` in `text-sm font-normal
+      text-muted-foreground`, not the heading's own large/bold weight, so it reads as metadata, not
+      part of the title itself. Renders nothing extra when `appVersion` is `null`/`undefined` (initial
+      load, or a future consumer with nothing to show) — no layout shift once it resolves given how
+      small the added text is. `App.tsx` threads the fetched version down through `DashboardView`
+      (which gains the same optional prop) to `DashboardHeader`; `MemberDetailView` needs no change,
+      since it has its own unrelated `<h1>` (the member's name) and no "Toastmasters Dashboard" text.
+- [x] **Tests.** All four files updated exactly as planned, plus two adversarial cases beyond the
+      original plan: `App.test.tsx` also proves the negative — no version suffix and the default
+      `document.title` untouched while `getAppVersion()` is still pending — and
+      `DashboardHeader.test.tsx` pins the suffix's muted, non-heading styling (`text-muted-foreground`
+      + `font-normal`) so it can't quietly gain the heading's own bold weight later.
+      - `main-ipc.test.ts`: `app.getVersion` mocked (`"9.9.9-test"`); new case asserts
+        `GET_APP_VERSION` resolves `{ ok: true, data: "9.9.9-test" }`.
+      - `preload.test.ts`: both literal counts bumped eleven → twelve; `getAppVersion` added to the
+        expected function list; new case asserts it invokes `IPC.GET_APP_VERSION`.
+      - `DashboardHeader.test.tsx`: 4 new cases — suffix renders when set, omitted when `null`,
+        omitted when undefined entirely, and styling assertion above.
+      - `App.test.tsx`: `getAppVersion` added to the `../lib/api` mock (default-resolves
+        `"1.13.0-test"` in `beforeEach`); 2 new cases — heading suffix + `document.title` both land
+        once the mock resolves, and neither does while it's still pending.
+- [x] **Version bump:** minor-bumped every workspace `package.json` `version` to `1.13.0`.
+
+**Validation:**
+1. [x] `grep -n "GET_APP_VERSION" apps/desktop/src/shared/ipc.ts apps/desktop/src/main/index.ts
+   apps/desktop/src/preload/index.ts apps/desktop/src/renderer/lib/api.ts` — the channel is declared
+   and wired at all four layers.
+2. [x] `npm test` green: **286 core + 214 desktop = 500**, up 8 desktop tests from the Phase 30 floor
+   of 206 (1 new case in `main-ipc.test.ts`, 1 in `preload.test.ts`, 4 in `DashboardHeader.test.tsx`,
+   2 in `App.test.tsx` — the two literal-count assertions in `preload.test.ts` were edited in place,
+   not added, so they don't contribute to the delta). `npm run typecheck --workspaces --if-present`,
+   `npm run lint`, and `npm run format:check` all clean.
+3. [x] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
+   `1.13.0`.
+4. [ ] **Manual (user):** open the built `.exe`, confirm the OS window title bar/taskbar entry reads
+   "Toastmasters Dashboard v1.13.0" (or whatever version was actually built), and the dashboard
+   heading shows the same version as a small muted suffix next to "Toastmasters Dashboard" — not
+   competing visually with the heading itself. **Not yet performed — requires a real rebuild.**

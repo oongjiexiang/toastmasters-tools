@@ -206,6 +206,8 @@ function registerIpcHandlers(): void {
     const status = await logOut(CREDENTIALS_FILE, session.fromPartition(LOGIN_PARTITION));
     return { ok: true, data: status };
   });
+
+  handleAuth(IPC.GET_APP_VERSION, async () => ({ ok: true, data: app.getVersion() }));
 }
 
 /** Runs the login flow from the menu, then reloads the focused window so the

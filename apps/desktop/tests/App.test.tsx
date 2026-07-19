@@ -28,6 +28,7 @@ const {
   logIn,
   logOut,
   downloadMembershipCsv,
+  getAppVersion,
   onRefreshLog,
   getCapturedListener,
 } = vi.hoisted(() => {
@@ -43,6 +44,7 @@ const {
     logIn: vi.fn(),
     logOut: vi.fn(),
     downloadMembershipCsv: vi.fn(),
+    getAppVersion: vi.fn(),
     onRefreshLog: vi.fn((listener: (line: string) => void) => {
       capturedListener = listener;
       return () => {
@@ -64,6 +66,7 @@ vi.mock("../src/renderer/lib/api", () => ({
   logIn,
   logOut,
   downloadMembershipCsv,
+  getAppVersion,
   onRefreshLog,
 }));
 
@@ -106,6 +109,7 @@ beforeEach(() => {
   });
   getAuthStatus.mockResolvedValue({ basecamp: false, ti: false });
   getMember.mockResolvedValue(memberDetail);
+  getAppVersion.mockResolvedValue("1.13.0-test");
 });
 
 afterEach(() => {
@@ -348,5 +352,38 @@ describe("App — Copy logs button (Phase 22 item 2)", () => {
     fireEvent.click(screen.getByRole("button", { name: /Copy logs/i }));
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("line one\nline two"));
+  });
+});
+
+describe("App — app version shown in the dashboard heading and the window title (Phase 31)", () => {
+  it("shows the fetched version as a suffix on the dashboard heading, and sets document.title to match", async () => {
+    render(<App />);
+    await screen.findByText("Alice Smith");
+
+    await screen.findByText("v1.13.0-test");
+    await waitFor(() => expect(document.title).toBe("Toastmasters Dashboard v1.13.0-test"));
+  });
+
+  it("negative control: shows no version suffix, and leaves the default document.title alone, while getAppVersion is still pending", async () => {
+    let resolveVersion!: (v: string) => void;
+    getAppVersion.mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveVersion = resolve;
+        }),
+    );
+    document.title = "Toastmasters Dashboard";
+
+    render(<App />);
+    await screen.findByText("Alice Smith");
+
+    expect(screen.queryByText(/^v\d/)).not.toBeInTheDocument();
+    expect(document.title).toBe("Toastmasters Dashboard");
+
+    // Resolve so the pending promise doesn't leak state updates into a later test.
+    await act(async () => {
+      resolveVersion("1.13.0-test");
+      await Promise.resolve();
+    });
   });
 });

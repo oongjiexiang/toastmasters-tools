@@ -4,7 +4,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { RefreshConsole } from "./components/RefreshConsole";
 import { DashboardView } from "./views/DashboardView";
 import { MemberDetailView } from "./views/MemberDetailView";
-import { cancelRefresh, onRefreshLog } from "./lib/api";
+import { cancelRefresh, getAppVersion, onRefreshLog } from "./lib/api";
 
 /**
  * The desktop app has two screens, so it holds a view union in state rather than
@@ -30,6 +30,9 @@ export function App() {
   // `DashboardView.tsx`'s `handleRefreshProgress`/`handleRefreshMembership`);
   // otherwise left at whatever the user last toggled.
   const [consoleCollapsed, setConsoleCollapsed] = useState(true);
+  // Phase 31: read once from the packaged app itself (never hand-typed), so a
+  // bug report can name a build. null until the IPC round-trip resolves.
+  const [appVersion, setAppVersion] = useState<string | null>(null);
 
   const refreshing = refreshingProgress || refreshingMembership;
 
@@ -37,6 +40,25 @@ export function App() {
   useEffect(() => {
     const unsubscribe = onRefreshLog((line) => setLog((prev) => [...prev, line]));
     return unsubscribe;
+  }, []);
+
+  // Fetches once on mount and also updates the OS window title/taskbar entry —
+  // Electron syncs BrowserWindow's title to document.title automatically, and
+  // nothing in main/index.ts prevents that default. Applies regardless of
+  // which view is showing (dashboard or member-detail); the title does not
+  // change per-screen.
+  useEffect(() => {
+    let cancelled = false;
+    void getAppVersion()
+      .then((version) => {
+        if (cancelled) return;
+        setAppVersion(version);
+        document.title = `Toastmasters Dashboard v${version}`;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
@@ -50,6 +72,7 @@ export function App() {
           refreshingMembership={refreshingMembership}
           setRefreshingMembership={setRefreshingMembership}
           setConsoleCollapsed={setConsoleCollapsed}
+          appVersion={appVersion}
         />
       ) : (
         <MemberDetailView
