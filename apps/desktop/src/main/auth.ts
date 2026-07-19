@@ -85,6 +85,18 @@ export interface AuthStatus {
 }
 
 /**
+ * {@link AuthStatus}, plus whether the Basecamp login window gave up (Phase
+ * 27): it exhausted its auto-reload retries on Basecamp's own third-party
+ * "getLocale called before configuring i18n" crash (see the module header)
+ * without the `sessionid` cookie ever landing. Only `runLoginFlow`'s Basecamp
+ * branch can set this — the TI-only fast path (SSO already covered Basecamp,
+ * so no second window was opened) always leaves it unset.
+ */
+export interface LoginResult extends AuthStatus {
+  basecampGaveUp?: boolean;
+}
+
+/**
  * Reads the two cookie sets the scrapers need out of an Electron cookie store.
  *
  * A pure function of its `cookieSource` argument — no `BrowserWindow`, no
@@ -274,6 +286,50 @@ export function watchForNavigationCapture(
 }
 
 /**
+ * Console-message signatures (Phase 27) that identify Basecamp's own
+ * third-party crash on a fresh, unauthenticated session: a CORS-blocked
+ * `login_refresh` XHR sends its client-side error-recovery path (its
+ * `ErrorPage` component) into an uncaught exception before it renders
+ * anything, leaving the window permanently blank. See the module header
+ * "Finding" for the fully root-caused explanation — this is Basecamp's bug,
+ * not ours; the signatures below just let us *detect* it without injecting
+ * any script into the third-party page. Case-insensitive; the i18n message is
+ * the load-bearing one (it's what's actually observed), the CORS/login_refresh
+ * pattern is a best-effort second line covering the same failure reported via
+ * the browser's default CORS console warning instead.
+ */
+const FAILURE_SIGNATURES: RegExp[] = [
+  /getLocale called before configuring i18n/i,
+  /(login_refresh.*cors)|(cors.*login_refresh)/i,
+];
+
+/** True when a console message matches one of {@link FAILURE_SIGNATURES}. Exported standalone so the matching logic is unit-testable without a `BrowserWindow`. */
+export function isKnownLoginFailureSignature(message: string): boolean {
+  return FAILURE_SIGNATURES.some((re) => re.test(message));
+}
+
+/** How long {@link openLoginWindow} waits, once a known failure signature has
+ *  fired, for the capture signal to resolve on its own before reloading. */
+const FAILURE_GRACE_WINDOW_MS = 5000;
+
+/** The maximum number of automatic reloads {@link openLoginWindow} will issue
+ *  per call — a genuine Basecamp outage must not retry forever. */
+const MAX_AUTO_RELOADS = 2;
+
+/** `new URL(candidate).origin`, or `undefined` if `candidate` isn't a parsable
+ *  absolute URL (e.g. `webContents.getURL()` before the first navigation
+ *  resolves, which returns `""`). Used by {@link openLoginWindow}'s
+ *  `safeReload` to confirm the window is still on the expected origin before
+ *  reloading in place. */
+function safeOrigin(candidate: string): string | undefined {
+  try {
+    return new URL(candidate).origin;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Opens a login window bound to the persistent partition and resolves once the
  * user closes it — or, when the watcher built by `buildCaptureSignal` resolves
  * first (the expected path: `runLoginFlow` wires it to
@@ -286,10 +342,28 @@ export function watchForNavigationCapture(
  * right after construction and before `loadURL`, and owns calling `.cancel()`
  * on it once the window closes for any reason (captured or manual), so no
  * listener is ever leaked onto a `webContents` whose window has gone away.
+ *
+ * Resolves `{ gaveUp: true }` when the window closed with the capture signal
+ * never having resolved AND the {@link MAX_AUTO_RELOADS} auto-reload cap was
+ * reached — i.e. the known third-party crash kept recurring and the window
+ * gave up rather than retrying forever (Phase 27). `runLoginFlow` uses this to
+ * tell the renderer apart from a plain user-closed-without-logging-in case.
+ *
+ * Phase 27 resilience, still with NO script injected into the third-party
+ * page: a `console-message` listener watches for {@link FAILURE_SIGNATURES}
+ * and, if the capture signal hasn't resolved within
+ * {@link FAILURE_GRACE_WINDOW_MS} of the signature firing, calls
+ * `webContents.reload()` (capped at `MAX_AUTO_RELOADS`); a `before-input-event`
+ * listener binds F5/Ctrl+R/Cmd+R to a manual `webContents.reload()`, restoring
+ * the reload affordance `autoHideMenuBar: true` otherwise removes. Both are
+ * Electron-level listeners on the host window, not content injected into the
+ * page — they read/react to the page, they never execute code inside it.
+ *
  * Security: the window shows a third-party page, so it runs with
  * `nodeIntegration: false`, `contextIsolation: true`, `sandbox: true` and NO
  * preload — it must never reach our IPC bridge. We inject no scripts into it.
- * Needs Electron; kept thin and not unit-tested.
+ * Needs Electron; kept thin and not unit-tested directly (exercised indirectly
+ * via `runLoginFlow`'s `FakeBrowserWindow`-backed tests).
  */
 export function openLoginWindow(
   url: string,
@@ -297,7 +371,7 @@ export function openLoginWindow(
     promise: Promise<void>;
     cancel: () => void;
   },
-): Promise<void> {
+): Promise<{ gaveUp: boolean }> {
   return new Promise((resolve) => {
     const win = new BrowserWindow({
       width: 1024,
@@ -314,13 +388,70 @@ export function openLoginWindow(
 
     const capture = buildCaptureSignal?.(win.webContents);
 
+    let captured = false;
+    let reloadCount = 0;
+    let graceTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const clearGraceTimer = () => {
+      if (graceTimer === undefined) return;
+      clearTimeout(graceTimer);
+      graceTimer = undefined;
+    };
+
+    /**
+     * `webContents.reload()` reloads whatever URL is *currently* loaded, not
+     * necessarily `url`. If the window were ever navigated off the genuine
+     * TI/Basecamp origin (e.g. an open redirect on their own site), a page
+     * reached that way could deliberately emit a matching console message to
+     * make this retry logic keep re-fetching *that* page — `FAILURE_SIGNATURES`
+     * is public in this open-source repo. Guard against that: only `reload()`
+     * when still on the expected origin; otherwise fall back to `loadURL(url)`,
+     * restoring the known-good login page (the same fail-safe a plain
+     * close-and-reopen already has).
+     */
+    const safeReload = () => {
+      if (win.isDestroyed()) return;
+      const expected = safeOrigin(url);
+      const current = safeOrigin(win.webContents.getURL());
+      if (expected && current === expected) {
+        win.webContents.reload();
+      } else {
+        void win.loadURL(url);
+      }
+    };
+
+    const onConsoleMessage = (_event: unknown, _level: unknown, message: string) => {
+      if (captured || graceTimer !== undefined || reloadCount >= MAX_AUTO_RELOADS) return;
+      if (!isKnownLoginFailureSignature(message)) return;
+      graceTimer = setTimeout(() => {
+        graceTimer = undefined;
+        if (captured || win.isDestroyed()) return;
+        reloadCount += 1;
+        safeReload();
+      }, FAILURE_GRACE_WINDOW_MS);
+    };
+    win.webContents.on("console-message", onConsoleMessage);
+
+    const onBeforeInput = (_event: unknown, input: Electron.Input) => {
+      if (input.type !== "keyDown" || win.isDestroyed()) return;
+      const isF5 = input.key === "F5";
+      const isReloadShortcut = (input.control || input.meta) && input.key.toLowerCase() === "r";
+      if (isF5 || isReloadShortcut) safeReload();
+    };
+    win.webContents.on("before-input-event", onBeforeInput);
+
     win.once("closed", () => {
       capture?.cancel();
-      resolve();
+      clearGraceTimer();
+      win.webContents.off("console-message", onConsoleMessage);
+      win.webContents.off("before-input-event", onBeforeInput);
+      resolve({ gaveUp: !captured && reloadCount >= MAX_AUTO_RELOADS });
     });
 
     if (capture) {
       void capture.promise.then(() => {
+        captured = true;
+        clearGraceTimer();
         capture.cancel();
         if (!win.isDestroyed()) win.close();
       });
@@ -341,8 +472,15 @@ export function openLoginWindow(
  * Finding #2 false positive of treating a merely-loaded login page's anonymous
  * cookies as a completed login. The per-step logs are how the user's manual
  * validation determines the SSO-vs-two-login question.
+ *
+ * Phase 27: if the Basecamp window gives up (see {@link openLoginWindow})
+ * after exhausting its auto-reload retries on Basecamp's own third-party
+ * crash, and the `sessionid` cookie still never landed, the returned
+ * {@link LoginResult} carries `basecampGaveUp: true` so the renderer can show
+ * a distinct message instead of a silent "no cookies captured". The TI-only
+ * fast path (no Basecamp window opened at all) never sets it.
  */
-export async function runLoginFlow(credsFile: string): Promise<AuthStatus> {
+export async function runLoginFlow(credsFile: string): Promise<LoginResult> {
   const loginSession = session.fromPartition(LOGIN_PARTITION);
   const cookies = loginSession.cookies;
 
@@ -356,17 +494,25 @@ export async function runLoginFlow(credsFile: string): Promise<AuthStatus> {
   let harvested = await harvestCookies(cookies);
   logHarvest("after TI login", harvested);
 
+  let basecampGaveUp = false;
   if (!harvested.basecampSessionId) {
-    await openLoginWindow(BASECAMP_LOGIN_URL, (webContents) =>
+    const { gaveUp } = await openLoginWindow(BASECAMP_LOGIN_URL, (webContents) =>
       watchForNavigationCapture(webContents, cookies, (h) => Boolean(h.basecampSessionId)),
     );
+    basecampGaveUp = gaveUp;
     harvested = await harvestCookies(cookies);
     logHarvest("after Basecamp login", harvested);
   }
 
   const applied = applyCookies(credsFile, harvested);
   logger.info("login applied", { basecamp: applied.basecamp, ti: applied.ti });
-  return applied;
+
+  const result: LoginResult = { ...applied };
+  if (basecampGaveUp && !applied.basecamp) {
+    result.basecampGaveUp = true;
+    logger.warn("basecamp login gave up after exhausting auto-reload retries");
+  }
+  return result;
 }
 
 /**

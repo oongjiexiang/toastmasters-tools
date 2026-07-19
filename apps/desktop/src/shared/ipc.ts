@@ -36,6 +36,18 @@ export interface AuthStatus {
 }
 
 /**
+ * {@link AuthStatus}, plus whether the Basecamp login window gave up (Phase
+ * 27) after exhausting its auto-reload retries on Basecamp's own third-party
+ * crash without ever capturing the `sessionid` cookie. Mirrors
+ * `main/auth.ts`'s `LoginResult` (kept as a separate declaration, like
+ * `AuthStatus` above, so this file stays free of a runtime import from
+ * `main/auth.ts`); only `AUTH_LOGIN` ever returns it.
+ */
+export interface LoginResult extends AuthStatus {
+  basecampGaveUp?: boolean;
+}
+
+/**
  * The IPC analogue of the old web app's (removed in Phase 14)
  * `{ data } | { error: { code, message } }` HTTP envelope. `code` mirrors
  * `QueryResult`'s discriminant where one exists.
@@ -54,7 +66,7 @@ export interface ToastmastersBridge {
   /** Resolves to the saved file path, or null when the user cancels the dialog. */
   downloadMembershipCsv(): Promise<IpcResult<string | null>>;
   /** Runs the in-app login flow; resolves to which credentials were obtained. */
-  login(): Promise<IpcResult<AuthStatus>>;
+  login(): Promise<IpcResult<LoginResult>>;
   /** Reports which session cookies are currently held (non-empty). */
   authStatus(): Promise<IpcResult<AuthStatus>>;
   /** Clears the Toastmasters session; resolves to the (now-cleared) status. */

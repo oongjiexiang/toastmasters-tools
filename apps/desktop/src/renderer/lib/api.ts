@@ -6,7 +6,7 @@
  * `packages/ui` be reused verbatim.
  */
 
-import type { AuthStatus, IpcResult } from "../../shared/ipc";
+import type { AuthStatus, IpcResult, LoginResult } from "../../shared/ipc";
 import type {
   DiffResult,
   ListMembersResult,
@@ -14,7 +14,7 @@ import type {
   MemberSummary,
 } from "@toastmasters/core/queries";
 
-export type { AuthStatus, DiffResult, ListMembersResult, MemberDetail, MemberSummary };
+export type { AuthStatus, DiffResult, ListMembersResult, LoginResult, MemberDetail, MemberSummary };
 
 /**
  * An IPC failure that carries the query's `code` (e.g. "SNAPSHOT_MISSING"), so
@@ -67,7 +67,7 @@ export async function downloadMembershipCsv(): Promise<string | null> {
 }
 
 /** Runs the in-app login flow; resolves to which credentials were obtained. */
-export async function logIn(): Promise<AuthStatus> {
+export async function logIn(): Promise<LoginResult> {
   return unwrap(await window.toastmasters.login());
 }
 

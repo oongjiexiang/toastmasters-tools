@@ -4,7 +4,7 @@ A simple Windows app that shows each club member's Pathways progress in one plac
 
 ## Install the app
 
-1. Double-click **`Toastmasters Tools Setup 1.11.1.exe`**. (The number in the
+1. Double-click **`Toastmasters Tools Setup 1.11.2.exe`**. (The number in the
    filename tracks the app's current version, so if you're installing a newer
    release later, just look for whatever number is there instead — the steps
    are the same.)
@@ -222,5 +222,6 @@ up or turn on.
 | A refresh says "Log in to Toastmasters first, then Refresh." | You are not signed in yet, so there is no session to expire — this is a different message from the one above. Click **Log in** (top right), finish signing in, then click **Refresh Progress** / **Refresh Membership** again. |
 | A refresh worked before but now fails | Same as the "session has expired" row above — sessions expire after a while. Click **Log in** (top right) and sign in again. |
 | I clicked Log in but nothing loaded | The login window closes itself only once sign-in actually succeeds — if the badge next to **Log in** still reads "Not logged in" (or only "Basecamp only" / "TI only"), the login did not fully complete. Click **Log in** and try again, making sure to finish every step (including any MFA code or the second Basecamp window). If it still won't work, use the manual fallback in [If login doesn't work](#if-login-doesnt-work-enter-cookies-manually-fallback). |
+| The Basecamp login window went blank / stopped responding | This is a known hiccup on the second (Basecamp) window. The app now retries it for you automatically — give it a few seconds. If it's still stuck after that, click into the window and press **F5** (or **Ctrl+R**, or **Cmd+R** on a Mac) to reload it yourself. If it still won't complete after that, the app will show: "Basecamp didn't finish signing in. Try Log in again, or use Open Credentials File… to paste the cookie manually." — follow the manual fallback in [If login doesn't work](#if-login-doesnt-work-enter-cookies-manually-fallback) to finish signing in. |
 | SmartScreen blocked the installer | Click **More info**, then **Run anyway**. The app is safe but unsigned. |
 | The dashboard is empty | If the badge next to **Log in** (top right) reads "Not logged in," sign in first — see [First-time setup](#first-time-setup-log-in-to-toastmasters) — then click **Refresh Progress** and **Refresh Membership**. If you are already logged in, you just haven't loaded data yet — click those same two buttons. |

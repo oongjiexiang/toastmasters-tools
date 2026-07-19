@@ -116,6 +116,18 @@ export function DashboardView({
         await loadAuthStatus();
         return true;
       }
+      // Phase 27: distinguish "the Basecamp login window gave up after
+      // exhausting its auto-reload retries on Basecamp's own crash" from a
+      // plain zero-cookie result, so the user isn't left with a silent
+      // "not logged in" — point them at the manual fallback instead.
+      if (status.basecampGaveUp) {
+        toast.error(
+          "Basecamp didn't finish signing in. Try Log in again, or use Open Credentials File… to paste the cookie manually.",
+          { id },
+        );
+        await loadAuthStatus();
+        return false;
+      }
       toast.error("No cookies captured — the login did not complete.", { id });
       await loadAuthStatus();
       return false;
