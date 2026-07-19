@@ -11,9 +11,11 @@ import { fileURLToPath } from "url";
 import { load as loadYaml } from "js-yaml";
 
 // This file lives at packages/core/tests/fixtures/, four directories below
-// the repo root.
+// the repo root. Exported so every test file that needs the repo root
+// (release-workflow.test.ts, ci-workflow.test.ts) shares this one
+// computation instead of each re-deriving its own relative-depth string.
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = resolve(__dirname, "../../../..");
+export const REPO_ROOT = resolve(__dirname, "../../../..");
 
 /** Read and YAML-parse a real workflow file, addressed relative to the repo root. */
 export function loadWorkflowFile<T>(...repoRelativePathSegments: string[]): T {

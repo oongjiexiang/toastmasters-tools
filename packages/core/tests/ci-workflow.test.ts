@@ -1,8 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "fs";
-import { dirname, join, resolve } from "path";
-import { fileURLToPath } from "url";
-import { loadWorkflowFile, type WorkflowJob } from "./fixtures/workflow-shapes";
+import { existsSync, readdirSync, readFileSync, statSync } from "fs";
+import { join, relative } from "path";
+import { loadWorkflowFile, REPO_ROOT, type WorkflowJob } from "./fixtures/workflow-shapes";
 
 /**
  * Phase 28 structural invariant for the CI workflow.
@@ -19,10 +18,6 @@ import { loadWorkflowFile, type WorkflowJob } from "./fixtures/workflow-shapes";
  * paths.test.ts, and release-workflow.test.ts, the existing home for
  * repo-wide structural/workflow invariant tests.
  */
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const CORE_DIR = resolve(__dirname, "..");
-const REPO_ROOT = resolve(CORE_DIR, "../..");
 
 interface CiWorkflow {
   on?: {
@@ -246,22 +241,59 @@ describe("negative control: the pre-Phase-28 shape is rejected", () => {
  * pass vacuously for it: the exact silent-regression shape (Phase 23) this
  * whole guard exists to prevent, just one level down. This closes that hole
  * directly against the real package.json files.
+ *
+ * The workspace list is resolved from the root package.json's own
+ * `workspaces` globs (`apps/*`, `packages/*`), not hardcoded — a hardcoded
+ * list would itself go silently stale the moment a 4th workspace is added,
+ * which is exactly the blind spot this block exists to close.
  */
-const WORKSPACES_WITH_TYPECHECK = [
-  { name: "@toastmasters/core", dir: join(REPO_ROOT, "packages", "core") },
-  { name: "@toastmasters/ui", dir: join(REPO_ROOT, "packages", "ui") },
-  { name: "@toastmasters/desktop", dir: join(REPO_ROOT, "apps", "desktop") },
-];
+function resolveWorkspaceDirs(): string[] {
+  const rootPkg = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8")) as {
+    workspaces?: string[];
+  };
+
+  const dirs: string[] = [];
+  for (const glob of rootPkg.workspaces ?? []) {
+    // This repo's root package.json only ever uses the simple "<parent>/*"
+    // shape (e.g. "apps/*", "packages/*") — not a general glob engine.
+    const match = /^(.+)\/\*$/.exec(glob);
+    if (!match) continue;
+
+    const parentDir = join(REPO_ROOT, match[1]!);
+    if (!existsSync(parentDir)) continue;
+
+    for (const entry of readdirSync(parentDir)) {
+      const candidate = join(parentDir, entry);
+      if (statSync(candidate).isDirectory() && existsSync(join(candidate, "package.json"))) {
+        dirs.push(candidate);
+      }
+    }
+  }
+  return dirs;
+}
+
+const WORKSPACE_DIRS = resolveWorkspaceDirs();
 
 function assertHasTypecheckScript(pkg: { scripts?: Record<string, string> }): void {
   expect(pkg.scripts?.typecheck).toBeTruthy();
 }
 
 describe("every --if-present typecheck target still defines a typecheck script", () => {
-  it.each(WORKSPACES_WITH_TYPECHECK)("$name's package.json declares scripts.typecheck", ({ dir }) => {
-    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
-    assertHasTypecheckScript(pkg);
+  // Guards against a vacuous pass: if resolveWorkspaceDirs() silently found
+  // nothing (e.g. the workspaces globs stopped matching this repo's actual
+  // layout), the it.each below would run zero times and report all green
+  // for the wrong reason.
+  it("finds this repo's real workspace directories to check", () => {
+    expect(WORKSPACE_DIRS.length).toBeGreaterThanOrEqual(3);
   });
+
+  it.each(WORKSPACE_DIRS.map((dir) => ({ dir, relDir: relative(REPO_ROOT, dir) })))(
+    "$relDir's package.json declares scripts.typecheck",
+    ({ dir }) => {
+      const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+      assertHasTypecheckScript(pkg);
+    },
+  );
 });
 
 describe("negative control: a workspace package.json missing scripts.typecheck is rejected", () => {
