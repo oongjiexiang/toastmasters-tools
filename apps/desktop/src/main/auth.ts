@@ -386,7 +386,15 @@ export function openLoginWindow(
       },
     });
 
-    const capture = buildCaptureSignal?.(win.webContents);
+    // Captured once, immediately after construction — `win.webContents` is a
+    // native getter that throws `TypeError: Object has been destroyed` once
+    // the window is closed (Phase 28: this is the exact crash that shipped
+    // in 1.11.2 and, undetected, again after Phase 27's incomplete fix). This
+    // reference stays valid for `.off()` calls in the `closed` handler below
+    // even after the window itself is gone.
+    const webContents = win.webContents;
+
+    const capture = buildCaptureSignal?.(webContents);
 
     let captured = false;
     let reloadCount = 0;
@@ -412,9 +420,9 @@ export function openLoginWindow(
     const safeReload = () => {
       if (win.isDestroyed()) return;
       const expected = safeOrigin(url);
-      const current = safeOrigin(win.webContents.getURL());
+      const current = safeOrigin(webContents.getURL());
       if (expected && current === expected) {
-        win.webContents.reload();
+        webContents.reload();
       } else {
         void win.loadURL(url);
       }
@@ -430,7 +438,7 @@ export function openLoginWindow(
         safeReload();
       }, FAILURE_GRACE_WINDOW_MS);
     };
-    win.webContents.on("console-message", onConsoleMessage);
+    webContents.on("console-message", onConsoleMessage);
 
     const onBeforeInput = (_event: unknown, input: Electron.Input) => {
       if (input.type !== "keyDown" || win.isDestroyed()) return;
@@ -438,13 +446,16 @@ export function openLoginWindow(
       const isReloadShortcut = (input.control || input.meta) && input.key.toLowerCase() === "r";
       if (isF5 || isReloadShortcut) safeReload();
     };
-    win.webContents.on("before-input-event", onBeforeInput);
+    webContents.on("before-input-event", onBeforeInput);
 
     win.once("closed", () => {
       capture?.cancel();
       clearGraceTimer();
-      win.webContents.off("console-message", onConsoleMessage);
-      win.webContents.off("before-input-event", onBeforeInput);
+      // Never `win.webContents` here — by the time "closed" fires, the
+      // window (and that native getter) is already destroyed. Use the
+      // reference captured before construction could ever complete.
+      webContents.off("console-message", onConsoleMessage);
+      webContents.off("before-input-event", onBeforeInput);
       resolve({ gaveUp: !captured && reloadCount >= MAX_AUTO_RELOADS });
     });
 

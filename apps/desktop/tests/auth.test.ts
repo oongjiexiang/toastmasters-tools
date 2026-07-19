@@ -123,9 +123,21 @@ const { FakeBrowserWindow, FakeWebContents } = vi.hoisted(() => {
    */
   class FakeBrowserWindow {
     static instances: FakeBrowserWindow[] = [];
+    /**
+     * Phase 28 opt-in: real Electron's `BrowserWindow.webContents` is a
+     * native getter that throws `TypeError: Object has been destroyed` once
+     * the window is gone — which is exactly what crashed the shipped 1.11.2
+     * build (the `win.once("closed", …)` handler dereferenced it). Default
+     * `false` so every pre-existing test in this file, which reads
+     * `win.webContents` for inspection *after* calling `win.close()`, keeps
+     * working unchanged; only the dedicated closed-handler regression tests
+     * below opt in, so they exercise the real throwing contract precisely
+     * where the bug lives.
+     */
+    static strictWebContentsAccess = false;
     closedCallback: (() => void) | null = null;
     destroyed = false;
-    webContents = new FakeWebContents();
+    private readonly _webContents = new FakeWebContents();
     /** The exact options `openLoginWindow` constructed this window with —
      *  captured (rather than discarded) so the Phase 27 security-posture
      *  test can assert on `webPreferences` directly, instead of merely
@@ -135,6 +147,13 @@ const { FakeBrowserWindow, FakeWebContents } = vi.hoisted(() => {
     constructor(options?: unknown) {
       this.options = options;
       FakeBrowserWindow.instances.push(this);
+    }
+
+    get webContents(): FakeWebContents {
+      if (FakeBrowserWindow.strictWebContentsAccess && this.destroyed) {
+        throw new TypeError("Object has been destroyed");
+      }
+      return this._webContents;
     }
 
     once(event: string, cb: () => void): void {
@@ -2057,6 +2076,77 @@ describe("openLoginWindow: security posture (Phase 27) — hardened webPreferenc
    * `expect("preload" in webPreferences).toBe(false)` assertion above goes
    * RED — proving this test would actually catch that regression, not just
    * imply it by other tests continuing to pass.
+   */
+});
+
+describe("openLoginWindow: the 'closed' handler must never dereference win.webContents after destroy (Phase 28 — the actual VPE crash)", () => {
+  // Phase 27 was marked Done believing this was fixed, but its fix commit
+  // never touched openLoginWindow at all (see specs/roadmap.md's Phase 27
+  // correction note) — main's `win.once("closed", …)` handler kept calling
+  // `win.webContents.off(…)`, and `win.webContents` is a native getter that
+  // throws `TypeError: Object has been destroyed` the instant the window is
+  // gone. Every OTHER test in this file uses the default lenient fake (see
+  // `strictWebContentsAccess` above), so none of them exercise this throwing
+  // contract — which is exactly how the bug shipped undetected. These tests
+  // opt into the strict, real-Electron-accurate behaviour specifically to
+  // close that gap.
+  beforeEach(() => {
+    FakeBrowserWindow.instances.length = 0;
+    FakeBrowserWindow.strictWebContentsAccess = true;
+  });
+
+  afterEach(() => {
+    FakeBrowserWindow.strictWebContentsAccess = false;
+  });
+
+  it("does not throw when the window is closed after a successful login (the happy path that crashed every real login)", async () => {
+    const openPromise = openLoginWindow(BASECAMP_LOGIN_URL_FOR_TESTS);
+    const win = FakeBrowserWindow.instances[0];
+    expect(win).toBeDefined();
+
+    // Closing the window is what fires the "closed" handler under test —
+    // with strictWebContentsAccess on, any `win.webContents` read from
+    // inside that handler throws exactly as real Electron does.
+    expect(() => win.close()).not.toThrow();
+
+    await expect(openPromise).resolves.toEqual({ gaveUp: false });
+  });
+
+  it("does not throw when the window is closed while the Phase 27 console-message/before-input-event listeners are still attached", async () => {
+    // Reproduces the VPE's exact report more closely: the resilience
+    // listeners (added for the separate blank-page-hang bug) are live and
+    // have never fired, then the user closes the window after logging in
+    // successfully — the same state a real successful login leaves the
+    // window in.
+    const openPromise = openLoginWindow(BASECAMP_LOGIN_URL_FOR_TESTS);
+    const win = FakeBrowserWindow.instances[0];
+
+    expect(() => win.close()).not.toThrow();
+    await openPromise;
+  });
+
+  /*
+   * NEGATIVE CONTROL (documentation, verified by hand against a
+   * temporarily-reverted src/main/auth.ts, then restored — do not leave any
+   * such edit in place): with `openLoginWindow`'s `closed` handler changed
+   * back from the captured `webContents` reference to re-reading the
+   * property live —
+   *
+   *   win.once("closed", () => {
+   *     capture?.cancel();
+   *     clearGraceTimer();
+   *     win.webContents.off("console-message", onConsoleMessage);
+   *     win.webContents.off("before-input-event", onBeforeInput);
+   *     resolve({ gaveUp: !captured && reloadCount >= MAX_AUTO_RELOADS });
+   *   });
+   *
+   * both tests above go RED: `win.close()` throws `TypeError: Object has
+   * been destroyed` synchronously from inside the FakeBrowserWindow's
+   * strict `webContents` getter (`this.destroyed` is already `true` by the
+   * time `close()` invokes `closedCallback`, mirroring real Electron's
+   * ordering), so `expect(() => win.close()).not.toThrow()` fails. This
+   * confirms the tests genuinely exercise the crash, not just the resolved
+   * value.
    */
 });
 
