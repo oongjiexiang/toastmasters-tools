@@ -25,6 +25,9 @@ export const IPC = {
   AUTH_LOGIN: "toastmasters:auth:login",
   AUTH_STATUS: "toastmasters:auth:status",
   AUTH_LOGOUT: "toastmasters:auth:logout",
+  // Phase 31: read live from the packaged app's own package.json via
+  // Electron's app.getVersion() — never a hand-maintained renderer constant.
+  GET_APP_VERSION: "toastmasters:app:version",
   // Main → renderer stream (one-way): a progress line emitted during a refresh.
   REFRESH_LOG: "toastmasters:refresh:log",
 } as const;
@@ -71,6 +74,12 @@ export interface ToastmastersBridge {
   authStatus(): Promise<IpcResult<AuthStatus>>;
   /** Clears the Toastmasters session; resolves to the (now-cleared) status. */
   logout(): Promise<IpcResult<AuthStatus>>;
+  /**
+   * The packaged app's own version (Phase 31), read live from `app.getVersion()`
+   * — shown in the window title and the dashboard heading so a bug report can
+   * name a build without the user having to dig up the installer filename.
+   */
+  getAppVersion(): Promise<IpcResult<string>>;
   /**
    * Subscribes to the live progress lines emitted during a refresh. Returns an
    * unsubscribe function. One-way (main → renderer), so it is not an IpcResult.

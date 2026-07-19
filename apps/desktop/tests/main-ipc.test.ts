@@ -32,6 +32,7 @@ vi.mock("electron", () => ({
   app: {
     setName: vi.fn(),
     getPath: vi.fn(() => USER_DATA),
+    getVersion: vi.fn(() => "9.9.9-test"),
     whenReady: vi.fn(() => whenReady),
     on: vi.fn(),
     quit: vi.fn(),
@@ -386,6 +387,14 @@ describe("renderer window security invariants (roadmap Phase 11)", () => {
   it("loads the renderer through a preload script — the only bridge into Node", () => {
     const webPreferences = windowOptions[0].webPreferences as Record<string, unknown>;
     expect(webPreferences.preload).toMatch(/preload[\\/]index\.js$/);
+  });
+});
+
+describe("main reports its own packaged version over IPC (Phase 31)", () => {
+  it("resolves GET_APP_VERSION with app.getVersion()'s value, not a hardcoded string", async () => {
+    const result = await invoke(IPC.GET_APP_VERSION);
+
+    expect(result).toEqual({ ok: true, data: "9.9.9-test" });
   });
 });
 

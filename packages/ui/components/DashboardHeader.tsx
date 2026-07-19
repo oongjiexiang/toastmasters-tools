@@ -71,6 +71,13 @@ interface DashboardHeaderProps {
    * theme control to inject.
    */
   themeControl?: React.ReactNode;
+  /**
+   * The packaged app's own version (Phase 31), read live via IPC — shown as a
+   * small muted suffix next to the heading so a bug report can name a build.
+   * `null`/`undefined` while it hasn't loaded yet (or for a consumer with
+   * nothing to show): renders no suffix at all rather than a blank "v".
+   */
+  appVersion?: string | null;
 }
 
 export function DashboardHeader({
@@ -83,13 +90,21 @@ export function DashboardHeader({
   membershipCsvControl,
   authControl,
   themeControl,
+  appVersion,
 }: DashboardHeaderProps) {
   const isRefreshing = refreshingProgress || refreshingMembership;
 
   return (
     <div className="flex items-start justify-between mb-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Toastmasters Dashboard</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Toastmasters Dashboard
+          {appVersion && (
+            <span className="ml-2 align-middle text-sm font-normal text-muted-foreground">
+              v{appVersion}
+            </span>
+          )}
+        </h1>
         {memberCount !== null && (
           <p className="text-muted-foreground text-sm mt-1">
             {memberCount} members · <FreshnessNote latestSnapshotAt={latestSnapshotAt} />

@@ -36,15 +36,16 @@ describe("preload contextBridge surface", () => {
     expect(key).toBe("toastmasters");
   });
 
-  it("exposes exactly the eleven documented functions and nothing else", async () => {
+  it("exposes exactly the twelve documented functions and nothing else", async () => {
     const { bridge } = await loadPreload();
 
-    // A literal list on purpose: adding a twelfth function to the bridge (i.e.
-    // widening what the renderer can reach into Node) must fail this test until
-    // someone widens the contract deliberately. Phase 12 added the two Electron-
-    // only auth calls (`login` / `authStatus`) to the original six data calls;
-    // the live-refresh-log work added the one-way `onRefreshLog` subscription;
-    // Phase 17 added the `logout` call; Phase 22 added `cancelRefresh`.
+    // A literal list on purpose: adding a thirteenth function to the bridge
+    // (i.e. widening what the renderer can reach into Node) must fail this
+    // test until someone widens the contract deliberately. Phase 12 added the
+    // two Electron-only auth calls (`login` / `authStatus`) to the original
+    // six data calls; the live-refresh-log work added the one-way
+    // `onRefreshLog` subscription; Phase 17 added the `logout` call; Phase 22
+    // added `cancelRefresh`; Phase 31 added `getAppVersion`.
     expect(Object.keys(bridge).sort()).toEqual(
       [
         "listMembers",
@@ -57,6 +58,7 @@ describe("preload contextBridge surface", () => {
         "login",
         "authStatus",
         "logout",
+        "getAppVersion",
         "onRefreshLog",
       ].sort(),
     );
@@ -72,8 +74,8 @@ describe("preload contextBridge surface", () => {
     expect(nonFunctions).toEqual([]);
   });
 
-  it("declares exactly eleven IPC channels", () => {
-    expect(Object.values(IPC)).toHaveLength(11);
+  it("declares exactly twelve IPC channels", () => {
+    expect(Object.values(IPC)).toHaveLength(12);
   });
 
   it("namespaces every channel under toastmasters:", () => {
@@ -149,6 +151,14 @@ describe("preload bridges each function to its IPC channel", () => {
     bridge.logout();
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IPC.AUTH_LOGOUT);
+  });
+
+  it("getAppVersion invokes the app:version channel", async () => {
+    const { bridge } = await loadPreload();
+
+    bridge.getAppVersion();
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IPC.GET_APP_VERSION);
   });
 
   it("onRefreshLog subscribes to REFRESH_LOG and delivers only the line (not the event)", async () => {

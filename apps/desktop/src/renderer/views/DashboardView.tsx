@@ -44,6 +44,12 @@ interface DashboardViewProps {
   setRefreshingMembership: React.Dispatch<React.SetStateAction<boolean>>;
   /** Forces the console open when a new refresh starts. */
   setConsoleCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
+  /**
+   * The packaged app's own version (Phase 31), lifted to `App.tsx` (fetched
+   * once, alongside its other app-lifetime state) and forwarded to
+   * `DashboardHeader`. `null`/`undefined` while it hasn't loaded yet.
+   */
+  appVersion?: string | null;
 }
 
 export function DashboardView({
@@ -54,6 +60,7 @@ export function DashboardView({
   refreshingMembership,
   setRefreshingMembership,
   setConsoleCollapsed,
+  appVersion,
 }: DashboardViewProps) {
   const [members, setMembers] = useState<MemberSummary[] | null>(null);
   const [latestSnapshotAt, setLatestSnapshotAt] = useState<string | null>(null);
@@ -306,6 +313,7 @@ export function DashboardView({
       <DashboardHeader
         memberCount={members?.length ?? null}
         latestSnapshotAt={latestSnapshotAt}
+        appVersion={appVersion}
         refreshingProgress={refreshingProgress}
         refreshingMembership={refreshingMembership}
         onRefreshProgress={() => void handleRefreshProgress()}

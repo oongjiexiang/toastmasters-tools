@@ -81,6 +81,11 @@ export async function logOut(): Promise<AuthStatus> {
   return unwrap(await window.toastmasters.logout());
 }
 
+/** The packaged app's own version (Phase 31), read live from `app.getVersion()`. */
+export async function getAppVersion(): Promise<string> {
+  return unwrap(await window.toastmasters.getAppVersion());
+}
+
 /**
  * Subscribes to live progress lines emitted during a refresh. Returns an
  * unsubscribe function; call it on cleanup so listeners don't accumulate.

@@ -2407,3 +2407,78 @@ Phase 25)._
    body text read visibly "sleeker" — refined font rendering, slightly tighter page/card titles —
    with no layout shift, truncation, or overflow regression anywhere §8's dense table rows appear.
    **Not yet performed — requires a real rebuild and a human eye.**
+
+---
+
+## Phase 31 — Done (Show the app version in the title, so bug reports name a build, minor → 1.13.0)
+
+_Direct VPE request: when something isn't working, there is currently no on-screen way for a user
+to tell which build they're running — the OS window title bar and the in-app dashboard heading both
+read a bare "Toastmasters Dashboard" regardless of version. Bug reports so far have had to guess the
+version from the installer filename, if it's still around. This phase surfaces the version — read
+live from the packaged app, never hand-typed — in both places a user would naturally screenshot or
+read off when reporting a problem. User-facing change to the `.exe` — **minor bump → `1.13.0`**,
+matching this repo's convention for visible UI changes (Phase 16, Phase 25, Phase 30)._
+
+> **Source of truth: `app.getVersion()`, not a hand-maintained constant.** Electron's `app.getVersion()`
+> reads straight from the packaged app's own `package.json` (`apps/desktop/package.json`, bumped every
+> phase already) — so this display can never drift out of sync with the version the release workflow
+> tags and the installer filename carries. No renderer-side hardcoded string, no build-time constant to
+> remember to update.
+
+- [x] **(item 1) New IPC channel: `GET_APP_VERSION`.** Add `IPC.GET_APP_VERSION` to
+      `apps/desktop/src/shared/ipc.ts` and a `getAppVersion(): Promise<IpcResult<string>>` method to
+      `ToastmastersBridge`, following the exact shape every other bridge method already uses (so
+      `main-ipc.test.ts`'s "registers a handler for every declared channel" guard picks it up for
+      free). `main/index.ts` registers it via the existing `handleAuth` helper (no `core` needed,
+      same as `AUTH_STATUS`) returning `{ ok: true, data: app.getVersion() }`. `preload/index.ts`
+      bridges it the same way as every other call; `renderer/lib/api.ts` adds a plain
+      `getAppVersion(): Promise<string>` wrapper via the existing `unwrap()` helper.
+- [x] **(item 2) Window title bar.** `App.tsx` fetches the version once on mount (alongside its
+      existing app-lifetime state) and sets `document.title = "Toastmasters Dashboard v" + version`.
+      Electron syncs the native `BrowserWindow` title to `document.title` automatically (no listener
+      currently prevents that default in `main/index.ts`), so this alone updates the OS
+      title bar/taskbar entry with no main-process change beyond item 1's IPC handler. Applies
+      regardless of which view (dashboard or member-detail) is showing — the title does not change
+      per-screen, matching the current static behaviour otherwise.
+- [x] **(item 3) Dashboard heading.** `DashboardHeader` (`packages/ui/components/DashboardHeader.tsx`)
+      gains an optional `appVersion?: string | null` prop (same "optional slot, may not have loaded
+      yet" idiom as `authControl`/`themeControl`) and renders it as a small muted suffix next to the
+      `<h1>Toastmasters Dashboard</h1>` text — e.g. `v1.13.0` in `text-sm font-normal
+      text-muted-foreground`, not the heading's own large/bold weight, so it reads as metadata, not
+      part of the title itself. Renders nothing extra when `appVersion` is `null`/`undefined` (initial
+      load, or a future consumer with nothing to show) — no layout shift once it resolves given how
+      small the added text is. `App.tsx` threads the fetched version down through `DashboardView`
+      (which gains the same optional prop) to `DashboardHeader`; `MemberDetailView` needs no change,
+      since it has its own unrelated `<h1>` (the member's name) and no "Toastmasters Dashboard" text.
+- [x] **Tests.** All four files updated exactly as planned, plus two adversarial cases beyond the
+      original plan: `App.test.tsx` also proves the negative — no version suffix and the default
+      `document.title` untouched while `getAppVersion()` is still pending — and
+      `DashboardHeader.test.tsx` pins the suffix's muted, non-heading styling (`text-muted-foreground`
+      + `font-normal`) so it can't quietly gain the heading's own bold weight later.
+      - `main-ipc.test.ts`: `app.getVersion` mocked (`"9.9.9-test"`); new case asserts
+        `GET_APP_VERSION` resolves `{ ok: true, data: "9.9.9-test" }`.
+      - `preload.test.ts`: both literal counts bumped eleven → twelve; `getAppVersion` added to the
+        expected function list; new case asserts it invokes `IPC.GET_APP_VERSION`.
+      - `DashboardHeader.test.tsx`: 4 new cases — suffix renders when set, omitted when `null`,
+        omitted when undefined entirely, and styling assertion above.
+      - `App.test.tsx`: `getAppVersion` added to the `../lib/api` mock (default-resolves
+        `"1.13.0-test"` in `beforeEach`); 2 new cases — heading suffix + `document.title` both land
+        once the mock resolves, and neither does while it's still pending.
+- [x] **Version bump:** minor-bumped every workspace `package.json` `version` to `1.13.0`.
+
+**Validation:**
+1. [x] `grep -n "GET_APP_VERSION" apps/desktop/src/shared/ipc.ts apps/desktop/src/main/index.ts
+   apps/desktop/src/preload/index.ts apps/desktop/src/renderer/lib/api.ts` — the channel is declared
+   and wired at all four layers.
+2. [x] `npm test` green: **286 core + 214 desktop = 500**, up 8 desktop tests from the Phase 30 floor
+   of 206 (1 new case in `main-ipc.test.ts`, 1 in `preload.test.ts`, 4 in `DashboardHeader.test.tsx`,
+   2 in `App.test.tsx` — the two literal-count assertions in `preload.test.ts` were edited in place,
+   not added, so they don't contribute to the delta). `npm run typecheck --workspaces --if-present`,
+   `npm run lint`, and `npm run format:check` all clean.
+3. [x] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
+   `1.13.0`.
+4. [ ] **Manual (user):** open the built `.exe`, confirm the OS window title bar/taskbar entry reads
+   "Toastmasters Dashboard v1.13.0" (or whatever version was actually built), and the dashboard
+   heading shows the same version as a small muted suffix next to "Toastmasters Dashboard" — not
+   competing visually with the heading itself. **Not yet performed — requires a real rebuild.**
