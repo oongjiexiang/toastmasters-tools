@@ -1,9 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "fs";
-import { dirname, join, resolve } from "path";
-import { fileURLToPath } from "url";
 import { load as loadYaml } from "js-yaml";
-import type { WorkflowStep, WorkflowJob } from "./fixtures/workflow-shapes";
+import { loadWorkflowFile, type WorkflowStep, type WorkflowJob } from "./fixtures/workflow-shapes";
 
 /**
  * Phase 15 structural invariant for the release workflow.
@@ -19,11 +16,6 @@ import type { WorkflowStep, WorkflowJob } from "./fixtures/workflow-shapes";
  * invariant tests. Neither of those files touches .github/workflows, so
  * there is no overlapping logic to reconcile here.
  */
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const CORE_DIR = resolve(__dirname, "..");
-const REPO_ROOT = resolve(CORE_DIR, "../..");
-const RELEASE_WORKFLOW_PATH = join(REPO_ROOT, ".github", "workflows", "release.yml");
 
 interface ReleaseWorkflow {
   on?: {
@@ -95,8 +87,7 @@ function assertReleaseWorkflowShape(workflow: ReleaseWorkflow): void {
 }
 
 describe("release.yml triggers and build job (Phase 15)", () => {
-  const raw = readFileSync(RELEASE_WORKFLOW_PATH, "utf8");
-  const workflow = loadYaml(raw) as ReleaseWorkflow;
+  const workflow = loadWorkflowFile<ReleaseWorkflow>(".github", "workflows", "release.yml");
 
   it("parses as YAML with an on.push section", () => {
     expect(workflow.on?.push).toBeDefined();
@@ -286,8 +277,7 @@ function assertPhase22TagAutomationShape(workflow: ReleaseWorkflow): void {
 }
 
 describe("release.yml auto-tags and auto-releases on merge to main (Phase 22)", () => {
-  const raw = readFileSync(RELEASE_WORKFLOW_PATH, "utf8");
-  const workflow = loadYaml(raw) as ReleaseWorkflow;
+  const workflow = loadWorkflowFile<ReleaseWorkflow>(".github", "workflows", "release.yml");
 
   it("satisfies the full Phase 22 tag-check/create/publish contract", () => {
     assertPhase22TagAutomationShape(workflow);

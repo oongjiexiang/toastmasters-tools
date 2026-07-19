@@ -2,8 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
-import { load as loadYaml } from "js-yaml";
-import type { WorkflowStep, WorkflowJob } from "./fixtures/workflow-shapes";
+import { loadWorkflowFile, type WorkflowJob } from "./fixtures/workflow-shapes";
 
 /**
  * Phase 28 structural invariant for the CI workflow.
@@ -24,7 +23,6 @@ import type { WorkflowStep, WorkflowJob } from "./fixtures/workflow-shapes";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CORE_DIR = resolve(__dirname, "..");
 const REPO_ROOT = resolve(CORE_DIR, "../..");
-const CI_WORKFLOW_PATH = join(REPO_ROOT, ".github", "workflows", "ci.yml");
 
 interface CiWorkflow {
   on?: {
@@ -39,8 +37,37 @@ interface CiWorkflow {
 }
 
 /**
+ * The valid, post-Phase-28 shape of `ci.yml`'s `test` job, as a plain object
+ * rather than a YAML string. Every negative-control fixture below starts
+ * from a fresh copy of this (never a shared reference — each `it` calls
+ * `baseWorkflow()` itself) and mutates exactly the one thing under test, so
+ * each test's actual deviation from "valid" is visible in its own body
+ * instead of buried in a wall of copy-pasted YAML.
+ */
+function baseWorkflow(): CiWorkflow {
+  return {
+    on: {
+      push: { branches: ["**"] },
+      pull_request: { branches: ["main"] },
+    },
+    jobs: {
+      test: {
+        "runs-on": "ubuntu-latest",
+        steps: [
+          { uses: "actions/checkout@v4" },
+          { uses: "actions/setup-node@v4", with: { "node-version": "20", cache: "npm" } },
+          { name: "Install dependencies", run: "npm ci" },
+          { name: "Typecheck all workspaces", run: "npm run typecheck --workspaces --if-present" },
+          { name: "Unit / API / bundle tests", run: "npm test" },
+        ],
+      },
+    },
+  };
+}
+
+/**
  * The contract. Applied to the real workflow file (must hold) and, by the
- * negative-control tests below, to deliberately broken fixture strings
+ * negative-control tests below, to deliberately broken fixture objects
  * (must NOT hold) — proving these assertions aren't vacuously true.
  */
 // A run command whose failure is swallowed via `|| true` / `|| exit 0` lets
@@ -111,8 +138,7 @@ function assertCiWorkflowShape(workflow: CiWorkflow): void {
 }
 
 describe("ci.yml test job (Phase 28 typecheck gate)", () => {
-  const raw = readFileSync(CI_WORKFLOW_PATH, "utf8");
-  const workflow = loadYaml(raw) as CiWorkflow;
+  const workflow = loadWorkflowFile<CiWorkflow>(".github", "workflows", "ci.yml");
 
   it("parses as YAML with a test job", () => {
     expect(workflow.jobs?.test).toBeDefined();
@@ -125,250 +151,129 @@ describe("ci.yml test job (Phase 28 typecheck gate)", () => {
 
 describe("negative control: the pre-Phase-28 shape is rejected", () => {
   // Proves assertCiWorkflowShape can actually fail, and isn't a vacuous
-  // pass no matter what ci.yml contains. This fixture reproduces the exact
-  // pre-Phase-28 ci.yml (as it existed before the typecheck step was
-  // added): npm ci followed directly by npm test, with no typecheck step
-  // in between.
+  // pass no matter what ci.yml contains. Each fixture below is baseWorkflow()
+  // with exactly one deviation applied, so the deviation under test is the
+  // only thing to read in each `it` body.
+
+  // Guards against every "toThrow" below being vacuously true: if
+  // baseWorkflow() itself already failed assertCiWorkflowShape for some
+  // unrelated reason, every negative control would pass regardless of
+  // whether its own specific mutation was the actual cause.
+  it("baseWorkflow() itself satisfies assertCiWorkflowShape with no mutation applied", () => {
+    expect(() => assertCiWorkflowShape(baseWorkflow())).not.toThrow();
+  });
 
   it("fails when the typecheck step is missing entirely (pre-Phase-28 shape)", () => {
-    const preP28 = loadYaml(`
-on:
-  push:
-    branches: ["**"]
-  pull_request:
-    branches: [main]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: Unit / API / bundle tests
-        run: npm test
-`) as CiWorkflow;
+    const workflow = baseWorkflow();
+    workflow.jobs!.test!.steps = workflow.jobs!.test!.steps!.filter(
+      (step) => !step.run?.includes("typecheck"),
+    );
 
-    expect(() => assertCiWorkflowShape(preP28)).toThrow();
+    expect(() => assertCiWorkflowShape(workflow)).toThrow();
   });
 
   it("fails when the typecheck step exists but runs after npm test (wrong order)", () => {
-    const wrongOrder = loadYaml(`
-on:
-  push:
-    branches: ["**"]
-  pull_request:
-    branches: [main]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: Unit / API / bundle tests
-        run: npm test
-      - name: Typecheck all workspaces
-        run: npm run typecheck --workspaces --if-present
-`) as CiWorkflow;
+    const workflow = baseWorkflow();
+    const steps = workflow.jobs!.test!.steps!;
+    const typecheckIndex = steps.findIndex((step) => step.run?.includes("typecheck"));
+    const [typecheckStep] = steps.splice(typecheckIndex, 1);
+    steps.push(typecheckStep!);
 
-    expect(() => assertCiWorkflowShape(wrongOrder)).toThrow();
+    expect(() => assertCiWorkflowShape(workflow)).toThrow();
   });
 
   it("fails when runs-on is missing entirely (no runner means the job can't run at all)", () => {
-    const noRunner = loadYaml(`
-on:
-  push:
-    branches: ["**"]
-  pull_request:
-    branches: [main]
-jobs:
-  test:
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: Typecheck all workspaces
-        run: npm run typecheck --workspaces --if-present
-      - name: Unit / API / bundle tests
-        run: npm test
-`) as CiWorkflow;
+    const workflow = baseWorkflow();
+    delete workflow.jobs!.test!["runs-on"];
 
-    expect(() => assertCiWorkflowShape(noRunner)).toThrow();
+    expect(() => assertCiWorkflowShape(workflow)).toThrow();
   });
 
   it("fails when the typecheck step is marked continue-on-error (gate is neutered)", () => {
-    const neutered = loadYaml(`
-on:
-  push:
-    branches: ["**"]
-  pull_request:
-    branches: [main]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: Typecheck all workspaces
-        continue-on-error: true
-        run: npm run typecheck --workspaces --if-present
-      - name: Unit / API / bundle tests
-        run: npm test
-`) as CiWorkflow;
+    const workflow = baseWorkflow();
+    const typecheckStep = workflow.jobs!.test!.steps!.find((step) => step.run?.includes("typecheck"));
+    typecheckStep!["continue-on-error"] = true;
 
-    expect(() => assertCiWorkflowShape(neutered)).toThrow();
+    expect(() => assertCiWorkflowShape(workflow)).toThrow();
   });
 
   it("fails when continue-on-error is an expression string rather than a literal `true` (still neuters the gate)", () => {
-    const expressionContinueOnError = loadYaml(`
-on:
-  push:
-    branches: ["**"]
-  pull_request:
-    branches: [main]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: Typecheck all workspaces
-        continue-on-error: \${{ always() }}
-        run: npm run typecheck --workspaces --if-present
-      - name: Unit / API / bundle tests
-        run: npm test
-`) as CiWorkflow;
+    const workflow = baseWorkflow();
+    const typecheckStep = workflow.jobs!.test!.steps!.find((step) => step.run?.includes("typecheck"));
+    typecheckStep!["continue-on-error"] = "${{ always() }}";
 
-    expect(() => assertCiWorkflowShape(expressionContinueOnError)).toThrow();
+    expect(() => assertCiWorkflowShape(workflow)).toThrow();
   });
 
   it("fails when the typecheck step's failure is swallowed (e.g. `|| true`)", () => {
-    const swallowed = loadYaml(`
-on:
-  push:
-    branches: ["**"]
-  pull_request:
-    branches: [main]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: Typecheck all workspaces
-        run: npm run typecheck --workspaces --if-present || true
-      - name: Unit / API / bundle tests
-        run: npm test
-`) as CiWorkflow;
+    const workflow = baseWorkflow();
+    const typecheckStep = workflow.jobs!.test!.steps!.find((step) => step.run?.includes("typecheck"));
+    typecheckStep!.run += " || true";
 
-    expect(() => assertCiWorkflowShape(swallowed)).toThrow();
+    expect(() => assertCiWorkflowShape(workflow)).toThrow();
   });
 
   it("fails when the pull_request trigger no longer targets main (gate stops running on PRs)", () => {
-    const noPrTrigger = loadYaml(`
-on:
-  push:
-    branches: ["**"]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: Typecheck all workspaces
-        run: npm run typecheck --workspaces --if-present
-      - name: Unit / API / bundle tests
-        run: npm test
-`) as CiWorkflow;
+    const workflow = baseWorkflow();
+    delete workflow.on!.pull_request;
 
-    expect(() => assertCiWorkflowShape(noPrTrigger)).toThrow();
+    expect(() => assertCiWorkflowShape(workflow)).toThrow();
   });
 
   it("fails when the test job is marked continue-on-error at the job level (every step's failure is swallowed)", () => {
-    const jobLevelContinueOnError = loadYaml(`
-on:
-  push:
-    branches: ["**"]
-  pull_request:
-    branches: [main]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: Typecheck all workspaces
-        run: npm run typecheck --workspaces --if-present
-      - name: Unit / API / bundle tests
-        run: npm test
-`) as CiWorkflow;
+    const workflow = baseWorkflow();
+    workflow.jobs!.test!["continue-on-error"] = true;
 
-    expect(() => assertCiWorkflowShape(jobLevelContinueOnError)).toThrow();
+    expect(() => assertCiWorkflowShape(workflow)).toThrow();
   });
 
   it("fails when the typecheck step has a skip-triggering `if` (step can be silently skipped)", () => {
-    const skippableStep = loadYaml(`
-on:
-  push:
-    branches: ["**"]
-  pull_request:
-    branches: [main]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: Typecheck all workspaces
-        if: false
-        run: npm run typecheck --workspaces --if-present
-      - name: Unit / API / bundle tests
-        run: npm test
-`) as CiWorkflow;
+    const workflow = baseWorkflow();
+    const typecheckStep = workflow.jobs!.test!.steps!.find((step) => step.run?.includes("typecheck"));
+    typecheckStep!.if = "false";
 
-    expect(() => assertCiWorkflowShape(skippableStep)).toThrow();
+    expect(() => assertCiWorkflowShape(workflow)).toThrow();
+  });
+});
+
+/**
+ * Phase 28 review finding: `--if-present` makes `npm run typecheck
+ * --workspaces --if-present` silently skip any workspace whose package.json
+ * has no `typecheck` script, rather than failing. `assertCiWorkflowShape`
+ * above can only see that the *command* is invoked — it has no visibility
+ * into whether every workspace still defines the script that command
+ * depends on. If a future workspace ever drops that script, the gate would
+ * pass vacuously for it: the exact silent-regression shape (Phase 23) this
+ * whole guard exists to prevent, just one level down. This closes that hole
+ * directly against the real package.json files.
+ */
+const WORKSPACES_WITH_TYPECHECK = [
+  { name: "@toastmasters/core", dir: join(REPO_ROOT, "packages", "core") },
+  { name: "@toastmasters/ui", dir: join(REPO_ROOT, "packages", "ui") },
+  { name: "@toastmasters/desktop", dir: join(REPO_ROOT, "apps", "desktop") },
+];
+
+function assertHasTypecheckScript(pkg: { scripts?: Record<string, string> }): void {
+  expect(pkg.scripts?.typecheck).toBeTruthy();
+}
+
+describe("every --if-present typecheck target still defines a typecheck script", () => {
+  it.each(WORKSPACES_WITH_TYPECHECK)("$name's package.json declares scripts.typecheck", ({ dir }) => {
+    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+    assertHasTypecheckScript(pkg);
+  });
+});
+
+describe("negative control: a workspace package.json missing scripts.typecheck is rejected", () => {
+  it("fails when scripts.typecheck is absent (the exact --if-present silent-skip hole)", () => {
+    const brokenPkg = { name: "@toastmasters/example", scripts: { build: "tsc" } };
+
+    expect(() => assertHasTypecheckScript(brokenPkg)).toThrow();
+  });
+
+  it("fails when the package.json has no scripts section at all", () => {
+    const brokenPkg: { scripts?: Record<string, string> } = {};
+
+    expect(() => assertHasTypecheckScript(brokenPkg)).toThrow();
   });
 });

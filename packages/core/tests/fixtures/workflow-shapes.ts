@@ -5,6 +5,22 @@
  * file and silently drift from the other.
  */
 
+import { readFileSync } from "fs";
+import { dirname, join, resolve } from "path";
+import { fileURLToPath } from "url";
+import { load as loadYaml } from "js-yaml";
+
+// This file lives at packages/core/tests/fixtures/, four directories below
+// the repo root.
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(__dirname, "../../../..");
+
+/** Read and YAML-parse a real workflow file, addressed relative to the repo root. */
+export function loadWorkflowFile<T>(...repoRelativePathSegments: string[]): T {
+  const raw = readFileSync(join(REPO_ROOT, ...repoRelativePathSegments), "utf8");
+  return loadYaml(raw) as T;
+}
+
 export interface WorkflowStep {
   id?: string;
   name?: string;
