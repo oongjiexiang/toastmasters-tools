@@ -677,10 +677,26 @@ describe("buildProgressReportCsv", () => {
   }
 
   it("emits exactly the documented header row, terminated by \\r\\n, for an empty member list", () => {
-    // No trailing garbage row: the whole output is just the header + CRLF.
+    // No trailing garbage row: the whole output is just the BOM + header + CRLF.
     expect(buildProgressReportCsv([])).toBe(
-      "Name,Email,Title,Pathway,Next Level,Projects Remaining,Status\r\n",
+      "﻿Name,Email,Title,Pathway,Next Level,Projects Remaining,Status\r\n",
     );
+  });
+
+  it("prefixes the output with a UTF-8 BOM so Excel on Windows decodes non-ASCII names correctly", () => {
+    const csv = buildProgressReportCsv([memberSummary({ name: "José García" })]);
+
+    expect(csv.charCodeAt(0)).toBe(0xfeff);
+    // The BOM belongs on the whole output exactly once, not per line.
+    expect(csv.split("\r\n")[1]).not.toContain("﻿");
+    expect(csv.split("\r\n")[1]).toContain("José García");
+  });
+
+  it("emits no rows for a member with an empty pathways array (callers are expected to filter these first)", () => {
+    const csv = buildProgressReportCsv([memberSummary({ pathways: [] })]);
+
+    // Same shape as the empty-member-list case: BOM + header + CRLF, nothing else.
+    expect(csv).toBe("﻿Name,Email,Title,Pathway,Next Level,Projects Remaining,Status\r\n");
   });
 
   it("emits one data row per pathway a member is enrolled in", () => {

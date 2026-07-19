@@ -349,9 +349,16 @@ function csvRow(fields: (string | number)[]): string {
 /**
  * Serializes the dashboard's derived member/pathway summary as a CSV report
  * (distinct from the raw TI membership-roster CSV). One row per
- * (member, pathway) — a member enrolled in two pathways yields two rows.
+ * (member, pathway) — a member enrolled in two pathways yields two rows. A
+ * member with an empty `pathways[]` contributes no rows; callers (currently
+ * only `listMembers`, which already drops all-UnpaidMember members before
+ * this ever sees them) are expected to filter out zero-pathway members
+ * themselves rather than relying on this function to represent them.
  * Hand-rolled (no `csv-stringify` — dropped in Phase 10) and RFC-4180-escaped;
- * uses `\r\n` line endings for Excel.
+ * uses `\r\n` line endings for Excel. Prefixed with a UTF-8 BOM so Excel on
+ * Windows (this app's primary platform) decodes non-ASCII names/pathways
+ * (e.g. "José") as UTF-8 instead of silently mojibaking them via the system
+ * ANSI code page.
  */
 export function buildProgressReportCsv(members: MemberSummary[]): string {
   const lines = [csvRow(PROGRESS_REPORT_HEADER)];
@@ -372,5 +379,5 @@ export function buildProgressReportCsv(members: MemberSummary[]): string {
     }
   }
 
-  return lines.join("\r\n") + "\r\n";
+  return "﻿" + lines.join("\r\n") + "\r\n";
 }
