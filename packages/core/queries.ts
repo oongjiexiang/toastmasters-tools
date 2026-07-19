@@ -329,11 +329,18 @@ const PROGRESS_REPORT_HEADER = [
  * (Excel/Sheets/LibreOffice) renders the cell as text instead of evaluating
  * it as a formula. `name`/`title`/`pathway`/`nextLevel` are free-text fields
  * members can set on their own TI/Basecamp profile, so this is untrusted
- * input from the report reader's point of view.
+ * input from the report reader's point of view. The trigger-character check
+ * runs against the value with leading plain/non-breaking spaces stripped
+ * (not the raw value) because Excel itself strips leading spaces before
+ * deciding whether a cell is a formula — testing the untrimmed string would
+ * let a leading-space payload like `" =cmd|'/c calc'!A1"` bypass the guard.
+ * Only space characters are stripped for this check, not tab/CR: those are
+ * themselves trigger characters, so stripping them first would erase the
+ * very character the check is looking for.
  */
 function csvField(value: string | number): string {
   let str = String(value);
-  if (/^[=+\-@\t\r]/.test(str)) {
+  if (/^[=+\-@\t\r]/.test(str.replace(/^[  ]+/, ""))) {
     str = `'${str}`;
   }
   if (/[",\r\n]/.test(str)) {

@@ -825,4 +825,17 @@ describe("buildProgressReportCsv", () => {
       "Smith-Jones,alice@example.com,PM1,Presentation Mastery,Level 2,2,In Progress",
     );
   });
+
+  it("neutralizes a formula-trigger character hidden behind leading whitespace (Excel strips it before evaluating)", () => {
+    // Excel strips leading whitespace before deciding whether a cell is a
+    // formula, so a naive check against str[0] alone is bypassable — the
+    // guard must test the value with leading whitespace stripped, while
+    // still prefixing the original, untrimmed value with the apostrophe.
+    const csv = buildProgressReportCsv([memberSummary({ name: " =cmd|'/c calc'!A1" })]);
+    const dataRow = csv.split("\r\n")[1];
+
+    expect(dataRow).toBe(
+      "' =cmd|'/c calc'!A1,alice@example.com,PM1,Presentation Mastery,Level 2,2,In Progress",
+    );
+  });
 });
