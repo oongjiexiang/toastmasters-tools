@@ -2062,99 +2062,113 @@ rationale for a change that doesn't alter the shipped binary._
 > typecheck gate) down to **Phase 28**. Version targets re-sequenced to stay monotonic: this
 > phase takes the patch bump `1.11.2` that Phase 28 was going to use; Phase 28 moves to `1.11.3`.
 
-## Phase 27 — Done (Fix: Basecamp login window hangs on a blank page, no cookie captured, patch → 1.11.2)
+## Phase 27 — Done (Fix: in-app login crashes on close; keep the Basecamp SPA URL that mints an authenticated session, patch → 1.11.2)
 
 _Reported by the VPE: logging in via **File → Log in to Toastmasters…** succeeds against the
-first (TI) window, but the second (Basecamp) window "did not respond, and the page was blank,"
-hangs until force-closed, and afterwards `BASECAMP_SESSIONID` is never captured — so "Refresh
-Progress" has nothing to work with. Reproduced and root-caused directly (see Finding below), not
-guessed. **Bug fix to an existing shipped flow (Phase 12/16), no new feature** — patch bump →
-`1.11.2`._
+first (TI) window, then the second (Basecamp) window "went blank and crashed" with a main-process
+error dialog. Root-caused to a reverted over-engineered "resilience" pass, not the login flow
+itself (see Findings). **Bug fix to an existing shipped flow (Phase 12/16), no new feature** —
+patch bump → `1.11.2`._
 
-> **Finding (root cause, confirmed by fetching the actual URL):** `BASECAMP_LOGIN_URL`
-> (`apps/desktop/src/main/auth.ts:36`, `https://app.basecamp.toastmasters.org/dashboard`) returns
-> **HTTP 200 with a completely empty body** — a pure client-rendered SPA shell, not a login form
-> and not server-rendered at all. On a fresh, unauthenticated `persist:toastmasters` partition,
-> that SPA's boot sequence fires a background `login_refresh` XHR to `basecamp.toastmasters.org`
-> which is **blocked by CORS** (no `Access-Control-Allow-Origin` header for that
-> cross-subdomain call with no session cookie yet to authorize it — visible in the reported
-> DevTools console as `Access to XMLHttpRequest … has been blocked by CORS policy`). Basecamp's
-> own client-side recovery path for that failure — presumably a redirect into its TI-SSO login —
-> **itself throws an uncaught exception** (`Error: getLocale called before configuring i18n. Call
-> configure with messages first.`, thrown from its own `ErrorPage` component) before rendering
-> anything. This is a genuine bug in **Basecamp's own bundle**, confirmed third-party (not our
-> code) — we cannot patch it directly, and the page is left permanently, unrecoverably blank.
->
-> **Our contribution to the pain (the part we control and must fix):** `openLoginWindow`
-> (`apps/desktop/src/main/auth.ts:268`) sets `autoHideMenuBar: true` and, correctly for security,
-> no preload/script injection into this third-party window (`sandbox: true`,
-> `contextIsolation: true`, `nodeIntegration: false` — do not weaken these). The combination means
-> there is **no reload/retry affordance visible to the user at all**, and `runLoginFlow` has no
-> way to detect "this window is showing a permanently broken page" — it just waits for
-> `watchForNavigationCapture` to resolve, which it never will. The user's only option is to
-> force-close the window, at which point `harvestCookies` finds nothing and `applyCookies` writes
-> nothing — exactly the reported symptom (hangs until closed; `BASECAMP_SESSIONID` never set).
-> The fix is **resilience in our window**, not a patch to Basecamp's bundle we don't own.
+> **Finding #1 — the actual crash (the real bug):** an earlier pass tried to make `openLoginWindow`
+> *resilient to* a blank Basecamp page — a `webContents.on("console-message")` failure-signature
+> listener, an auto-reload with a retry cap, an `F5`/`Ctrl+R` `before-input-event` binding, and a
+> `gaveUp` result surfaced to the renderer. It was built and packaged as **1.11.2** and the VPE
+> installed it. It **crashed on the happy path**: the `win.once("closed", …)` cleanup handler called
+> `win.webContents.off(…)`, but `win.webContents` is a native getter that throws `TypeError: Object
+> has been destroyed` the instant the window is closed — so every *successful* login (which closes
+> the window) died with an uncaught main-process exception (`A JavaScript error occurred in the main
+> process … Object has been destroyed`, at `BrowserWindow.<anonymous>` in the packaged
+> `out/main/index.js`, confirmed by extracting the installed `app.asar`). This phase deliberately
+> does **not** reintroduce any of that machinery — no `console-message` listener, no auto-reload, no
+> input-event rebinding, no `gaveUp` plumbing. The committed 1.11.1 flow (simple two-window
+> sequence, listeners removed via the saved `webContents` *parameter* reference — never
+> `win.webContents` — so nothing touches the destroyed getter) is already crash-free; the fix is to
+> keep it that way and never ship the resilience subsystem.
 
-- [x] **(item 1) Detect the known failure signature without any script injection.** Electron
-      surfaces third-party console output to the main process natively — no preload/content-script
-      needed, so the hardened `webPreferences` are untouched. In `openLoginWindow`, listen to the
-      Basecamp window's `webContents.on("console-message")` for an error-level message during the
-      login attempt (matching the observed signature — an uncaught exception logged from the
-      renderer, e.g. containing `"getLocale called before configuring i18n"` or a CORS-blocked
-      XHR to `login_refresh`). Treat this as a distinct "third-party page crashed" signal, separate
-      from a normal in-progress login.
-- [x] **(item 2) Auto-reload once, then cap retries.** On detecting item 1's signature with no
-      successful navigation-away-from-login within a short grace window (e.g. 5s), call
-      `win.webContents.reload()` automatically — a fresh reload frequently clears a one-off
-      CORS/session race on the client's boot sequence. Cap at a small fixed number of automatic
-      reloads (e.g. 2) so a genuine Basecamp outage doesn't reload forever; track the attempt count
-      per `openLoginWindow` call, not globally.
-- [x] **(item 3) A manual escape hatch that doesn't touch the hardened webPreferences.** Today
-      `autoHideMenuBar: true` removes the *only* native recovery path (a menu-driven reload) on top
-      of removing script injection. Add a `before-input-event` listener on the window (an
-      Electron-level input listener, not a script injected into the third-party page — the
-      security posture is unchanged) that binds `F5`/`Ctrl+R` to `webContents.reload()`, so a user
-      who notices a stuck blank page has a manual way to retry without force-closing the whole
-      login flow.
-- [x] **(item 4) Give up cleanly if retries are exhausted.** If item 2's retry cap is hit with the
-      needed cookie still not captured, close the window (as today) but have `runLoginFlow`/the
-      `AUTH_LOGIN` IPC response distinguish this case so the renderer can show a clear message
-      instead of a silent "not logged in" — reuse the existing toast pattern:
-      "Basecamp didn't finish signing in. Try **Log in** again, or use **Open Credentials File…**
-      to paste the cookie manually." (the Phase 11/12 manual fallback already exists — this just
-      surfaces it at the moment it's actually needed).
-- [x] **Tests.** Unit-test the retry/backoff logic with a mocked `webContents` (fires the
-      `console-message` signature, asserts a bounded number of `reload()` calls, asserts the
-      distinct "gave up" status once the cap is hit) — mirrors the existing pure-helper testing
-      style already used for `watchForCapture`/`watchForNavigationCapture` in this file.
-- [x] **Docs.** Update `apps/desktop/USER_GUIDE.md`'s login/troubleshooting section to mention
-      that a stuck Basecamp login window now retries automatically, and that "Open Credentials
-      File…" is the fallback if it still doesn't complete.
+> **Finding #2 — why `BASECAMP_LOGIN_URL` must stay the app-SPA host (a mid-phase wrong turn,
+> corrected):** a first cut of this phase repointed `BASECAMP_LOGIN_URL` from
+> `https://app.basecamp.toastmasters.org/dashboard` to the bare API host
+> `https://basecamp.toastmasters.org/`, reasoning it should match the host `harvestCookies` reads
+> the `sessionid` from (`BASECAMP_COOKIE_URL`). **That regressed refresh to HTTP 401/403** and was
+> caught in the VPE's manual test: both windows showed and the second closed *gracefully*, but every
+> scrape then failed with 401/403. Cause: the scraper authenticates against
+> `basecamp.toastmasters.org/api/bcm/progress/` (`packages/core/config.ts:8`) with an
+> **authenticated** `sessionid`, and that authenticated session is minted only by the Base Camp app
+> SPA (`app.basecamp.toastmasters.org`) completing its TI-SSO handshake (the `login_refresh` XHR)
+> once the TI window has logged the shared partition in. The bare host merely 302-redirects an
+> unauthenticated visit to `toastmasters.org` and leaves an **anonymous** `sessionid` — which the
+> `watchForNavigationCapture` gate still captures (login "succeeds", window closes gracefully),
+> producing a cookie that fails every subsequent API call. So the **login host (the SPA that mints
+> the session) and the harvest/API host are deliberately different**; `BASECAMP_LOGIN_URL` stays
+> `https://app.basecamp.toastmasters.org/dashboard`, exactly as it was through 1.8.0 (which the VPE
+> confirmed working). The blank-shell/i18n crash that SPA can throw only occurs on a *fresh,
+> unauthenticated* partition; because `runLoginFlow` opens this window **second** — after TI login —
+> it boots authenticated and renders, which is why 1.8.0 never hit it in normal use.
+
+- [x] **(item 1) Do not ship the resilience machinery.** Keep the committed flow: no
+      `console-message` listener, no auto-reload/retry cap, no `before-input-event` F5/Ctrl+R
+      binding, no `gaveUp` result. Confirm the `win.once("closed", …)` handler never dereferences
+      `win.webContents` (the `Object has been destroyed` crash surface). `webPreferences` unchanged
+      (`sandbox: true`, `contextIsolation: true`, `nodeIntegration: false`, no preload).
+- [x] **(item 2) Keep `BASECAMP_LOGIN_URL = https://app.basecamp.toastmasters.org/dashboard`.** This
+      is the SPA host that drives the authenticated SSO handshake; the bare API host yields only an
+      anonymous session (→ 401/403 on refresh). Document the two-host split in the constant's doc
+      comment so a future reader doesn't "helpfully" collapse them onto the harvest host again.
+- [x] **(item 3) Leave the two-window SSO-fallback flow intact.** `runLoginFlow` already opens the
+      Basecamp window only when TI SSO did **not** already capture the `sessionid` — the 1.8.0-era
+      behaviour the VPE confirmed working. Do not add delays, retries, or extra windows.
+- [x] **Tests.** Guard the corrected contract cheaply and durably: unit tests that
+      `new URL(BASECAMP_LOGIN_URL).host === "app.basecamp.toastmasters.org"` (the session-minting SPA
+      host) and that it is **not** the same host as `BASECAMP_COOKIE_URL` (guards against re-collapsing
+      onto the API host — the exact 401/403 regression above). Existing pure-helper tests for
+      `watchForNavigationCapture`/`harvestCookies` are unaffected. No `webContents` mock or reload
+      assertions — there is no reload logic to test.
+- [x] **Docs.** `apps/desktop/USER_GUIDE.md`'s login section already covers the optional second
+      Basecamp window and the "Open Credentials File…" manual fallback; keep that wording (no
+      "real Base Camp site" claim — the second window is the app SPA, not a rewrite of the flow).
 - [x] **Version bump:** patch-bump every workspace `package.json` `version` to `1.11.2`; after
       validation, tag `v1.11.2` (or let the merge-to-`main` automation cut it).
 
 **Validation:**
-1. [x] `grep -n "console-message" apps/desktop/src/main/auth.ts` — the failure-signature listener
-   is present on the Basecamp login window.
-2. [x] A unit test (mocked `webContents`) proves: the signature triggers at most the capped number
-   of `reload()` calls, not unbounded; a successful navigation-away-from-login before the grace
-   window elapses does **not** trigger a spurious reload.
-3. [x] `grep -nE "before-input-event|F5|Ctrl\+R" apps/desktop/src/main/auth.ts` — manual reload
-   binding present; `sandbox: true`, `contextIsolation: true`, `nodeIntegration: false`, and no
-   preload are unchanged in the same window's `webPreferences` (security posture not weakened).
-4. [x] A test proves that exhausting the retry cap produces a distinguishable "gave up" result
-   from `runLoginFlow`/`AUTH_LOGIN`, and that the renderer surfaces the "Open Credentials File…"
-   fallback message on that result (not a silent not-logged-in state).
-5. [x] `npm test` green (floor: the Phase 26 count, 447 — 272 core + 175 desktop) plus the new
-   cases above; `npm run typecheck --workspaces --if-present`, `npm run lint`, and
+1. [x] `grep -n "BASECAMP_LOGIN_URL" apps/desktop/src/main/auth.ts` — reads
+   `https://app.basecamp.toastmasters.org/dashboard` (the SPA host), **not** the bare API host.
+2. [x] A unit test proves `new URL(BASECAMP_LOGIN_URL).host` is `app.basecamp.toastmasters.org` and
+   differs from `new URL(BASECAMP_COOKIE_URL).host` — the login/session-minting host and the
+   harvest/API host stay distinct (guards the 401/403 anonymous-session regression).
+3. [x] `grep -nE "console-message|before-input-event|reload\(\)|gaveUp" apps/desktop/src/main/auth.ts`
+   — **no matches**: the reverted auto-reload machinery is confirmed absent, and the `win.once("closed")`
+   handler does not touch `win.webContents` (no `Object has been destroyed` crash surface).
+4. [x] `npm test` green (floor: the Phase 26 count, 447 — 272 core + 175 desktop) plus the new
+   host-contract cases; `npm run typecheck --workspaces --if-present`, `npm run lint`, and
    `npm run format:check` all clean.
-6. [x] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
+5. [x] `grep -h '"version"' package.json packages/*/package.json apps/*/package.json` — all read
    `1.11.2`.
-7. [ ] **Manual (user):** reproduce the original bug (or wait for it to recur), confirm the window
-   now auto-reloads instead of hanging silently; if it still doesn't complete, confirm the
-   renderer shows the new "didn't finish signing in" message with a working "Open Credentials
-   File…" path; confirm the existing TI-only and TI+SSO-covers-Basecamp login paths are unaffected.
+6. [x] **Manual (VPE):** ran the rebuilt `.exe`, logged in via **File → Log in to Toastmasters…**,
+   confirmed a successful login no longer crashes with the main-process error dialog on close, AND
+   that **Refresh Progress then succeeds** (no 401/403 — `BASECAMP_SESSIONID` is an authenticated
+   session).
+
+> **Note (shipped, verified 2026-07-19):** landed as the two-commit branch
+> `fix/basecamp-login-hang-and-typography-spec` → PR #18. Root-caused directly, not guessed: the
+> crashing `1.11.2` build was disassembled by extracting its installed `app.asar`, which pinned the
+> throw to `win.webContents.off(…)` inside the `win.once("closed", …)` handler (`win.webContents` is
+> a native getter that throws `Object has been destroyed` once the window is closed) — a reverted
+> over-engineered auto-reload pass, absent from the committed source. The mid-phase 401/403 was the
+> VPE's own manual test catching a wrong turn: repointing `BASECAMP_LOGIN_URL` at the bare API host
+> `basecamp.toastmasters.org/` captured only an anonymous `sessionid` (the host 302-redirects an
+> unauthenticated visit and the nav-capture gate grabbed the anonymous cookie), so login "succeeded"
+> but every scrape 401/403'd; reverted to the `app.basecamp.toastmasters.org/dashboard` SPA host
+> (the 1.8.0 URL that mints an authenticated session via its TI-SSO `login_refresh` handshake). The
+> shipped `1.11.2` `app.asar` was re-extracted and verified: correct `BASECAMP_LOGIN_URL`, and no
+> `console-message`/`before-input-event`/`gaveUp`/`win.webContents.off` crash surface. `npm test`
+> reproduced **177/177 desktop** (up 2 from the Phase 26 floor of 175 — the new host-contract
+> tests), `typecheck`/`lint` clean; all four workspace `package.json` read `1.11.2`.
+>
+> **Toolchain note (not a code change, surfaced during the build):** the packaged `electron-builder`
+> step needs `require(esm)`, which arrives in Node ≥ 20.19; the dev box was on 20.10.0 and had to be
+> bumped (CI's `node-version: "20"` already resolves to a new-enough 20.x, so CI was unaffected).
+> Local `node_modules` was also stale (Electron 33 vs the pinned 43) and was re-synced.
 
 ---
 

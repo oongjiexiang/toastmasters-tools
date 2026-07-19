@@ -38,7 +38,9 @@ asks for. This is the real Toastmasters site; the app never sees your password.
 
 After you finish, a second window for **Basecamp** may open. If it does, sign in
 there the same way. This second window only appears when the first login did not
-already cover Basecamp — often it does, and no second window opens.
+already cover Basecamp — often it does, and no second window opens. If it still
+doesn't finish, use the manual fallback in
+[If login doesn't work](#if-login-doesnt-work-enter-cookies-manually-fallback).
 
 ### 4. Done
 

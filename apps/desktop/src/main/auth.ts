@@ -33,10 +33,36 @@ export const LOGIN_PARTITION = "persist:toastmasters";
 
 /** The genuine HTTPS login pages we send the user to. */
 export const TI_LOGIN_URL = "https://www.toastmasters.org/login";
+/**
+ * Base Camp login entry point — deliberately the app SPA host
+ * (`app.basecamp.toastmasters.org`), NOT the bare API host
+ * {@link BASECAMP_COOKIE_URL} we harvest from. This is load-bearing:
+ *
+ *   • The scraper authenticates against `basecamp.toastmasters.org/api/...` with
+ *     an *authenticated* `sessionid` cookie. That authenticated session is minted
+ *     by the Base Camp app (`app.basecamp.toastmasters.org`) completing its TI-SSO
+ *     handshake (a `login_refresh` XHR) once the TI window has logged the shared
+ *     partition in. Opening this host is what drives that handshake.
+ *   • Do NOT "simplify" this to `https://basecamp.toastmasters.org/`: that bare
+ *     host merely 302-redirects an unauthenticated visit to `toastmasters.org` and
+ *     leaves only an *anonymous* `sessionid` — which the window's navigation-capture
+ *     gate happily captures, so login "succeeds" but every scrape then fails
+ *     `HTTP 401/403`. (Regressed exactly this way in Phase 27's first attempt.)
+ *
+ * The blank-shell/i18n crash this SPA throws only happens on a *fresh,
+ * unauthenticated* partition; `runLoginFlow` opens this window second — after TI
+ * login — so it boots authenticated and renders, exactly as it did through 1.8.0.
+ * See Phase 27 in specs/roadmap.md.
+ */
 export const BASECAMP_LOGIN_URL = "https://app.basecamp.toastmasters.org/dashboard";
 
-/** The origins we read cookies back from after the user has authenticated. */
-const BASECAMP_COOKIE_URL = "https://basecamp.toastmasters.org/";
+/**
+ * The origins we read cookies back from after the user has authenticated.
+ * `BASECAMP_COOKIE_URL` is exported so a unit test can assert it stays a *different*
+ * host from {@link BASECAMP_LOGIN_URL} (the API host vs the SPA host — collapsing
+ * them is the Phase 27 anonymous-session regression).
+ */
+export const BASECAMP_COOKIE_URL = "https://basecamp.toastmasters.org/";
 const TI_COOKIE_URL = "https://www.toastmasters.org/";
 
 /** The subset of Electron's `Session["cookies"]` this module depends on. */
